@@ -1,0 +1,218 @@
+from pydantic import BaseModel, Field
+from typing import Optional, List
+from datetime import datetime
+
+# ---- Project ----
+class MilestoneCreate(BaseModel):
+    name: str
+    due_date: datetime
+
+class MilestoneOut(BaseModel):
+    id: int
+    project_id: int
+    name: str
+    due_date: datetime
+    status: str
+    class Config: from_attributes = True
+
+class TaskCapabilityReqCreate(BaseModel):
+    tag_name: str
+    tag_value: str
+
+class TaskCapabilityReqOut(BaseModel):
+    id: int
+    tag_name: str
+    tag_value: str
+    class Config: from_attributes = True
+
+class TaskCreate(BaseModel):
+    name: str
+    task_type: str = "instrument"
+    requires_instrument: bool = True
+    requires_human: bool = True
+    est_duration_hours: Optional[float] = None
+    switchover_hours: float = 0
+    allow_split: bool = False
+    allow_transfer: bool = False
+    milestone_id: Optional[int] = None
+    priority_weight: float = 1.0
+    predecessor_ids: List[int] = []
+    capability_requirements: List[TaskCapabilityReqCreate] = []
+
+class TaskOut(BaseModel):
+    id: int
+    project_id: int
+    name: str
+    task_type: str
+    requires_instrument: bool
+    requires_human: bool
+    est_duration_hours: Optional[float]
+    switchover_hours: float
+    status: str
+    earliest_start: Optional[datetime]
+    latest_due: Optional[datetime]
+    priority_weight: float
+    capability_requirements: List[TaskCapabilityReqOut] = []
+    predecessor_ids: List[int] = []
+    class Config: from_attributes = True
+
+class ProjectCreate(BaseModel):
+    name: str
+    code: str
+    client_name: Optional[str] = None
+    priority: int = 0
+    sla_level: Optional[str] = None
+    profit_weight: float = 1.0
+    milestones: List[MilestoneCreate] = []
+
+class ProjectOut(BaseModel):
+    id: int
+    name: str
+    code: str
+    client_name: Optional[str]
+    priority: int
+    sla_level: Optional[str]
+    status: str
+    profit_weight: float
+    milestones: List[MilestoneOut] = []
+    tasks: List[TaskOut] = []
+    class Config: from_attributes = True
+
+# ---- Instrument ----
+class CapabilityCreate(BaseModel):
+    tag_name: str
+    tag_value: str
+
+class CapabilityOut(BaseModel):
+    id: int
+    tag_name: str
+    tag_value: str
+    class Config: from_attributes = True
+
+class MaintenanceCreate(BaseModel):
+    start_time: datetime
+    end_time: datetime
+    mw_type: str
+    description: Optional[str] = None
+
+class MaintenanceOut(BaseModel):
+    id: int
+    instrument_id: int
+    start_time: datetime
+    end_time: datetime
+    mw_type: str
+    description: Optional[str]
+    class Config: from_attributes = True
+
+class FaultCreate(BaseModel):
+    description: str
+
+class FaultOut(BaseModel):
+    id: int
+    instrument_id: int
+    reported_at: datetime
+    resolved_at: Optional[datetime]
+    description: str
+    status: str
+    class Config: from_attributes = True
+
+class InstrumentCreate(BaseModel):
+    name: str
+    brand: Optional[str] = None
+    model: Optional[str] = None
+    location: Optional[str] = None
+    buffer_rate: float = 0.85
+    switchover_base_hours: float = 0.5
+    capabilities: List[CapabilityCreate] = []
+
+class InstrumentOut(BaseModel):
+    id: int
+    name: str
+    brand: Optional[str]
+    model: Optional[str]
+    location: Optional[str]
+    status: str
+    buffer_rate: float
+    switchover_base_hours: float
+    capabilities: List[CapabilityOut] = []
+    class Config: from_attributes = True
+
+# ---- TimeSlot ----
+class TimeSlotOut(BaseModel):
+    id: int
+    task_id: int
+    instrument_id: int
+    plan_start: datetime
+    plan_end: datetime
+    actual_start: Optional[datetime]
+    actual_end: Optional[datetime]
+    tier: str
+    status: str
+    task_name: Optional[str] = None
+    project_name: Optional[str] = None
+    instrument_name: Optional[str] = None
+    class Config: from_attributes = True
+
+class TimeSlotUpdate(BaseModel):
+    plan_start: Optional[datetime] = None
+    plan_end: Optional[datetime] = None
+    instrument_id: Optional[int] = None
+    tier: Optional[str] = None
+
+class TaskStatusUpdate(BaseModel):
+    status: str
+    actual_time: Optional[datetime] = None
+
+# ---- Schedule ----
+class ScheduleGenerateRequest(BaseModel):
+    project_ids: Optional[List[int]] = None
+
+class InsertOrderRequest(BaseModel):
+    project_id: int
+    task_ids: List[int]
+    priority_override: Optional[int] = None
+
+class InsertOrderCost(BaseModel):
+    displaced_tasks: List[dict] = []
+    affected_projects: List[dict] = []
+    milestone_violations: List[dict] = []
+    total_delay_hours: float = 0
+
+class RescheduleRequest(BaseModel):
+    trigger_type: str  # deviation / fault / insert
+    affected_task_id: Optional[int] = None
+    affected_instrument_id: Optional[int] = None
+    strategy: str = "local"  # local / project / global
+    description: Optional[str] = None
+
+# ---- Stats ----
+class UtilizationStats(BaseModel):
+    instrument_id: int
+    instrument_name: str
+    total_available_hours: float
+    scheduled_hours: float
+    actual_run_hours: float
+    utilization_rate: float
+    buffer_consumed_rate: float
+
+class DashboardData(BaseModel):
+    total_instruments: int
+    active_instruments: int
+    total_projects: int
+    active_projects: int
+    avg_utilization: float
+    delayed_tasks: int
+    buffer_warnings: List[str] = []
+    milestone_risks: List[dict] = []
+
+# ---- Notification ----
+class NotificationOut(BaseModel):
+    id: int
+    user_name: str
+    n_type: str
+    title: Optional[str]
+    content: Optional[str]
+    is_read: bool
+    is_confirmed: Optional[bool]
+    created_at: datetime
+    class Config: from_attributes = True
