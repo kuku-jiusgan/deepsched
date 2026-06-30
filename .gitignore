@@ -20,3 +20,8 @@ Thumbs.db
 
 # Impeccable
 .impeccable/live/
+
+server_error.log
+server_output.log
+server/debug.log
+server/*.db

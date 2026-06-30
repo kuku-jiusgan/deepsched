@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Select, Button, Space, Tag, Modal, Form, Input, InputNumber, message, Spin, Tabs, Tooltip } from 'antd';
+import { Card, Select, Button, Space, Tag, Modal, Form, Input, InputNumber, message, Spin, Tooltip } from 'antd';
 import { PlusOutlined, PlayCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { getInstruments, getTimeslots, createInstrument, startTask, completeTask, interruptTask } from '../services/api';
@@ -45,7 +45,6 @@ const InstrumentGantt: React.FC = () => {
     const e = cursorDate.endOf(viewMode === 'day' ? 'day' : viewMode === 'week' ? 'week' : 'month');
     return { start: s.toISOString(), end: e.toISOString() };
   };
-
   const getColumns = (): { label: string; key: string; width: number; isWeekend?: boolean }[] => {
     if (viewMode === 'day') {
       const cols: { label: string; key: string; width: number }[] = [];
@@ -111,8 +110,8 @@ const InstrumentGantt: React.FC = () => {
     return cursorDate.format('YYYY年MM月');
   };
 
-  const handleAddInstrument = async (values: any) => {
-    await createInstrument(values);
+  const handleAddInstrument = async (values: Record<string, unknown>) => {
+    await createInstrument(values as Partial<Instrument>);
     message.success('仪器添加成功');
     setAddModalOpen(false);
     addForm.resetFields();
@@ -121,136 +120,119 @@ const InstrumentGantt: React.FC = () => {
 
   const handleTaskAction = async (slotId: number, action: string) => {
     try {
-      if (action === 'start') await startTask(slotId);
-      else if (action === 'complete') await completeTask(slotId);
-      else if (action === 'interrupt') await interruptTask(slotId);
-      message.success('操作成功');
+      if (action === 'start') { await startTask(slotId); message.success('任务已开始'); }
+      else if (action === 'complete') { await completeTask(slotId); message.success('任务已完成'); }
+      else if (action === 'interrupt') { await interruptTask(slotId); message.success('任务已中断'); }
       setDetailSlot(null);
       fetchData();
-    } catch { message.error('操作失败'); }
+    } catch {
+      message.error('操作失败');
+    }
   };
 
   const columns = getColumns();
-  const filteredInsts = instruments.filter(i => selectedInst.length === 0 || selectedInst.includes(i.id));
-  const totalWidth = columns.reduce((s, c) => s + c.width, 0);
+  const totalW = columns.reduce((s, c) => s + c.width, 0);
+
+  const displayInstruments = selectedInst.length > 0
+    ? instruments.filter(i => selectedInst.includes(i.id))
+    : instruments;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 160px)' }}>
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#1e293b', letterSpacing: '-0.3px' }}>仪器甘特图</h2>
-        <p style={{ margin: '4px 0 0', fontSize: 13, color: '#94a3b8' }}>日/周/月视图切换，拖拽缩放查看排程</p>
+    <div>
+      <div className="page-header">
+        <h2>{'仪器甘特图'}</h2>
+        <p>{'可视化仪器占用与任务时间线'}</p>
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-        <Space wrap>
-          <Select mode="multiple" placeholder="筛选仪器" style={{ minWidth: 200 }}
-            value={selectedInst} onChange={setSelectedInst}
-            options={instruments.map(i => ({ label: i.name, value: i.id }))} allowClear />
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddModalOpen(true)}
-            style={{ borderRadius: 8, fontWeight: 500 }}>添加仪器</Button>
-          <Button icon={<ReloadOutlined />} onClick={fetchData} style={{ borderRadius: 8 }}>刷新</Button>
-        </Space>
+      <div className="action-bar">
+        <Select mode="multiple" placeholder={'全部仪器'} style={{ minWidth: 200 }}
+          value={selectedInst} onChange={setSelectedInst}
+          options={instruments.map(i => ({ label: i.name, value: i.id }))}
+          allowClear />
+        <Select value={viewMode} onChange={setViewMode} style={{ width: 100 }}
+          options={[
+            { label: '日视图', value: 'day' },
+            { label: '周视图', value: 'week' },
+            { label: '月视图', value: 'month' },
+          ]} />
         <Space>
-          {Object.entries(tierLabels).map(([k, v]) => (
-            <Tag key={k} color={tierColors[k]} style={{
-              color: k === 'forecast' ? '#475569' : '#fff',
-              borderRadius: 5, border: 'none', fontWeight: 500,
-            }}>{v}</Tag>
-          ))}
+          <Button onClick={() => navigate(-1)}>{'<'}</Button>
+          <span style={{ fontWeight: 600, minWidth: 180, textAlign: 'center', display: 'inline-block' }}>{titleStr()}</span>
+          <Button onClick={() => navigate(1)}>{'>'}</Button>
         </Space>
+        <Button icon={<ReloadOutlined />} onClick={fetchData}>{'刷新'}</Button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddModalOpen(true)}>{'添加仪器'}</Button>
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 0 }}>
-        <Tabs activeKey={viewMode} onChange={(k) => setViewMode(k as ViewMode)}
-          items={[
-            { key: 'day', label: '日视图' },
-            { key: 'week', label: '周视图' },
-            { key: 'month', label: '月视图' },
-          ]}
-          style={{ marginBottom: 0 }}
-        />
-        <Space>
-          <Button size="small" type="text" onClick={() => navigate(-1)} style={{ fontSize: 16 }}>{'<'}</Button>
-          <span style={{ fontWeight: 600, fontSize: 14, color: '#334155', minWidth: 180, textAlign: 'center' }}>{titleStr()}</span>
-          <Button size="small" type="text" onClick={() => navigate(1)} style={{ fontSize: 16 }}>{'>'}</Button>
-          <Button size="small" onClick={() => setCursorDate(dayjs())} style={{ borderRadius: 6 }}>今天</Button>
-        </Space>
-      </div>
-
-      {loading ? (
-        <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />
-      ) : (
-        <Card styles={{ body: { padding: 0, flex: 1, display: 'flex', flexDirection: 'column' } }}
-          style={{ flex: 1, display: 'flex', overflow: 'hidden', borderRadius: 10, border: '1px solid #f1f5f9', boxShadow: 'none' }}>
-          <div style={{ flex: 1, overflow: 'auto' }}>
-            <div style={{ minWidth: SIDEBAR + totalWidth + 40 }}>
-              <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', height: HEADER_H, flexShrink: 0 }}>
-                <div style={{ width: SIDEBAR, flexShrink: 0, display: 'flex', alignItems: 'center', padding: '0 14px', fontWeight: 600, fontSize: 12, color: '#64748b', borderRight: '1px solid #e2e8f0', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  仪器
-                </div>
+      {loading ? <Spin size="large" style={{ display: 'block', margin: '80px auto' }} /> : (
+        <Card bodyStyle={{ padding: 0 }}>
+          <div style={{ overflowX: 'auto' }}>
+            <div style={{ display: 'flex', borderBottom: '1px solid #f1f5f9', height: HEADER_H }}>
+              <div style={{ width: SIDEBAR, minWidth: SIDEBAR, padding: '8px 16px', fontWeight: 600, fontSize: 13, color: '#475569', borderRight: '1px solid #f1f5f9' }}>
+                {'仪器'}
+              </div>
+              <div style={{ display: 'flex' }}>
                 {columns.map(col => (
                   <div key={col.key} style={{
-                    width: col.width, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 11, color: '#94a3b8', background: col.isWeekend ? '#f8fafc' : 'transparent',
-                    borderRight: '1px solid #f1f5f9', whiteSpace: 'pre-line', textAlign: 'center', lineHeight: '14px', fontWeight: 500,
+                    width: col.width, minWidth: col.width, padding: '8px 4px',
+                    textAlign: 'center', fontSize: 12, lineHeight: '16px',
+                    color: col.isWeekend ? '#94a3b8' : '#475569',
+                    background: col.isWeekend ? '#fafbfc' : '#fff',
+                    borderRight: '1px solid #f1f5f9', whiteSpace: 'pre-line',
+                    fontWeight: 500,
                   }}>
                     {col.label}
                   </div>
                 ))}
               </div>
+            </div>
 
-              {filteredInsts.length === 0 ? (
-                <div style={{ padding: 60, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>暂无仪器，请先添加仪器</div>
+            <div>
+              {displayInstruments.length === 0 ? (
+                <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>{'暂无仪器数据'}</div>
               ) : (
-                filteredInsts.map((inst, idx) => {
+                displayInstruments.map(inst => {
                   const instSlots = timeslots.filter(s => s.instrument_id === inst.id);
-                  const isLast = idx === filteredInsts.length - 1;
                   return (
                     <div key={inst.id} style={{
                       display: 'flex', borderBottom: '1px solid #f1f5f9',
-                      height: ROW_H, background: inst.status !== 'active' ? '#fef2f2' : (idx % 2 === 0 ? '#fff' : '#fafbfc'),
-                      flex: isLast ? 1 : '0 0 auto'
+                      height: ROW_H, position: 'relative',
                     }}>
                       <div style={{
-                        width: SIDEBAR, flexShrink: 0, padding: '8px 14px', borderRight: '1px solid #e2e8f0',
-                        background: '#f8fafc', display: 'flex', flexDirection: 'column', justifyContent: 'center'
+                        width: SIDEBAR, minWidth: SIDEBAR, padding: '12px 16px',
+                        borderRight: '1px solid #f1f5f9', display: 'flex',
+                        flexDirection: 'column', justifyContent: 'center',
                       }}>
-                        <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', lineHeight: '18px' }}>{inst.name}</div>
-                        <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: '16px' }}>{inst.brand} {inst.model}</div>
-                        <Tag color={inst.status === 'active' ? '#16a34a' : '#dc2626'} style={{ fontSize: 10, marginTop: 2, lineHeight: '16px', borderRadius: 4, border: 'none' }}>
-                          {inst.status === 'active' ? '正常' : inst.status}
-                        </Tag>
+                        <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>{inst.name}</div>
+                        <div style={{ fontSize: 11, color: '#94a3b8' }}>{inst.brand} {inst.model}</div>
                       </div>
 
-                      <div style={{ position: 'relative', flex: 1 }}>
-                        {columns.map(col => {
-                          const colIdx = columns.indexOf(col);
-                          const colLeft = columns.slice(0, colIdx).reduce((s, c) => s + c.width, 0);
-                          return (
-                            <div key={col.key} style={{
-                              position: 'absolute', left: colLeft,
-                              top: 0, width: col.width, height: '100%',
-                              background: col.isWeekend ? '#fafbfc' : 'transparent',
-                              borderRight: '1px solid #f8fafc'
-                            }} />
-                          );
-                        })}
+                      <div style={{ position: 'relative', width: totalW, minWidth: totalW }}>
+                        {columns.map(col => (
+                          <div key={col.key} style={{
+                            position: 'absolute', left: columns.slice(0, columns.indexOf(col)).reduce((s, c) => s + c.width, 0),
+                            width: col.width, height: ROW_H,
+                            background: col.isWeekend ? '#fafbfc' : '#fff',
+                            borderRight: '1px solid #f8fafc',
+                          }} />
+                        ))}
 
                         {instSlots.map(slot => {
                           const style = getSlotStyle(slot, columns);
                           const isRunning = slot.status === 'running';
                           const isCompleted = slot.status === 'completed';
-                          const bg = tierColors[slot.tier] || tierColors.forecast;
+                          const bg = tierColors[slot.tier] || '#cbd5e1';
+
                           return (
-                            <Tooltip key={slot.id}
-                              title={<div style={{ fontSize: 12 }}>
-                                <div style={{ fontWeight: 600 }}>{slot.project_name}</div>
-                                <div>{slot.task_name}</div>
-                                <div style={{ color: '#94a3b8', marginTop: 4 }}>
-                                  {dayjs(slot.plan_start).format('MM/DD HH:mm')} ~ {dayjs(slot.plan_end).format('HH:mm')}
-                                </div>
-                                <div style={{ marginTop: 2 }}>{statusLabels[slot.status]}</div>
-                              </div>}
+                            <Tooltip
+                              key={slot.id}
+                              title={
+                                <div style={{ fontSize: 12 }}>
+                                  <div style={{ fontWeight: 600 }}>{slot.project_name}</div>
+                                  <div>{slot.task_name}</div>
+                                  <div>{dayjs(slot.plan_start).format('MM-DD HH:mm')} ~ {dayjs(slot.plan_end).format('HH:mm')}</div>
+                                  <div>{tierLabels[slot.tier]} {'·'} {statusLabels[slot.status]}</div>
+                                </div>}
                             >
                               <div onClick={() => setDetailSlot(slot)} style={{
                                 position: 'absolute', left: style.left, top: 6,
@@ -286,35 +268,35 @@ const InstrumentGantt: React.FC = () => {
         </Card>
       )}
 
-      <Modal title="任务详情" open={!!detailSlot} onCancel={() => setDetailSlot(null)}
+      <Modal title={'任务详情'} open={!!detailSlot} onCancel={() => setDetailSlot(null)}
         footer={detailSlot ? [
-          detailSlot.status === 'scheduled' && <Button key="start" type="primary" icon={<PlayCircleOutlined />} onClick={() => handleTaskAction(detailSlot.id, 'start')} style={{ borderRadius: 8 }}>开始执行</Button>,
-          detailSlot.status === 'running' && <Button key="complete" type="primary" icon={<CheckCircleOutlined />} onClick={() => handleTaskAction(detailSlot.id, 'complete')} style={{ borderRadius: 8 }}>标记完成</Button>,
-          detailSlot.status === 'running' && <Button key="interrupt" danger icon={<CloseCircleOutlined />} onClick={() => handleTaskAction(detailSlot.id, 'interrupt')} style={{ borderRadius: 8 }}>中断</Button>,
-          <Button key="close" onClick={() => setDetailSlot(null)} style={{ borderRadius: 8 }}>关闭</Button>,
+          detailSlot.status === 'scheduled' && <Button key="start" type="primary" icon={<PlayCircleOutlined />} onClick={() => handleTaskAction(detailSlot.id, 'start')} style={{ borderRadius: 8 }}>{'开始执行'}</Button>,
+          detailSlot.status === 'running' && <Button key="complete" type="primary" icon={<CheckCircleOutlined />} onClick={() => handleTaskAction(detailSlot.id, 'complete')} style={{ borderRadius: 8 }}>{'标记完成'}</Button>,
+          detailSlot.status === 'running' && <Button key="interrupt" danger icon={<CloseCircleOutlined />} onClick={() => handleTaskAction(detailSlot.id, 'interrupt')} style={{ borderRadius: 8 }}>{'中断'}</Button>,
+          <Button key="close" onClick={() => setDetailSlot(null)} style={{ borderRadius: 8 }}>{'关闭'}</Button>,
         ].filter(Boolean) : undefined}
       >
         {detailSlot && (
           <div>
-            <p><strong>项目：</strong>{detailSlot.project_name}</p>
-            <p><strong>任务：</strong>{detailSlot.task_name}</p>
-            <p><strong>仪器：</strong>{detailSlot.instrument_name}</p>
-            <p><strong>计划：</strong>{dayjs(detailSlot.plan_start).format('YYYY-MM-DD HH:mm')} ~ {dayjs(detailSlot.plan_end).format('HH:mm')}</p>
-            <p><strong>层级：</strong><Tag color={detailSlot.tier === 'frozen' ? ACCENT : detailSlot.tier === 'confirmed' ? '#16a34a' : '#94a3b8'} style={{ borderRadius: 4, border: 'none' }}>{tierLabels[detailSlot.tier]}</Tag></p>
-            <p><strong>状态：</strong><Tag color={detailSlot.status === 'completed' ? '#16a34a' : detailSlot.status === 'running' ? ACCENT : '#94a3b8'} style={{ borderRadius: 4, border: 'none' }}>{statusLabels[detailSlot.status]}</Tag></p>
-            {detailSlot.actual_start && <p><strong>实际开始：</strong>{dayjs(detailSlot.actual_start).format('YYYY-MM-DD HH:mm')}</p>}
-            {detailSlot.actual_end && <p><strong>实际结束：</strong>{dayjs(detailSlot.actual_end).format('YYYY-MM-DD HH:mm')}</p>}
+            <p><strong>{'项目：'}</strong>{detailSlot.project_name}</p>
+            <p><strong>{'任务：'}</strong>{detailSlot.task_name}</p>
+            <p><strong>{'仪器：'}</strong>{detailSlot.instrument_name}</p>
+            <p><strong>{'计划：'}</strong>{dayjs(detailSlot.plan_start).format('YYYY-MM-DD HH:mm')} ~ {dayjs(detailSlot.plan_end).format('HH:mm')}</p>
+            <p><strong>{'层级：'}</strong><Tag color={detailSlot.tier === 'frozen' ? ACCENT : detailSlot.tier === 'confirmed' ? '#16a34a' : '#94a3b8'} style={{ borderRadius: 4, border: 'none' }}>{tierLabels[detailSlot.tier]}</Tag></p>
+            <p><strong>{'状态：'}</strong><Tag color={detailSlot.status === 'completed' ? '#16a34a' : detailSlot.status === 'running' ? ACCENT : '#94a3b8'} style={{ borderRadius: 4, border: 'none' }}>{statusLabels[detailSlot.status]}</Tag></p>
+            {detailSlot.actual_start && <p><strong>{'实际开始：'}</strong>{dayjs(detailSlot.actual_start).format('YYYY-MM-DD HH:mm')}</p>}
+            {detailSlot.actual_end && <p><strong>{'实际结束：'}</strong>{dayjs(detailSlot.actual_end).format('YYYY-MM-DD HH:mm')}</p>}
           </div>
         )}
       </Modal>
 
-      <Modal title="添加仪器" open={addModalOpen} onCancel={() => setAddModalOpen(false)} onOk={() => addForm.submit()}>
+      <Modal title={'添加仪器'} open={addModalOpen} onCancel={() => setAddModalOpen(false)} onOk={() => addForm.submit()}>
         <Form form={addForm} layout="vertical" onFinish={handleAddInstrument}>
-          <Form.Item name="name" label="仪器名称" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="brand" label="品牌"><Input /></Form.Item>
-          <Form.Item name="model" label="型号"><Input /></Form.Item>
-          <Form.Item name="location" label="位置"><Input /></Form.Item>
-          <Form.Item name="buffer_rate" label="缓冲率" initialValue={0.85}><InputNumber min={0.5} max={1} step={0.05} /></Form.Item>
+          <Form.Item name="name" label={'仪器名称'} rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="brand" label={'品牌'}><Input /></Form.Item>
+          <Form.Item name="model" label={'型号'}><Input /></Form.Item>
+          <Form.Item name="location" label={'位置'}><Input /></Form.Item>
+          <Form.Item name="buffer_rate" label={'缓冲率'} initialValue={0.85}><InputNumber min={0.5} max={1} step={0.05} /></Form.Item>
         </Form>
       </Modal>
     </div>

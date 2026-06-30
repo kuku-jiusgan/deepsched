@@ -1,5 +1,7 @@
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from typing import List
 from app.core.database import get_db
 from app.models import Instrument, InstrumentCapability, MaintenanceWindow, InstrumentFault
@@ -12,13 +14,21 @@ router = APIRouter(prefix="/api/v1/instruments", tags=["instruments"])
 
 @router.post("", response_model=InstrumentOut)
 def create_instrument(data: InstrumentCreate, db: Session = Depends(get_db)):
+    existing = db.query(Instrument).filter(Instrument.code == data.code).first()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"仪器编码 {data.code} 已存在")
     inst = Instrument(
-        name=data.name, brand=data.brand, model=data.model,
+        code=data.code, name=data.name, instrument_group=data.instrument_group,
+        brand=data.brand, model=data.model,
         location=data.location, buffer_rate=data.buffer_rate,
         switchover_base_hours=data.switchover_base_hours
     )
     db.add(inst)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=f"仪器编码 {data.code} 已存在")
     for cap in data.capabilities:
         db.add(InstrumentCapability(instrument_id=inst.id, tag_name=cap.tag_name, tag_value=cap.tag_value))
     db.commit()
@@ -41,17 +51,25 @@ def update_instrument(inst_id: int, data: InstrumentCreate, db: Session = Depend
     inst = db.query(Instrument).filter(Instrument.id == inst_id).first()
     if not inst:
         raise HTTPException(status_code=404, detail="仪器不存在")
+    existing = db.query(Instrument).filter(Instrument.code == data.code, Instrument.id != inst_id).first()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"仪器编码 {data.code} 已被其他仪器使用")
+    inst.code = data.code
     inst.name = data.name
+    inst.instrument_group = data.instrument_group
     inst.brand = data.brand
     inst.model = data.model
     inst.location = data.location
     inst.buffer_rate = data.buffer_rate
     inst.switchover_base_hours = data.switchover_base_hours
-    # Replace capabilities
     db.query(InstrumentCapability).filter(InstrumentCapability.instrument_id == inst_id).delete()
     for cap in data.capabilities:
         db.add(InstrumentCapability(instrument_id=inst_id, tag_name=cap.tag_name, tag_value=cap.tag_value))
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=f"仪器编码 {data.code} 已被其他仪器使用")
     db.refresh(inst)
     return inst
 
@@ -90,6 +108,15 @@ def report_fault(inst_id: int, data: FaultCreate, db: Session = Depends(get_db))
     db.refresh(fault)
     return fault
 
+@router.delete("/{inst_id}")
+def delete_instrument(inst_id: int, db: Session = Depends(get_db)):
+    inst = db.query(Instrument).filter(Instrument.id == inst_id).first()
+    if not inst:
+        raise HTTPException(status_code=404, detail="仪器不存在")
+    db.delete(inst)
+    db.commit()
+    return {"status": "deleted"}
+
 @router.put("/{inst_id}/fault/{fault_id}/resolve", response_model=FaultOut)
 def resolve_fault(inst_id: int, fault_id: int, db: Session = Depends(get_db)):
     fault = db.query(InstrumentFault).filter(
@@ -97,7 +124,6 @@ def resolve_fault(inst_id: int, fault_id: int, db: Session = Depends(get_db)):
     ).first()
     if not fault:
         raise HTTPException(status_code=404, detail="故障记录不存在")
-    from datetime import datetime
     fault.resolved_at = datetime.now()
     fault.status = "resolved"
     inst = db.query(Instrument).filter(Instrument.id == inst_id).first()

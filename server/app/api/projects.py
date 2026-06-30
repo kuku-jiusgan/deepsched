@@ -14,13 +14,10 @@ router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
     proj = Project(
         name=data.name, code=data.code, client_name=data.client_name,
-        priority=data.priority, sla_level=data.sla_level, profit_weight=data.profit_weight
+        priority=data.priority, sla_level=data.sla_level, profit_weight=data.profit_weight, manager=data.manager,
+        start_date=data.start_date, end_date=data.end_date
     )
     db.add(proj)
-    db.flush()
-    # Create milestones
-    for ms in data.milestones:
-        db.add(Milestone(project_id=proj.id, name=ms.name, due_date=ms.due_date))
     db.commit()
     db.refresh(proj)
     return proj
@@ -47,6 +44,9 @@ def update_project(proj_id: int, data: ProjectCreate, db: Session = Depends(get_
     proj.priority = data.priority
     proj.sla_level = data.sla_level
     proj.profit_weight = data.profit_weight
+    proj.manager = data.manager
+    proj.start_date = data.start_date
+    proj.end_date = data.end_date
     db.commit()
     db.refresh(proj)
     return proj

@@ -7,7 +7,9 @@ export interface Project {
   sla_level?: string;
   status: string;
   profit_weight: number;
-  milestones: Milestone[];
+  manager?: string;
+  start_date?: string;
+  end_date?: string;
   tasks: Task[];
 }
 
@@ -44,7 +46,9 @@ export interface CapabilityReq {
 
 export interface Instrument {
   id: number;
+  code: string;
   name: string;
+  instrument_group: string;
   brand?: string;
   model?: string;
   location?: string;

@@ -8,9 +8,11 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
 
-    # 排程参数
     FROZEN_DAYS: int = 3
     CONFIRMED_DAYS: int = 14
+    STATS_WINDOW_DAYS: int = 7
+    HOURS_PER_DAY: int = 24
+    PERCENT_SCALE: float = 100.0
     BOTTLENECK_BUFFER_RATE: float = 0.85
     NON_BOTTLENECK_BUFFER_RATE: float = 0.95
     SOLVER_TIMEOUT_SECONDS: int = 60

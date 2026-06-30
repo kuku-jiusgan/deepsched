@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timedelta
 from app.core.database import get_db
+from app.core.config import get_settings
 from app.models import TimeSlot, Task, Instrument, Project
 from app.schemas.schemas import (
     TimeSlotOut, TimeSlotUpdate, TaskStatusUpdate,
@@ -93,44 +94,38 @@ def interrupt_task(slot_id: int, db: Session = Depends(get_db)):
 
 @router.post("/generate")
 def generate_schedule(data: ScheduleGenerateRequest, db: Session = Depends(get_db)):
-    """生成排程"""
     scheduler = SchedulerService(db)
     result = scheduler.generate(data.project_ids)
     return result
 
 @router.post("/reschedule")
 def reschedule(data: RescheduleRequest, db: Session = Depends(get_db)):
-    """动态重排"""
     scheduler = SchedulerService(db)
     result = scheduler.reschedule(data)
     return result
 
 @router.post("/insert-order", response_model=InsertOrderCost)
 def calculate_insert_cost(data: InsertOrderRequest, db: Session = Depends(get_db)):
-    """计算插单代价"""
     scheduler = SchedulerService(db)
     return scheduler.calculate_insert_cost(data)
 
 @router.post("/insert-order/confirm")
 def confirm_insert(data: InsertOrderRequest, db: Session = Depends(get_db)):
-    """确认插单"""
     scheduler = SchedulerService(db)
     return scheduler.execute_insert(data)
 
 @router.post("/daily-roll")
 def daily_roll(db: Session = Depends(get_db)):
-    """每日滚动推进"""
     now = datetime.now()
-    frozen_boundary = now + timedelta(days=3)
-    confirmed_boundary = now + timedelta(days=14)
+    settings = get_settings()
+    frozen_boundary = now + timedelta(days=settings.FROZEN_DAYS)
+    confirmed_boundary = now + timedelta(days=settings.CONFIRMED_DAYS)
 
-    # 确认期 -> 冻结期
     db.query(TimeSlot).filter(
         TimeSlot.tier == "confirmed",
         TimeSlot.plan_start <= frozen_boundary
     ).update({"tier": "frozen"}, synchronize_session=False)
 
-    # 预测期 -> 确认期
     db.query(TimeSlot).filter(
         TimeSlot.tier == "forecast",
         TimeSlot.plan_start <= confirmed_boundary

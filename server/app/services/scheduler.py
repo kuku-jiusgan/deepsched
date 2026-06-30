@@ -1,8 +1,10 @@
-﻿from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Tuple
 from datetime import datetime, timedelta
 from ortools.sat.python import cp_model
 from app.models import Task, Instrument, TimeSlot, Project, TaskDependency, InstrumentCapability, TaskCapabilityRequirement, MaintenanceWindow, InstrumentFault, Milestone
+from app.core.config import get_settings
+from app.core.config import get_settings
 from app.schemas.schemas import InsertOrderRequest, InsertOrderCost, RescheduleRequest
 
 TIME_UNIT_MINUTES = 30
@@ -256,8 +258,8 @@ class SchedulerService:
 
     def _persist_slots(self, tasks, instruments, solver, task_starts, task_ends, presences, horizon_start):
         now = datetime.now()
-        frozen_boundary = now + timedelta(days=3)
-        confirmed_boundary = now + timedelta(days=14)
+        frozen_boundary = now + timedelta(days=get_settings().FROZEN_DAYS)
+        confirmed_boundary = now + timedelta(days=get_settings().CONFIRMED_DAYS)
         created = 0
 
         for t in tasks:

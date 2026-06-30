@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { Card, Select, Tag, Spin, Empty, message } from 'antd';
 import { getProjects, getProjectDAG } from '../services/api';
-import type { DAGData } from '../types';
+import type { DAGData, Project } from '../types';
 
 const ACCENT = '#2563eb';
 const NODE_W = 180;
@@ -26,7 +26,7 @@ interface LayoutEdge {
 }
 
 const ProjectDAG: React.FC = () => {
-  const [projects, setProjects] = useState<any[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProj, setSelectedProj] = useState<number | null>(null);
   const [dagData, setDagData] = useState<DAGData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -143,24 +143,22 @@ const ProjectDAG: React.FC = () => {
           value={selectedProj}
           onChange={setSelectedProj}
           allowClear
-          options={projects.map((p: any) => ({ label: p.code + ' ' + p.name, value: p.id }))}
+          options={projects.map(p => ({ label: p.code + ' ' + p.name, value: p.id }))}
         />
       </div>
 
       {!selectedProj ? (
-        <Card>
-          <Empty description="请选择一个项目以查看其任务依赖关系图" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        </Card>
+        <Card><Empty description="请先选择一个项目" /></Card>
       ) : loading ? (
         <Spin size="large" style={{ display: 'block', margin: '80px auto' }} />
       ) : !dagData || dagData.nodes.length === 0 ? (
-        <Card>
-          <Empty description="该项目暂无任务，请先添加任务并设置前置依赖" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        </Card>
+        <Card><Empty description="该项目暂无任务" /></Card>
       ) : (
-        <Card bodyStyle={{ padding: 0, overflow: 'auto' }}>
+        <Card bodyStyle={{ padding: 0 }}>
           <div style={{
-            minWidth: layout.svgW,
+            overflow: 'auto',
+            width: '100%',
+            maxWidth: layout.svgW,
             minHeight: Math.max(layout.svgH, 300),
             background: '#fafbfc',
             position: 'relative',

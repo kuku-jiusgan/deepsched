@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 
@@ -13,7 +13,7 @@ class MilestoneOut(BaseModel):
     name: str
     due_date: datetime
     status: str
-    class Config: from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class TaskCapabilityReqCreate(BaseModel):
     tag_name: str
@@ -23,7 +23,7 @@ class TaskCapabilityReqOut(BaseModel):
     id: int
     tag_name: str
     tag_value: str
-    class Config: from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class TaskCreate(BaseModel):
     name: str
@@ -54,7 +54,7 @@ class TaskOut(BaseModel):
     priority_weight: float
     capability_requirements: List[TaskCapabilityReqOut] = []
     predecessor_ids: List[int] = []
-    class Config: from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ProjectCreate(BaseModel):
     name: str
@@ -63,7 +63,9 @@ class ProjectCreate(BaseModel):
     priority: int = 0
     sla_level: Optional[str] = None
     profit_weight: float = 1.0
-    milestones: List[MilestoneCreate] = []
+    manager: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
 
 class ProjectOut(BaseModel):
     id: int
@@ -74,9 +76,11 @@ class ProjectOut(BaseModel):
     sla_level: Optional[str]
     status: str
     profit_weight: float
-    milestones: List[MilestoneOut] = []
+    manager: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
     tasks: List[TaskOut] = []
-    class Config: from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # ---- Instrument ----
 class CapabilityCreate(BaseModel):
@@ -87,7 +91,7 @@ class CapabilityOut(BaseModel):
     id: int
     tag_name: str
     tag_value: str
-    class Config: from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class MaintenanceCreate(BaseModel):
     start_time: datetime
@@ -102,7 +106,7 @@ class MaintenanceOut(BaseModel):
     end_time: datetime
     mw_type: str
     description: Optional[str]
-    class Config: from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class FaultCreate(BaseModel):
     description: str
@@ -114,20 +118,24 @@ class FaultOut(BaseModel):
     resolved_at: Optional[datetime]
     description: str
     status: str
-    class Config: from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class InstrumentCreate(BaseModel):
+    code: str
     name: str
+    instrument_group: str = "GTI_Group"
     brand: Optional[str] = None
     model: Optional[str] = None
     location: Optional[str] = None
-    buffer_rate: float = 0.85
+    buffer_rate: float = 1.1
     switchover_base_hours: float = 0.5
     capabilities: List[CapabilityCreate] = []
 
 class InstrumentOut(BaseModel):
     id: int
+    code: str
     name: str
+    instrument_group: str
     brand: Optional[str]
     model: Optional[str]
     location: Optional[str]
@@ -135,7 +143,7 @@ class InstrumentOut(BaseModel):
     buffer_rate: float
     switchover_base_hours: float
     capabilities: List[CapabilityOut] = []
-    class Config: from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # ---- TimeSlot ----
 class TimeSlotOut(BaseModel):
@@ -151,7 +159,7 @@ class TimeSlotOut(BaseModel):
     task_name: Optional[str] = None
     project_name: Optional[str] = None
     instrument_name: Optional[str] = None
-    class Config: from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class TimeSlotUpdate(BaseModel):
     plan_start: Optional[datetime] = None
@@ -179,10 +187,10 @@ class InsertOrderCost(BaseModel):
     total_delay_hours: float = 0
 
 class RescheduleRequest(BaseModel):
-    trigger_type: str  # deviation / fault / insert
+    trigger_type: str
     affected_task_id: Optional[int] = None
     affected_instrument_id: Optional[int] = None
-    strategy: str = "local"  # local / project / global
+    strategy: str = "local"
     description: Optional[str] = None
 
 # ---- Stats ----
@@ -215,4 +223,4 @@ class NotificationOut(BaseModel):
     is_read: bool
     is_confirmed: Optional[bool]
     created_at: datetime
-    class Config: from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

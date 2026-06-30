@@ -13,6 +13,9 @@ class Project(Base):
     sla_level = Column(String(20))
     status = Column(String(20), default="active")
     profit_weight = Column(Float, default=1.0)
+    manager = Column(String(100))
+    start_date = Column(DateTime)
+    end_date = Column(DateTime)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -78,12 +81,14 @@ class TaskCapabilityRequirement(Base):
 class Instrument(Base):
     __tablename__ = "instrument"
     id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(50), unique=True, nullable=False)
     name = Column(String(100), nullable=False)
+    instrument_group = Column(String(50), default="GTI_Group")
     brand = Column(String(50))
     model = Column(String(100))
     location = Column(String(50))
-    status = Column(String(20), default="active")
-    buffer_rate = Column(Float, default=0.85)
+    status = Column(String(20), default="idle")
+    buffer_rate = Column(Float, default=1.1)
     switchover_base_hours = Column(Float, default=0.5)
     created_at = Column(DateTime, default=datetime.now)
 
