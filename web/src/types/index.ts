@@ -13,14 +13,6 @@ export interface Project {
   tasks: Task[];
 }
 
-export interface Milestone {
-  id: number;
-  project_id: number;
-  name: string;
-  due_date: string;
-  status: string;
-}
-
 export interface Task {
   id: number;
   project_id: number;
