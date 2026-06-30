@@ -10,7 +10,18 @@
       <a-button @click="handleDailyRoll"><ForwardOutlined /> 每日滚动</a-button>
     </div>
     <a-card v-if="recentSlots.length" title="最近排程结果" style="margin-top: 16px">
-      <a-table :dataSource="recentSlots" rowKey="id" size="small" :columns="slotColumns" :pagination="false" />
+      <a-table :dataSource="recentSlots" rowKey="id" size="small" :columns="slotColumns" :pagination="false">
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'tier'">
+            <a-tag :color="record.tier === 'frozen' ? 'blue' : record.tier === 'confirmed' ? 'green' : 'default'">{{ tierLabels[record.tier] || record.tier }}</a-tag>
+          </template>
+          <template v-else-if="column.key === 'status'">
+            <a-tag :color="record.status === 'completed' ? 'green' : record.status === 'running' ? 'blue' : 'default'">{{ statusLabels[record.status] || record.status }}</a-tag>
+          </template>
+          <template v-else-if="column.key === 'start'">{{ dayjs(record.plan_start).format('YYYY-MM-DD HH:mm') }}</template>
+          <template v-else-if="column.key === 'end'">{{ dayjs(record.plan_end).format('YYYY-MM-DD HH:mm') }}</template>
+        </template>
+      </a-table>
     </a-card>
   </div>
 </template>
@@ -20,10 +31,14 @@ import { ref } from "vue"
 import { message } from "ant-design-vue"
 import { ThunderboltOutlined, PlusCircleOutlined, ReloadOutlined, ForwardOutlined } from "@ant-design/icons-vue"
 import { generateSchedule, reschedule, dailyRoll, getTimeslots } from "@/services/api"
+import dayjs from "dayjs"
 import type { TimeSlot } from "@/types"
 
 const genLoading = ref(false)
 const recentSlots = ref<TimeSlot[]>([])
+
+const tierLabels: Record<string, string> = { frozen: '冻结', confirmed: '确认', forecast: '预测' }
+const statusLabels: Record<string, string> = { completed: '已完成', running: '运行中', scheduled: '已排程', interrupted: '已中断', pending: '待处理' }
 
 const slotColumns = [
   { title: "仪器", dataIndex: "instrument_name", key: "inst" },

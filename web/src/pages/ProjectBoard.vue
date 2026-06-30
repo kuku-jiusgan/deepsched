@@ -10,7 +10,29 @@
       <span style="margin-left: auto; font-size: 12px; color: #94a3b8; align-self: center">{{ filtered.length }} / {{ projects.length }} 个项目</span>
     </div>
     <a-spin v-if="loading" size="large" style="display: block; margin: 50px auto" />
-    <a-table v-else :dataSource="filtered" :columns="columns" rowKey="id" size="small" />
+    <a-table v-else :dataSource="filtered" :columns="columns" rowKey="id" size="small">
+      <template #bodyCell="{ column, record }">
+        <template v-if="column.key === 'priority'">
+          <a-tag :color="record.priority >= 5 ? '#dc2626' : record.priority >= 3 ? '#ea580c' : '#2563eb'">{{ record.priority }}</a-tag>
+        </template>
+        <template v-else-if="column.key === 'status'">
+          <a-tag :color="record.status === 'active' ? '#16a34a' : record.status === 'completed' ? '#7c3aed' : '#94a3b8'">{{ statusLabels[record.status] || record.status }}</a-tag>
+        </template>
+        <template v-else-if="column.key === 'client'">{{ record.client_name || '-' }}</template>
+        <template v-else-if="column.key === 'manager'">{{ record.manager || '-' }}</template>
+        <template v-else-if="column.key === 'start'">{{ record.start_date ? dayjs(record.start_date).format('YYYY-MM-DD') : '-' }}</template>
+        <template v-else-if="column.key === 'end'">{{ record.end_date ? dayjs(record.end_date).format('YYYY-MM-DD') : '-' }}</template>
+        <template v-else-if="column.key === 'code'">
+          <span style="font-family: monospace; font-weight: 600; color: #2563eb; font-size: 12px">{{ record.code }}</span>
+        </template>
+        <template v-else-if="column.key === 'actions'">
+          <a-space :size="0">
+            <a-button type="link" size="small" @click="handleViewDetail(record.id)">详情</a-button>
+            <a-button type="link" size="small" @click="openEditFromTable(record)"><EditOutlined /> 编辑</a-button>
+          </a-space>
+        </template>
+      </template>
+    </a-table>
     <a-modal title="新建项目" v-model:open="createOpen" @ok="handleCreate" width="640" okText="创建项目">
       <a-form layout="vertical">
         <a-form-item label="项目名称" required><a-input v-model:value="cf.name" placeholder="如：某注射剂基因毒杂质研究" /></a-form-item>
@@ -125,6 +147,8 @@ const ef = reactive({ name: '', code: '', client_name: '', manager: '', priority
 const tf = reactive({ name: '', task_type: 'instrument', est_duration_hours: 8, switchover_hours: 0.5, predecessor_ids: [] as number[], capability_requirements: [] as { tag_name: string; tag_value: string }[] })
 
 const slaOptions = [{ label: '标准', value: 'standard' }, { label: '加急', value: 'expedited' }, { label: '特急', value: 'rush' }]
+const statusLabels: Record<string, string> = { active: '进行中', completed: '已完成', pending: '待启动', suspended: '已暂停', cancelled: '已取消', draft: '草稿' }
+
 const capValOpts: Record<string, { label: string; value: string }[]> = {
   '离子源': [{ label: 'ESI', value: 'ESI' }, { label: 'APCI', value: 'APCI' }],
   '质量分析器': [{ label: 'QqQ', value: 'QqQ' }, { label: 'Q-TOF', value: 'Q-TOF' }],
@@ -180,6 +204,8 @@ async function handleViewDetail(id: number) {
     selectedProject.value = p; dagData.value = d; detailOpen.value = true
   } catch { message.error('加载失败') }
 }
+
+function openEditFromTable(record: Project) { selectedProject.value = record; openEditProject() }
 
 function openEditProject() {
   if (!selectedProject.value) return

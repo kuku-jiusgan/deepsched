@@ -9,7 +9,38 @@
     </div>
     <a-spin v-if="loading" size="large" style="display: block; margin: 80px auto" />
     <a-table v-else :dataSource="filtered" :columns="columns" rowKey="id" size="middle"
-      :pagination="{ pageSize: 20, showSizeChanger: true }" :scroll="{ x: 1100 }" />
+      :pagination="{ pageSize: 20, showSizeChanger: true }" :scroll="{ x: 1100 }">
+      <template #bodyCell="{ column, record }">
+        <template v-if="column.key === 'code'">
+          <span style="font-family: monospace; font-weight: 600; color: #2563eb; font-size: 12px">{{ record.code }}</span>
+        </template>
+        <template v-else-if="column.key === 'group'">
+          <a-tag :color="record.instrument_group === 'GTI_Group' ? '#7c3aed' : record.instrument_group === 'Quality_Group' ? '#0891b2' : '#94a3b8'">{{ groupLabels[record.instrument_group] || record.instrument_group }}</a-tag>
+        </template>
+        <template v-else-if="column.key === 'spec'">{{ [record.brand, record.model].filter(Boolean).join(' / ') || '-' }}</template>
+        <template v-else-if="column.key === 'location'">{{ record.location || '-' }}</template>
+        <template v-else-if="column.key === 'status'">
+          <a-tag :color="statusColors[record.status] || '#94a3b8'">{{ statusLabels[record.status] || record.status }}</a-tag>
+        </template>
+        <template v-else-if="column.key === 'caps'">
+          <a-space :size="4" wrap>
+            <a-tag v-for="(c, i) in (record.capabilities || []).slice(0, 3)" :key="i" style="font-size: 11px; margin: 0">{{ c.tag_name }}:{{ c.tag_value }}</a-tag>
+            <a-tooltip v-if="(record.capabilities || []).length > 3" :title="(record.capabilities || []).map((c: any) => c.tag_name+':'+c.tag_value).join(', ')">
+              <a-tag style="font-size: 11px; margin: 0">+{{ record.capabilities.length - 3 }}</a-tag>
+            </a-tooltip>
+            <span v-if="!record.capabilities || record.capabilities.length === 0" style="color: #cbd5e1">未配置</span>
+          </a-space>
+        </template>
+        <template v-else-if="column.key === 'actions'">
+          <a-space :size="4">
+            <a-button type="link" size="small" @click="openEdit(record)"><EditOutlined /> 编辑</a-button>
+            <a-popconfirm title="确定删除该仪器？" @confirm="handleDelete(record.id)" okText="确定" cancelText="取消">
+              <a-button type="link" size="small" danger><DeleteOutlined /> 删除</a-button>
+            </a-popconfirm>
+          </a-space>
+        </template>
+      </template>
+    </a-table>
 
     <a-modal :title="editingId ? '编辑仪器' : '添加仪器'" v-model:open="modalOpen" @ok="handleSubmit" width="640"
       :okText="editingId ? '保存' : '添加'" destroyOnClose>
@@ -33,7 +64,7 @@
         </div>
         <a-space v-for="(cap, idx) in form.capabilities" :key="idx" style="display: flex; margin-bottom: 8px" align="baseline">
           <a-select v-model:value="cap.tag_name" placeholder="能力标签" style="width: 140px" :options="capTagOptions" />
-          <a-select v-model:value="cap.tag_value" placeholder="标签值" style="width: 160px" :options="capValueOptions[cap.tag_name] || []" />
+          <a-select v-model:value="cap.tag_value" placeholder="标签值" style="width: 160px" :options="capValOpts[cap.tag_name] || []" />
           <a-button type="text" danger @click="form.capabilities.splice(idx, 1)"><DeleteOutlined /></a-button>
         </a-space>
         <a-button type="dashed" block @click="form.capabilities.push({ tag_name: '', tag_value: '' })"><PlusOutlined /> 添加能力标签</a-button>
@@ -58,12 +89,16 @@ const form = reactive({ code: '', name: '', instrument_group: 'GTI_Group', brand
 
 const groupOptions = [{ label: '基因毒组 (GTI)', value: 'GTI_Group' }, { label: '质量组 (Quality)', value: 'Quality_Group' }]
 const capTagOptions = [{ label: '离子源', value: '离子源' }, { label: '质量分析器', value: '质量分析器' }, { label: '方法类型', value: '方法类型' }, { label: '灵敏度等级', value: '灵敏度等级' }]
-const capValueOptions: Record<string, { label: string; value: string }[]> = {
+const capValOpts: Record<string, { label: string; value: string }[]> = {
   '离子源': [{ label: 'ESI', value: 'ESI' }, { label: 'APCI', value: 'APCI' }],
   '质量分析器': [{ label: 'QqQ', value: 'QqQ' }, { label: 'Q-TOF', value: 'Q-TOF' }],
   '方法类型': [{ label: '基因毒杂质', value: '基因毒杂质' }, { label: '有关物质', value: '有关物质' }, { label: '含量测定', value: '含量测定' }],
   '灵敏度等级': [{ label: '痕量', value: '痕量' }, { label: '常量', value: '常量' }],
 }
+
+const statusLabels: Record<string, string> = { idle: '闲置', running: '运行中', maintenance: '维护中', fault: '故障停机', active: '活跃' }
+const statusColors: Record<string, string> = { idle: '#16a34a', running: '#2563eb', maintenance: '#ea580c', fault: '#dc2626', active: '#16a34a' }
+const groupLabels: Record<string, string> = { GTI_Group: '基因毒组', Quality_Group: '质量组' }
 
 const filtered = computed(() => groupFilter.value ? instruments.value.filter(i => i.instrument_group === groupFilter.value) : instruments.value)
 const columns = [
