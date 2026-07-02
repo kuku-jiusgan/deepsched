@@ -2,11 +2,10 @@
   <div>
     <div class="page-header">
       <h2>仪表盘</h2>
-      <p>仪器利用率与项目概览</p>
     </div>
 
     <div class="stat-grid">
-      <div v-for="(item, i) in stats" :key="i" class="stat-card">
+      <div v-for="(item, i) in stats" :key="i" class="stat-card" :class="{ 'stat-card-clickable': !!item.link }" @click="item.link && router.push(item.link)">
         <div>
           <div class="stat-card-label">{{ item.title }}</div>
           <div class="stat-card-value" :style="item.danger ? { color: '#dc2626' } : {}">{{ item.value }}</div>
@@ -46,6 +45,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { ExperimentOutlined, ProjectOutlined, ClockCircleOutlined, ThunderboltOutlined } from '@ant-design/icons-vue'
 import { getDashboard, getUtilization } from '@/services/api'
@@ -53,6 +53,7 @@ import type { DashboardData, UtilizationStats } from '@/types'
 
 const data = ref<DashboardData | null>(null)
 const utilization = ref<UtilizationStats[]>([])
+const router = useRouter()
 const barChart = ref<HTMLElement>()
 const pieChart = ref<HTMLElement>()
 
@@ -119,10 +120,10 @@ const utilColumns = [
 ]
 
 const stats = computed(() => [
-  { title: '仪器总数', value: data.value?.total_instruments || 0, suffix: '活跃 ' + (data.value?.active_instruments || 0), icon: ExperimentOutlined, danger: false },
-  { title: '项目总数', value: data.value?.total_projects || 0, suffix: '活跃 ' + (data.value?.active_projects || 0), icon: ProjectOutlined, danger: false },
+  { title: '仪器总数', value: data.value?.total_instruments || 0, suffix: '活跃 ' + (data.value?.active_instruments || 0), icon: ExperimentOutlined, danger: false, link: '/projects/resource-ledger' },
+  { title: '项目总数', value: data.value?.total_projects || 0, suffix: '活跃 ' + (data.value?.active_projects || 0), icon: ProjectOutlined, danger: false, link: '/projects/ledger' },
   { title: '平均利用率', value: (data.value?.avg_utilization || 0) + '%', suffix: '', icon: ThunderboltOutlined, danger: false },
-  { title: '延期任务', value: data.value?.delayed_tasks || 0, suffix: '', icon: ClockCircleOutlined, danger: !!(data.value?.delayed_tasks) },
+  { title: '延期任务', value: data.value?.delayed_tasks || 0, suffix: '', icon: ClockCircleOutlined, danger: !!(data.value?.delayed_tasks), link: '/tasks/workspace' },
 ])
 </script>
 

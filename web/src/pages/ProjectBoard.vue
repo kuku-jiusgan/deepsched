@@ -1,6 +1,6 @@
-<template>
+﻿<template>
   <div>
-    <div class="page-header"><h2>项目看板</h2><p>管理项目、任务与依赖关系</p></div>
+    <div class="page-header"><h2>项目看板</h2></div>
     <div class="action-bar">
       <a-button type="primary" @click="openCreate"><PlusOutlined /> 新建项目</a-button>
       <a-input placeholder="项目编号" allowClear style="width: 150px" v-model:value="filterCode"><template #prefix><SearchOutlined /></template></a-input>
@@ -10,7 +10,7 @@
       <span style="margin-left: auto; font-size: 12px; color: #94a3b8; align-self: center">{{ filtered.length }} / {{ projects.length }} 个项目</span>
     </div>
     <a-spin v-if="loading" size="large" style="display: block; margin: 50px auto" />
-    <a-table v-else :dataSource="filtered" :columns="columns" rowKey="id" size="small">
+    <a-table v-else :dataSource="filtered" :columns="columns" rowKey="id" size="small" :pagination="{ pageSize: 20, showSizeChanger: true }">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'priority'">
           <a-tag :color="record.priority >= 5 ? '#dc2626' : record.priority >= 3 ? '#ea580c' : '#2563eb'">{{ record.priority }}</a-tag>
@@ -29,6 +29,9 @@
           <a-space :size="0">
             <a-button type="link" size="small" @click="handleViewDetail(record.id)">详情</a-button>
             <a-button type="link" size="small" @click="openEditFromTable(record)"><EditOutlined /> 编辑</a-button>
+            <a-popconfirm title="确定删除该项目及其所有任务？" @confirm="handleDeleteProject(record.id)">
+              <a-button type="link" size="small" danger>删除</a-button>
+            </a-popconfirm>
           </a-space>
         </template>
       </template>
@@ -71,16 +74,25 @@
       <template #extra><a-button @click="openEditProject"><EditOutlined /> 编辑项目</a-button></template>
       <a-tabs v-if="selectedProject" defaultActiveKey="tasks">
         <a-tab-pane key="tasks" tab="任务列表">
-          <div style="margin-bottom: 12px"><a-button type="primary" size="small" @click="openAddTask"><PlusOutlined /> 添加任务</a-button></div>
           <a-table :dataSource="selectedProject.tasks || []" rowKey="id" size="small" :pagination="false">
             <a-table-column title="任务名称" dataIndex="name" key="name" />
-            <a-table-column title="类型" dataIndex="task_type" key="type" width="90" />
+            <a-table-column title="类型" key="type" width="90"><template #default="{ record }"><a-tag :color="getTaskTypeColor(record.task_type)" style="font-size:11px">{{ getTaskTypeName(record.task_type) }}</a-tag></template></a-table-column>
             <a-table-column title="预计耗时(h)" dataIndex="est_duration_hours" key="dur" width="100" />
-            <a-table-column title="状态" dataIndex="status" key="status" width="90" />
+            <a-table-column title="状态" key="status" width="80"><template #default="{ record }"><a-tag :color="taskStatusColor(record.status)" style="font-size:11px">{{ taskStatusLabel(record.status) }}</a-tag></template></a-table-column>
+            <a-table-column title="负责人" key="assignee" width="80"><template #default="{ record }"><span style="font-size:12px;color:#475569">{{ record.assignee_name || "-" }}</span></template></a-table-column>
             <a-table-column title="操作" key="actions" width="60">
               <template #default="{ record }"><a-button type="link" size="small" @click="openEditTask(record)"><EditOutlined /></a-button></template>
             </a-table-column>
           </a-table>
+          <a-button v-if="!isAddingTask" type="dashed" size="small" block @click="startAddTask" style="margin-top:8px"><PlusOutlined /> 添加任务</a-button>
+          <div v-else style="margin-top:8px;padding:8px;background:#f8fafc;border-radius:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <a-input v-model:value="newTaskName" size="small" placeholder="任务名称" style="width:150px" />
+            <a-select v-model:value="newTaskType" size="small" style="width:100px" :options="taskTypeOptions" placeholder="类型" />
+            <a-input-number v-model:value="newTaskDuration" :min="0.5" :step="0.5" size="small" style="width:70px" addon-after='h' />
+            <a-select v-model:value="newAssigneeId" size="small" style="width:110px" placeholder="负责人" allowClear :options="userOptions" />
+            <a-button type="primary" size="small" @click="handleAddInline">确认</a-button>
+            <a-button size="small" @click="cancelAddTask">取消</a-button>
+          </div>
         </a-tab-pane>
         <a-tab-pane key="dag" tab="依赖关系">
           <div v-if="dagData">
@@ -99,13 +111,14 @@
       <a-form layout="vertical">
         <a-form-item label="任务名称" required><a-input v-model:value="tf.name" placeholder="如：LC-MS方法开发" /></a-form-item>
         <a-space :size="16" style="width: 100%">
-          <a-form-item label="任务类型"><a-select v-model:value="tf.task_type" style="width: 140px" :options="[{label:'仪器依赖型',value:'instrument'},{label:'人工型',value:'manual'},{label:'等待型',value:'waiting'}]" /></a-form-item>
+          <a-form-item label="负责人"><a-select v-model:value="tf.assignee_id" style="width:100%" placeholder="选择负责人" allowClear :options="userOptions" /></a-form-item>
+        <a-form-item label="任务类型"><a-select v-model:value="tf.task_type" style="width: 160px" :options="taskTypeOptions" placeholder="选择任务类型" /></a-form-item>
           <a-form-item label="预计耗时(小时)" required><a-input-number v-model:value="tf.est_duration_hours" :min="0.5" :step="0.5" style="width: 120px" /></a-form-item>
           <a-form-item label="切换时间(h)"><a-input-number v-model:value="tf.switchover_hours" :min="0" :step="0.5" style="width: 100px" /></a-form-item>
         </a-space>
         <a-form-item label="前置依赖任务">
           <a-select mode="multiple" v-model:value="tf.predecessor_ids" placeholder="选择依赖的前置任务（可选）"
-            :options="(selectedProject?.tasks || []).map(t => ({ label: t.name + ' (' + t.task_type + ')', value: t.id }))" />
+            :options="(selectedProject?.tasks || []).map(t => ({ label: t.name + ' (' + (taskTypeMap[t.task_type]?.name || t.task_type) + ')', value: t.id }))" />
         </a-form-item>
         <a-divider>仪器能力要求（仅仪器任务需要）</a-divider>
         <a-space v-for="(cap, idx) in tf.capability_requirements" :key="idx" style="display: flex; margin-bottom: 8px" align="baseline">
@@ -124,8 +137,7 @@
 import { ref, computed, reactive, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, EditOutlined, SearchOutlined, DeleteOutlined } from '@ant-design/icons-vue'
-import { getProjects, createProject, updateProject, getProject, getProjectDAG, addTask, updateTask } from '@/services/api'
-import type { Project, DAGData, Task } from '@/types'
+import { getProjects, createProject, updateProject, deleteProject, getProject, getProjectDAG, addTask, updateTask, deleteTask, getUsers, getTaskTypes, type Project, type Task, type DAGData, type TaskTypeConfig } from '@/services/api'
 import dayjs from 'dayjs'
 
 const projects = ref<Project[]>([])
@@ -136,6 +148,14 @@ const detailOpen = ref(false)
 const taskOpen = ref(false)
 const selectedProject = ref<Project | null>(null)
 const editingTask = ref<Task | null>(null)
+const isAddingTask = ref(false)
+const newTaskName = ref("")
+const newTaskType = ref("")
+const newTaskDuration = ref(8)
+const newAssigneeId = ref<number | null>(null)
+const userOptions = ref<{ label: string; value: number }[]>([])
+const taskTypeOptions = ref<{ label: string; value: string; resource_type: string }[]>([])
+const taskTypeMap = ref<Record<string, TaskTypeConfig>>({})
 const dagData = ref<DAGData | null>(null)
 const filterCode = ref('')
 const filterName = ref('')
@@ -144,7 +164,7 @@ const filterDateRange = ref<any>(null)
 
 const cf = reactive({ name: '', code: '', client_name: '', manager: '', priority: 3, sla_level: 'standard', profit_weight: 1.0, start_date: null as any, end_date: null as any })
 const ef = reactive({ name: '', code: '', client_name: '', manager: '', priority: 3, sla_level: 'standard', profit_weight: 1.0, start_date: null as any, end_date: null as any })
-const tf = reactive({ name: '', task_type: 'instrument', est_duration_hours: 8, switchover_hours: 0.5, predecessor_ids: [] as number[], capability_requirements: [] as { tag_name: string; tag_value: string }[] })
+const tf = reactive({ name: '', task_type: '', est_duration_hours: 8, switchover_hours: 0.5, predecessor_ids: [] as number[], capability_requirements: [] as { tag_name: string; tag_value: string }[], assignee_id: null as number | null })
 
 const slaOptions = [{ label: '标准', value: 'standard' }, { label: '加急', value: 'expedited' }, { label: '特急', value: 'rush' }]
 const statusLabels: Record<string, string> = { active: '进行中', completed: '已完成', pending: '待启动', suspended: '已暂停', cancelled: '已取消', draft: '草稿' }
@@ -176,7 +196,7 @@ const columns = [
   { title: '计划完成', dataIndex: 'end_date', key: 'end', width: 110 },
   { title: '优先级', dataIndex: 'priority', key: 'priority', width: 80 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 90 },
-  { title: '操作', key: 'actions', width: 130 },
+  { title: '操作', key: 'actions', width: 200 },
 ]
 
 async function fetchProjects() { loading.value = true; try { projects.value = await getProjects() } catch { message.error('加载项目失败') } finally { loading.value = false } }
@@ -214,11 +234,81 @@ function openEditProject() {
   editOpen.value = true
 }
 
-function openAddTask() { editingTask.value = null; Object.assign(tf, { name: '', task_type: 'instrument', est_duration_hours: 8, switchover_hours: 0.5, predecessor_ids: [], capability_requirements: [] }); taskOpen.value = true }
+
+const taskList = computed(() => {
+  const tasks = [...(selectedProject.value?.tasks || [])]
+  if (isAddingTask.value) {
+    tasks.push({ _isNew: true, id: -1 } as any)
+  }
+  return tasks
+})
+
+function taskStatusColor(s: string) {
+  const m: Record<string, string> = { pending: '#94a3b8', running: '#2563eb', done: '#16a34a', blocked: '#dc2626', scheduled: '#ea580c' }
+  return m[s] || '#94a3b8'
+}
+
+function taskStatusLabel(s: string) {
+  const m: Record<string, string> = { pending: '待开始', running: '运行中', done: '已完成', blocked: '已延期', scheduled: '已排程' }
+  return m[s] || s
+}
+
+function getTaskTypeName(code: string) { return taskTypeMap.value[code]?.name || code }
+function getTaskTypeColor(code: string) { const r = taskTypeMap.value[code]?.resource_type; return r === "instrument" ? "#2563eb" : r === "human" ? "#16a34a" : "#7c3aed" }
+
+function startAddTask() { isAddingTask.value = true; newTaskName.value = ''; newTaskType.value = 'instrument'; newTaskDuration.value = 8; newAssigneeId.value = null }
+
+function cancelAddTask() { isAddingTask.value = false }
+
+async function handleAddInline() {
+  if (!newTaskName.value || !selectedProject.value) { message.error('请输入任务名称'); return }
+  try {
+    await addTask(selectedProject.value.id, {
+      name: newTaskName.value,
+      task_type: newTaskType.value,
+      requires_instrument: (taskTypeMap.value[newTaskType.value]?.resource_type || 'both') !== 'human',
+      est_duration_hours: newTaskDuration.value,
+      switchover_hours: 0.5,
+      predecessor_ids: [],
+      assignee_id: newAssigneeId.value || null,
+      capability_requirements: [],
+    } as any)
+    message.success('任务添加成功')
+    isAddingTask.value = false
+    const [p, d] = await Promise.all([getProject(selectedProject.value.id), getProjectDAG(selectedProject.value.id)])
+    selectedProject.value = p; dagData.value = d
+  } catch { message.error('添加失败') }
+}
+
+async function handleDeleteProject(projId: number) {
+  try {
+    await deleteProject(projId)
+    message.success('项目已删除')
+    await fetchProjects()
+    if (selectedProject.value?.id === projId) selectedProject.value = null
+  } catch (e: any) {
+    console.error('Delete project error:', e)
+    const msg = e?.response?.data?.detail || e?.message || '删除失败'
+    message.error(msg)
+  }
+}
+
+async function handleDeleteTask(taskId: number) {
+  if (!selectedProject.value) return
+  try {
+    await deleteTask(taskId)
+    message.success('任务已删除')
+    const [p, d] = await Promise.all([getProject(selectedProject.value.id), getProjectDAG(selectedProject.value.id)])
+    selectedProject.value = p; dagData.value = d
+  } catch { message.error('删除失败') }
+}
+
+function openAddTask() { editingTask.value = null; Object.assign(tf, { name: '', task_type: taskTypeOptions.value[0]?.value || '', est_duration_hours: 8, switchover_hours: 0.5, predecessor_ids: [],
+      assignee_id: newAssigneeId.value || null, capability_requirements: [] }); taskOpen.value = true }
 
 function openEditTask(t: Task) {
   editingTask.value = t
-  Object.assign(tf, { name: t.name, task_type: t.task_type, est_duration_hours: t.est_duration_hours || 8, switchover_hours: t.switchover_hours, predecessor_ids: t.predecessor_ids || [], capability_requirements: (t.capability_requirements || []).map(c => ({ tag_name: c.tag_name, tag_value: c.tag_value })) })
+  Object.assign(tf, { name: t.name, task_type: t.task_type, est_duration_hours: t.est_duration_hours || 8, switchover_hours: t.switchover_hours, predecessor_ids: t.predecessor_ids || [], capability_requirements: (t.capability_requirements || []).map(c => ({ tag_name: c.tag_name, tag_value: c.tag_value })), assignee_id: t.assignee_id || null })
   taskOpen.value = true
 }
 
@@ -226,10 +316,11 @@ async function handleTaskSubmit() {
   if (!selectedProject.value) return
   const payload = {
     name: tf.name, task_type: tf.task_type,
-    requires_instrument: tf.task_type === 'instrument',
+    requires_instrument: (taskTypeMap.value[tf.task_type]?.resource_type || 'both') !== 'human',
     est_duration_hours: tf.est_duration_hours,
     switchover_hours: tf.switchover_hours,
     predecessor_ids: tf.predecessor_ids,
+      assignee_id: tf.assignee_id || null,
     capability_requirements: tf.capability_requirements,
   }
   try {
@@ -246,5 +337,26 @@ async function handleTaskSubmit() {
   } catch { message.error('操作失败') }
 }
 
-onMounted(fetchProjects)
+async function loadUsers() {
+  try {
+    const users = await getUsers()
+    userOptions.value = users.filter(u => u.is_active).map(u => ({ label: u.display_name, value: u.id }))
+  } catch (e) { console.error("loadUsers failed:", e) }
+}
+
+async function loadTaskTypes() {
+  try {
+    const types = await getTaskTypes()
+    const active = types.filter(t => t.is_active)
+    taskTypeOptions.value = active.map(t => ({ label: t.name, value: t.code, resource_type: t.resource_type }))
+    taskTypeMap.value = {}
+    active.forEach(t => { taskTypeMap.value[t.code] = t })
+    return active
+  } catch (e) { console.error('loadTaskTypes failed:', e); return [] }
+}
+
+onMounted(async () => { await loadTaskTypes(); await Promise.all([fetchProjects(), loadUsers()]) })
 </script>
+
+
+

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, JSON, UniqueConstraint
+﻿from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.core.database import Base
@@ -48,6 +48,8 @@ class Task(Base):
     milestone_id = Column(Integer, ForeignKey("milestone.id"))
     priority_weight = Column(Float, default=1.0)
     status = Column(String(20), default="pending")
+    assignee_id = Column(Integer, ForeignKey("user.id"))
+    assignee = relationship("User")
     earliest_start = Column(DateTime)
     latest_due = Column(DateTime)
     created_at = Column(DateTime, default=datetime.now)
@@ -55,6 +57,10 @@ class Task(Base):
 
     project = relationship("Project", back_populates="tasks")
     milestone = relationship("Milestone")
+
+    @property
+    def assignee_name(self):
+        return self.assignee.display_name if self.assignee else None
     predecessors = relationship("TaskDependency", foreign_keys="TaskDependency.task_id", back_populates="task", cascade="all, delete-orphan")
     capability_requirements = relationship("TaskCapabilityRequirement", back_populates="task", cascade="all, delete-orphan")
     time_slots = relationship("TimeSlot", back_populates="task", cascade="all, delete-orphan")
@@ -90,6 +96,8 @@ class Instrument(Base):
     status = Column(String(20), default="idle")
     buffer_rate = Column(Float, default=1.1)
     switchover_base_hours = Column(Float, default=0.5)
+    label_x = Column(Integer, default=0)
+    label_y = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.now)
 
     capabilities = relationship("InstrumentCapability", back_populates="instrument", cascade="all, delete-orphan")
@@ -156,6 +164,34 @@ class AuditLog(Base):
     detail = Column(JSON)
     created_at = Column(DateTime, default=datetime.now)
 
+
+
+class User(Base):
+    __tablename__ = "user"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(50), unique=True, nullable=False)
+    display_name = Column(String(100), nullable=False)
+    role = Column(String(30), nullable=False, comment="系统管理员/项目管理员/项目负责人/分析员")
+    email = Column(String(100))
+    phone = Column(String(20))
+    password_hash = Column(String(128))
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+class ScheduleRule(Base):
+    __tablename__ = "schedule_rule"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    category = Column(String(30), nullable=False, comment="决策变量/约束条件/目标函数")
+    name = Column(String(100), nullable=False)
+    code = Column(String(50), unique=True, nullable=False)
+    description = Column(Text)
+    params = Column(JSON, comment="可配置参数")
+    is_enabled = Column(Boolean, default=True)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
 class Notification(Base):
     __tablename__ = "notification"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -168,3 +204,16 @@ class Notification(Base):
     is_read = Column(Boolean, default=False)
     is_confirmed = Column(Boolean)
     created_at = Column(DateTime, default=datetime.now)
+
+class TaskTypeConfig(Base):
+    __tablename__ = "task_type_config"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False, comment="任务类型名称")
+    code = Column(String(50), unique=True, nullable=False, comment="类型编码")
+    resource_type = Column(String(20), nullable=False, default="both", comment="资源依赖: instrument/human/both")
+    description = Column(Text, comment="描述")
+    is_active = Column(Boolean, default=True, comment="是否启用")
+    sort_order = Column(Integer, default=0, comment="排序")
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+

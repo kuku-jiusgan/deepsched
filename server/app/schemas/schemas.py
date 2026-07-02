@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, ConfigDict
+﻿from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 
@@ -38,6 +38,7 @@ class TaskCreate(BaseModel):
     priority_weight: float = 1.0
     predecessor_ids: List[int] = []
     capability_requirements: List[TaskCapabilityReqCreate] = []
+    assignee_id: Optional[int] = None
 
 class TaskOut(BaseModel):
     id: int
@@ -54,6 +55,8 @@ class TaskOut(BaseModel):
     priority_weight: float
     capability_requirements: List[TaskCapabilityReqOut] = []
     predecessor_ids: List[int] = []
+    assignee_id: Optional[int] = None
+    assignee_name: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 class ProjectCreate(BaseModel):
@@ -157,8 +160,10 @@ class TimeSlotOut(BaseModel):
     tier: str
     status: str
     task_name: Optional[str] = None
+    task_type: Optional[str] = None
     project_name: Optional[str] = None
     instrument_name: Optional[str] = None
+    assignee_name: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 class TimeSlotUpdate(BaseModel):
@@ -214,6 +219,49 @@ class DashboardData(BaseModel):
     milestone_risks: List[dict] = []
 
 # ---- Notification ----
+
+# ---- Schedule Rule ----
+
+# ---- User ----
+class UserCreate(BaseModel):
+    username: str
+    display_name: str
+    password: Optional[str] = None
+    role: str = "分析员"
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    is_active: bool = True
+
+class UserOut(BaseModel):
+    id: int
+    username: str
+    display_name: str
+    role: str
+    email: Optional[str]
+    phone: Optional[str]
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+class ScheduleRuleOut(BaseModel):
+    id: int
+    category: str
+    name: str
+    code: str
+    description: Optional[str]
+    params: Optional[dict]
+    is_enabled: bool
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+class ScheduleRuleUpdate(BaseModel):
+    params: Optional[dict] = None
+    is_enabled: Optional[bool] = None
+    sort_order: Optional[int] = None
+
 class NotificationOut(BaseModel):
     id: int
     user_name: str
@@ -224,3 +272,6 @@ class NotificationOut(BaseModel):
     is_confirmed: Optional[bool]
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+

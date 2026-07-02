@@ -25,3 +25,9 @@ server_error.log
 server_output.log
 server/debug.log
 server/*.db
+
+# Large assets
+web/public/models/
+server/tokens.json
+server/logs/
+temp_patch1.txt

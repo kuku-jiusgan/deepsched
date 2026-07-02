@@ -28,6 +28,8 @@ export interface Task {
   priority_weight: number;
   capability_requirements: CapabilityReq[];
   predecessor_ids: number[];
+  assignee_id: number | null;
+  assignee_name: string | null;
 }
 
 export interface CapabilityReq {
@@ -63,6 +65,7 @@ export interface TimeSlot {
   task_name?: string;
   project_name?: string;
   instrument_name?: string;
+  assignee_name?: string;
 }
 
 export interface DashboardData {

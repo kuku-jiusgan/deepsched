@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div class="page-header"><h2>排程管理</h2><p>生成排程、插单与动态重排</p></div>
+    <div class="page-header"><h2>排程管理</h2></div>
     <div class="action-bar">
       <a-button type="primary" :loading="genLoading" @click="handleGenerate"><ThunderboltOutlined /> 生成排程</a-button>
       <a-button @click="openInsert"><PlusCircleOutlined /> 插单</a-button>
@@ -27,7 +27,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue"
+import { ref, onMounted } from "vue"
 import { message } from "ant-design-vue"
 import { ThunderboltOutlined, PlusCircleOutlined, ReloadOutlined, ForwardOutlined } from "@ant-design/icons-vue"
 import { generateSchedule, reschedule, dailyRoll, getTimeslots } from "@/services/api"
@@ -35,7 +35,19 @@ import dayjs from "dayjs"
 import type { TimeSlot } from "@/types"
 
 const genLoading = ref(false)
-const recentSlots = ref<TimeSlot[]>([])
+const STORAGE_KEY = "schedule_recent_slots"
+const recentSlots = ref<TimeSlot[]>(loadFromStorage())
+
+function loadFromStorage(): TimeSlot[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch { return [] }
+}
+
+function saveToStorage(slots: TimeSlot[]) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(slots)) } catch { /* quota exceeded */ }
+}
 
 const tierLabels: Record<string, string> = { frozen: '冻结', confirmed: '确认', forecast: '预测' }
 const statusLabels: Record<string, string> = { completed: '已完成', running: '运行中', scheduled: '已排程', interrupted: '已中断', pending: '待处理' }
@@ -52,10 +64,16 @@ const slotColumns = [
 
 async function handleGenerate() {
   genLoading.value = true
-  try { await generateSchedule(); message.success("排程生成成功"); const s = await getTimeslots(); recentSlots.value = s.slice(0, 20) }
+  try { await generateSchedule(); message.success("排程生成成功"); const s = await getTimeslots(); recentSlots.value = s.slice(0, 20); saveToStorage(recentSlots.value) }
   catch { message.error("生成失败") }
   finally { genLoading.value = false }
 }
+onMounted(async () => {
+  if (recentSlots.value.length === 0) {
+    try { const s = await getTimeslots(); recentSlots.value = s.slice(0, 20); saveToStorage(recentSlots.value) } catch { /* ignore */ }
+  }
+})
+
 function openInsert() { message.info("插单功能开发中") }
 async function handleReschedule(s: string) {
   try { await reschedule({ trigger_type: "manual", strategy: s }); message.success("重排完成") }

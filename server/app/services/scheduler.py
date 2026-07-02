@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 from ortools.sat.python import cp_model
 from app.models import Task, Instrument, TimeSlot, Project, TaskDependency, InstrumentCapability, TaskCapabilityRequirement, MaintenanceWindow, InstrumentFault, Milestone
 from app.core.config import get_settings
-from app.core.config import get_settings
 from app.schemas.schemas import InsertOrderRequest, InsertOrderCost, RescheduleRequest
 
 TIME_UNIT_MINUTES = 30
@@ -197,7 +196,7 @@ class SchedulerService:
         if project_ids:
             q = q.filter(Task.project_id.in_(project_ids))
         tasks = q.order_by(Task.priority_weight.desc()).all()
-        instruments = self.db.query(Instrument).filter(Instrument.status.in_(["active"])).all()
+        instruments = self.db.query(Instrument).filter(Instrument.status.in_(["idle", "running"])).all()
         return tasks, instruments
 
     def _time_horizon(self):
@@ -255,6 +254,10 @@ class SchedulerService:
         self.db.query(TimeSlot).filter(
             TimeSlot.tier.in_(["forecast", "confirmed"])
         ).delete()
+        # Reset affected task statuses back to pending
+        self.db.query(Task).filter(
+            Task.status == "scheduled"
+        ).update({"status": "pending"})
 
     def _persist_slots(self, tasks, instruments, solver, task_starts, task_ends, presences, horizon_start):
         now = datetime.now()

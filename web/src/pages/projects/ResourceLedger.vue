@@ -1,7 +1,6 @@
-<template>
+﻿<template>
   <div>
-    <div class="page-header"><h2>基础资源台账</h2><p>管理实验室仪器编码、名称、分组、能力标签及状态</p></div>
-    <div style="overflow-x: auto">
+    <div class="page-header"><h2>基础资源台账</h2></div>
     <div class="action-bar">
       <a-button type="primary" @click="openCreate"><PlusOutlined /> 添加仪器</a-button>
       <a-button @click="fetchData"><ReloadOutlined /> 刷新</a-button>
@@ -10,7 +9,7 @@
     </div>
     <a-spin v-if="loading" size="large" style="display: block; margin: 80px auto" />
     <a-table v-else :dataSource="filtered" :columns="columns" rowKey="id" size="middle"
-      :pagination="{ pageSize: 20, showSizeChanger: true }" :scroll="{ x: 1200 }">
+      :pagination="{ pageSize: 20, showSizeChanger: true }">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'code'">
           <span style="font-family: monospace; font-weight: 600; color: #2563eb; font-size: 12px">{{ record.code }}</span>
@@ -103,15 +102,15 @@ const groupLabels: Record<string, string> = { GTI_Group: '基因毒组', Quality
 
 const filtered = computed(() => groupFilter.value ? instruments.value.filter(i => i.instrument_group === groupFilter.value) : instruments.value)
 const columns = [
-  { title: '仪器编码', dataIndex: 'code', key: 'code', width: 120 },
-  { title: '仪器名称', dataIndex: 'name', key: 'name', ellipsis: true },
-  { title: '所属分组', dataIndex: 'instrument_group', key: 'group', width: 110 },
-  { title: '品牌/型号', key: 'spec', width: 150 },
-  { title: '位置', dataIndex: 'location', key: 'location', width: 80 },
-  { title: '当前状态', dataIndex: 'status', key: 'status', width: 90 },
-  { title: '缓冲率', dataIndex: 'buffer_rate', key: 'buffer', width: 70 },
-  { title: '能力标签', dataIndex: 'capabilities', key: 'caps', width: 170 },
-  { title: '操作', key: 'actions', width: 140 },
+  { title: '仪器编码', dataIndex: 'code', key: 'code', width: 100 },
+  { title: '仪器名称', dataIndex: 'name', key: 'name', width: 140, ellipsis: true },
+  { title: '所属分组', dataIndex: 'instrument_group', key: 'group', width: 90 },
+  { title: '品牌/型号', key: 'spec', width: 120 },
+  { title: '位置', dataIndex: 'location', key: 'location', width: 60 },
+  { title: '状态', dataIndex: 'status', key: 'status', width: 70 },
+  { title: '缓冲率', dataIndex: 'buffer_rate', key: 'buffer', width: 60 },
+  { title: '能力标签', dataIndex: 'capabilities', key: 'caps', width: 140 },
+  { title: '操作', key: 'actions', width: 150 },
 ]
 
 async function fetchData() { loading.value = true; try { instruments.value = await getInstruments() } catch { message.error('加载失败') } finally { loading.value = false } }
@@ -121,3 +120,10 @@ async function handleSubmit() { if(!form.code||!form.name){message.error('请填
 async function handleDelete(id:number){try{await deleteInstrument(id);message.success('已删除');fetchData()}catch{message.error('删除失败')}}
 onMounted(fetchData)
 </script>
+
+
+
+
+
+
+

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+﻿from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timedelta
@@ -134,6 +134,50 @@ def daily_roll(db: Session = Depends(get_db)):
     db.commit()
     return {"status": "ok", "rolled_at": now.isoformat()}
 
+
+@router.get("/my-tasks")
+def my_tasks(token: str, db: Session = Depends(get_db)):
+    """Return tasks assigned to the current user, with time slot info if scheduled."""
+    from app.api.users import get_current_user
+    user = get_current_user(token, db)
+    
+    # Query tasks assigned to this user
+    tasks = db.query(Task).filter(
+        Task.assignee_id == user.id,
+        Task.status.in_(["pending", "running", "blocked", "scheduled"])
+    ).order_by(Task.id).all()
+    
+    result = []
+    for task in tasks:
+        proj = db.query(Project).filter(Project.id == task.project_id).first()
+        # Find a time slot if this task has been scheduled
+        slot = db.query(TimeSlot).filter(
+            TimeSlot.task_id == task.id,
+            TimeSlot.status.in_(["scheduled", "running", "interrupted", "blocked"])
+        ).first()
+        
+        inst = db.query(Instrument).filter(Instrument.id == slot.instrument_id).first() if slot else None
+        
+        result.append({
+            "slot_id": slot.id if slot else 0,
+            "task_id": task.id,
+            "task_name": task.name,
+            "task_type": task.task_type,
+            "project_id": proj.id if proj else None,
+            "project_name": proj.name if proj else None,
+            "project_code": proj.code if proj else None,
+            "instrument_id": slot.instrument_id if slot else 0,
+            "instrument_name": inst.name if inst else None,
+            "instrument_code": inst.code if inst else None,
+            "plan_start": slot.plan_start.isoformat() if slot and slot.plan_start else None,
+            "plan_end": slot.plan_end.isoformat() if slot and slot.plan_end else None,
+            "actual_start": slot.actual_start.isoformat() if slot and slot.actual_start else None,
+            "status": task.status,
+            "tier": slot.tier if slot else "unscheduled",
+            "est_duration_hours": task.est_duration_hours,
+        })
+    return result
+
 def _enrich_slot(slot: TimeSlot, db: Session) -> TimeSlotOut:
     task = db.query(Task).filter(Task.id == slot.task_id).first()
     inst = db.query(Instrument).filter(Instrument.id == slot.instrument_id).first()
@@ -144,6 +188,9 @@ def _enrich_slot(slot: TimeSlot, db: Session) -> TimeSlotOut:
         actual_start=slot.actual_start, actual_end=slot.actual_end,
         tier=slot.tier, status=slot.status,
         task_name=task.name if task else None,
+        task_type=task.task_type if task else None,
         project_name=proj.name if proj else None,
-        instrument_name=inst.name if inst else None
+        instrument_name=inst.name if inst else None,
+        assignee_name=task.assignee.display_name if task and task.assignee else None
     )
+

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+﻿from fastapi import APIRouter, Depends
 from typing import List
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -66,3 +66,66 @@ def utilization(db: Session = Depends(get_db)):
             buffer_consumed_rate=0
         ))
     return result
+
+
+@router.get("/lab-status")
+def lab_status(db: Session = Depends(get_db)):
+    instruments = db.query(Instrument).all()
+    now = datetime.now()
+    result = []
+    for inst in instruments:
+        # Find current running slot
+        running = db.query(TimeSlot).filter(
+            TimeSlot.instrument_id == inst.id,
+            TimeSlot.status == "running"
+        ).first()
+        
+        current_task = None
+        current_project = None
+        progress = None
+        if running:
+            task = db.query(Task).filter(Task.id == running.task_id).first()
+            if task:
+                proj = db.query(Project).filter(Project.id == task.project_id).first()
+                current_task = task.name
+                current_project = proj.name if proj else None
+                if running.actual_start and running.plan_end:
+                    elapsed = (now - running.actual_start).total_seconds()
+                    total = (running.plan_end - running.plan_start).total_seconds()
+                    if total > 0:
+                        progress = min(round(elapsed / total * 100, 1), 100)
+        
+        # Get next upcoming slot
+        upcoming = db.query(TimeSlot).filter(
+            TimeSlot.instrument_id == inst.id,
+            TimeSlot.status == "scheduled",
+            TimeSlot.plan_start > now
+        ).order_by(TimeSlot.plan_start).first()
+        next_task = None
+        next_start = None
+        if upcoming:
+            task = db.query(Task).filter(Task.id == upcoming.task_id).first()
+            if task:
+                next_task = task.name
+                next_start = upcoming.plan_start.isoformat()
+        
+        result.append({
+            "id": inst.id,
+            "code": inst.code,
+            "name": inst.name,
+            "group": inst.instrument_group,
+            "location": inst.location,
+            "status": inst.status,
+            "buffer_rate": inst.buffer_rate,
+            "label_x": inst.label_x or 0,
+            "label_y": inst.label_y or 0,
+            "current_task": current_task,
+            "current_project": current_project,
+            "progress": progress,
+            "next_task": next_task,
+            "next_start": next_start,
+            "running_slot_id": running.id if running else None,
+            "running_start": running.actual_start.isoformat() if running and running.actual_start else None,
+        })
+    return result
+

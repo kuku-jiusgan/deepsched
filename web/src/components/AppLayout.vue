@@ -1,6 +1,6 @@
 ﻿<template>
   <a-layout style="min-height: 100vh; background: #f7f8fa">
-    <a-layout-sider width="220" style="background: #1a1a2e; border-right: none">
+    <a-layout-sider width="220" style="background: #1a1a2e; border-right: none; display: flex; flex-direction: column; overflow: hidden">
       <div style="height: 56px; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid rgba(255,255,255,0.06)">
         <span style="color: #fff; font-size: 15px; font-weight: 600; letter-spacing: 0.5px">DeepSched</span>
       </div>
@@ -10,9 +10,16 @@
         :selected-keys="[route.path]"
         :default-open-keys="openKeys"
         :items="menuItems"
-        style="background: transparent; border-right: none; margin-top: 8px"
+        style="background: transparent; border-right: none; margin-top: 8px; flex: 1; overflow-y: auto; overflow-x: hidden"
         @click="navigate"
       />
+
+      <div style="padding: 12px; border-top: 1px solid rgba(255,255,255,0.06); flex-shrink: 0">
+        <a-button type="text" block @click="handleLogout" style="color: rgba(255,255,255,0.65); text-align: left">
+          <template #icon><LogoutOutlined /></template>
+          退出登录
+        </a-button>
+      </div>
     </a-layout-sider>
     <a-layout style="background: #f7f8fa">
       <a-layout-content style="margin: 20px; padding: 24px; background: #fff; border-radius: 10px; overflow: auto; box-shadow: 0 1px 3px rgba(0,0,0,0.04)">
@@ -33,7 +40,7 @@ import {
   WarningOutlined, DatabaseOutlined, PartitionOutlined,
   ApartmentOutlined, TableOutlined, ToolOutlined,
   ThunderboltOutlined, SwapOutlined, DollarOutlined,
-  BellOutlined, SyncOutlined, TeamOutlined,
+  BellOutlined, SyncOutlined, TeamOutlined, LogoutOutlined,
 } from '@ant-design/icons-vue'
 
 const router = useRouter()
@@ -47,7 +54,7 @@ const iconMap: Record<string, any> = {
   WarningOutlined, DatabaseOutlined, PartitionOutlined,
   ApartmentOutlined, TableOutlined, ToolOutlined,
   ThunderboltOutlined, SwapOutlined, DollarOutlined,
-  BellOutlined, SyncOutlined, TeamOutlined,
+  BellOutlined, SyncOutlined, TeamOutlined, LogoutOutlined,
 }
 
 function icon(name: string) {
@@ -66,8 +73,6 @@ const menuItems = [
   ]},
   { key: '/tasks', icon: icon('CheckSquareOutlined'), label: '任务管理', children: [
     { key: '/tasks/workspace', icon: icon('UserOutlined'), label: '个人工作台' },
-    { key: '/tasks/feedback', icon: icon('MessageOutlined'), label: '任务反馈' },
-    { key: '/tasks/anomaly', icon: icon('WarningOutlined'), label: '实验异常' },
   ]},
   { key: '/projects', icon: icon('ProjectOutlined'), label: '项目管理', children: [
     { key: '/projects/ledger', icon: icon('DatabaseOutlined'), label: '项目台账管理' },
@@ -98,7 +103,10 @@ const openKeys = computed(() => {
   return []
 })
 
+function handleLogout() { localStorage.removeItem('token'); localStorage.removeItem('user'); router.replace('/login') }
+
 function navigate({ key }: { key: string }) {
   router.push(key)
 }
 </script>
+

@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+﻿from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from app.core.database import get_db
-from app.models import Project, Milestone, Task, TaskDependency, TaskCapabilityRequirement
+from app.models import Project, Milestone, Task, TaskDependency, TaskCapabilityRequirement, TimeSlot
 from app.schemas.schemas import (
     ProjectCreate, ProjectOut, TaskCreate, TaskOut,
     MilestoneCreate, MilestoneOut, TaskCapabilityReqOut
@@ -51,6 +51,25 @@ def update_project(proj_id: int, data: ProjectCreate, db: Session = Depends(get_
     db.refresh(proj)
     return proj
 
+@router.delete("/{proj_id}")
+def delete_project(proj_id: int, db: Session = Depends(get_db)):
+    proj = db.query(Project).filter(Project.id == proj_id).first()
+    if not proj:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    # Delete related records
+    task_ids = [t.id for t in db.query(Task).filter(Task.project_id == proj_id).all()]
+    for tid in task_ids:
+        db.query(TaskDependency).filter(
+            (TaskDependency.predecessor_id == tid) | (TaskDependency.task_id == tid)
+        ).delete()
+        db.query(TaskCapabilityRequirement).filter(TaskCapabilityRequirement.task_id == tid).delete()
+        db.query(TimeSlot).filter(TimeSlot.task_id == tid).delete()
+    db.query(Task).filter(Task.project_id == proj_id).delete()
+    db.query(Milestone).filter(Milestone.project_id == proj_id).delete()
+    db.delete(proj)
+    db.commit()
+    return {"detail": "已删除"}
+
 @router.post("/{proj_id}/milestones", response_model=MilestoneOut)
 def add_milestone(proj_id: int, data: MilestoneCreate, db: Session = Depends(get_db)):
     ms = Milestone(project_id=proj_id, name=data.name, due_date=data.due_date)
@@ -65,6 +84,7 @@ def add_task(proj_id: int, data: TaskCreate, db: Session = Depends(get_db)):
         project_id=proj_id, name=data.name, task_type=data.task_type,
         requires_instrument=data.requires_instrument, requires_human=data.requires_human,
         est_duration_hours=data.est_duration_hours, switchover_hours=data.switchover_hours,
+        assignee_id=data.assignee_id,
         allow_split=data.allow_split, allow_transfer=data.allow_transfer,
         milestone_id=data.milestone_id, priority_weight=data.priority_weight
     )
@@ -80,6 +100,21 @@ def add_task(proj_id: int, data: TaskCreate, db: Session = Depends(get_db)):
     db.refresh(task)
     return _task_to_out(task, db)
 
+@router.delete("/tasks/{task_id}")
+def delete_task(task_id: int, db: Session = Depends(get_db)):
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    # Delete dependencies first
+    db.query(TaskDependency).filter(
+        (TaskDependency.predecessor_id == task_id) | (TaskDependency.task_id == task_id)
+    ).delete()
+    db.query(TaskCapabilityRequirement).filter(TaskCapabilityRequirement.task_id == task_id).delete()
+    db.query(TimeSlot).filter(TimeSlot.task_id == task_id).delete()
+    db.delete(task)
+    db.commit()
+    return {"detail": "已删除"}
+
 @router.put("/tasks/{task_id}", response_model=TaskOut)
 def update_task(task_id: int, data: TaskCreate, db: Session = Depends(get_db)):
     task = db.query(Task).filter(Task.id == task_id).first()
@@ -91,6 +126,7 @@ def update_task(task_id: int, data: TaskCreate, db: Session = Depends(get_db)):
     task.requires_human = data.requires_human
     task.est_duration_hours = data.est_duration_hours
     task.switchover_hours = data.switchover_hours
+    task.assignee_id = data.assignee_id
     task.allow_split = data.allow_split
     task.allow_transfer = data.allow_transfer
     task.milestone_id = data.milestone_id
@@ -104,7 +140,6 @@ def update_task(task_id: int, data: TaskCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(task)
     return _task_to_out(task, db)
-
 @router.get("/{proj_id}/dag")
 def get_project_dag(proj_id: int, db: Session = Depends(get_db)):
     tasks = db.query(Task).filter(Task.project_id == proj_id).all()
@@ -128,5 +163,8 @@ def _task_to_out(task: Task, db: Session) -> TaskOut:
         switchover_hours=task.switchover_hours, status=task.status,
         earliest_start=task.earliest_start, latest_due=task.latest_due,
         priority_weight=task.priority_weight,
-        capability_requirements=caps, predecessor_ids=preds
+        capability_requirements=caps, predecessor_ids=preds,
+        assignee_id=task.assignee_id,
+        assignee_name=task.assignee.display_name if task.assignee else None
     )
+

@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div class="page-header"><h2>项目依赖关系</h2><p>任务 DAG 拓扑图</p></div>
+    <div class="page-header"><h2>项目依赖关系</h2></div>
     <a-select placeholder="选择项目查看依赖关系" style="width: 360px; margin-bottom: 20px" v-model:value="selectedProj" allowClear
       :options="projects.map(p=>({label:p.code+' '+p.name,value:p.id}))" @change="loadDAG" />
     <a-spin v-if="loading" size="large" style="display: block; margin: 80px auto" />

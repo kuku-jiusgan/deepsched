@@ -1,10 +1,16 @@
-import { createRouter, createWebHistory } from 'vue-router'
+﻿import { createRouter, createWebHistory } from 'vue-router'
 import AppLayout from '@/components/AppLayout.vue'
 
 const routes = [
   {
+    path: '/login',
+    component: () => import('@/pages/Login.vue'),
+    meta: { guest: true }
+  },
+  {
     path: '/',
     component: AppLayout,
+    meta: { requiresAuth: true },
     children: [
       { path: '', redirect: '/dashboard' },
       { path: 'dashboard', component: () => import('@/pages/Dashboard.vue') },
@@ -13,8 +19,6 @@ const routes = [
       { path: 'kanban/instrument-gantt', component: () => import('@/pages/InstrumentGantt.vue') },
       { path: 'kanban/project-gantt', component: () => import('@/pages/kanban/ProjectGantt.vue') },
       { path: 'tasks/workspace', component: () => import('@/pages/tasks/PersonalWorkspace.vue') },
-      { path: 'tasks/feedback', component: () => import('@/pages/tasks/TaskFeedback.vue') },
-      { path: 'tasks/anomaly', component: () => import('@/pages/tasks/ExperimentAnomaly.vue') },
       { path: 'projects/ledger', component: () => import('@/pages/ProjectBoard.vue') },
       { path: 'projects/plan-breakdown', component: () => import('@/pages/projects/PlanBreakdown.vue') },
       { path: 'projects/process-dag', component: () => import('@/pages/ProjectDAG.vue') },
@@ -31,4 +35,17 @@ const routes = [
   }
 ]
 
-export default createRouter({ history: createWebHistory(), routes })
+const router = createRouter({ history: createWebHistory(), routes })
+
+router.beforeEach((to, _from, next) => {
+  const token = localStorage.getItem('token')
+  if (to.meta.requiresAuth && !token) {
+    next('/login')
+  } else if (to.path === '/login' && token) {
+    next('/dashboard')
+  } else {
+    next()
+  }
+})
+
+export default router
