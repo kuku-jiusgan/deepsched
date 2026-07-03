@@ -1,5 +1,5 @@
 ﻿<template>
-  <div class="gantt-page">
+  <div class="gantt-page" :class="{ 'is-fullscreen': isFullscreen }">
     <div class="page-header"><h2>仪器甘特图</h2></div>
 
     <div class="action-bar">
@@ -13,6 +13,7 @@
       <a-button @click="goNext"><RightOutlined /></a-button>
       <a-button @click="goToday">今天</a-button>
       <a-button @click="fetchData"><ReloadOutlined /> 刷新</a-button>
+      <a-button @click="toggleFullscreen"><component :is="isFullscreen ? FullscreenExitOutlined : FullscreenOutlined" /> 全屏</a-button>
       <span style="margin-left: auto; font-size: 12px; color: #94a3b8">{{ slots.length }} 个时间槽</span>
     </div>
 
@@ -23,19 +24,20 @@
     </div>
 
     <div v-else class="gantt-container" ref="containerRef">
-      <div class="gantt-left" ref="leftRef">
+      <div class="gantt-left">
         <div class="gantt-header-cell">仪器</div>
         <div v-for="row in flatRows" :key="'l-' + row.inst.id + '-q' + row.quarter"
           class="gantt-left-row" :class="{ 'is-subrow': row.isSubrow, 'is-last': row.isLast }"
-          :style="{ height: Math.max(12, rowHeight) + 'px' }">
+          :style="getLeftRowStyle(row)">
           <template v-if="!row.isSubrow || viewMode !== 'week'">
-            <div class="inst-name">{{ row.inst.name }}</div>
             <div class="inst-code">{{ row.inst.code }}</div>
+            <div class="inst-name">{{ row.inst.name }}</div>
+            <div class="inst-model" v-if="row.inst.model">{{ row.inst.model }}</div>
           </template>
         </div>
       </div>
 
-      <div class="gantt-right" ref="rightRef" @scroll="onScroll">
+      <div class="gantt-right">
         <div class="gantt-timeline-header" :style="{ width: totalWidth + 'px' }">
           <div v-for="col in timeColumns" :key="col.key" class="gantt-col-header" :style="{ width: colWidth + 'px' }"
             :class="{ 'is-weekend': col.isWeekend, 'is-today': col.isToday }">
@@ -76,7 +78,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { message } from 'ant-design-vue'
-import { LeftOutlined, RightOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { LeftOutlined, RightOutlined, ReloadOutlined, FullscreenOutlined, FullscreenExitOutlined } from '@ant-design/icons-vue'
 import { getInstruments, getTimeslots, getTaskTypes, type TaskTypeConfig } from '@/services/api'
 import type { Instrument, TimeSlot } from '@/types'
 import dayjs from 'dayjs'
@@ -86,6 +88,7 @@ const instruments = ref<Instrument[]>([])
 const slots = ref<TimeSlot[]>([])
 const viewMode = ref<'day' | 'week' | 'month'>('week')
 const cursorDate = ref(dayjs().startOf('week'))
+const isFullscreen = ref(false)
 const hoveredSlot = ref<TimeSlot | null>(null)
 const tooltipX = ref(0)
 const tooltipY = ref(0)
@@ -197,7 +200,13 @@ function getEntityRowStyle(_index: number, _quarter?: number) {
   return { height: Math.max(12, rowHeight.value) + 'px' }
 }
 
-function getLeftRowStyle(_index: number, _quarter?: number) {
+function getLeftRowStyle(row: { isSubrow: boolean }) {
+  if (viewMode.value === 'week' && !row.isSubrow) {
+    return { height: rowHeight.value * 4 + 'px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }
+  }
+  if (viewMode.value === 'week' && row.isSubrow) {
+    return { height: '0', overflow: 'hidden', padding: '0', border: 'none' }
+  }
   return { height: Math.max(12, rowHeight.value) + 'px' }
 }
 
@@ -330,15 +339,12 @@ function goToday() {
   if (viewMode.value === 'day') scrollToNow()
 }
 
-function onScroll() {
-  if (leftRef.value && rightRef.value) leftRef.value.scrollTop = rightRef.value.scrollTop
-}
 
 function scrollToNow() {
   if (viewMode.value !== 'day' || !rightRef.value) return
   nextTick(() => {
     const hour = dayjs().hour()
-    const containerH = rightRef.value.clientHeight
+    const containerH = containerRef.value.clientHeight
     rightRef.value.scrollTop = Math.max(0, hour * (rowHeight.value / 24) - containerH / 2)
   })
 }
@@ -357,7 +363,7 @@ function recalc() {
       } else {
         rowHeight.value = perEntity
       }
-      const available = containerRef.value.clientWidth - 160 - 2
+      const available = containerRef.value.clientWidth - 180 - 2
       const cols = viewMode.value === 'day' ? 24 : viewMode.value === 'week' ? 7 : cursorDate.value.daysInMonth()
       colWidth.value = Math.max(60, available / cols)
     }, 50)
@@ -379,6 +385,7 @@ async function fetchData() {
     await nextTick()
     recalc()
     if (viewMode.value === 'day') scrollToNow()
+    if (isFullscreen.value) { stopAutoScroll(); startAutoScroll() }
   }
 }
 
@@ -386,10 +393,62 @@ let resizeObserver: ResizeObserver | null = null
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 
+
+let autoScrollTimer: ReturnType<typeof setInterval> | null = null
+let isAutoScrolling = false
+
+function toggleFullscreen() {
+  if (!isFullscreen.value) {
+    document.documentElement.requestFullscreen()
+    isFullscreen.value = true
+  } else {
+    stopAutoScroll()
+    document.exitFullscreen()
+    isFullscreen.value = false
+  }
+}
+
+function startAutoScroll() {
+  if (!containerRef.value) return
+  const maxScroll = containerRef.value.scrollHeight - containerRef.value.clientHeight
+  if (maxScroll <= 0) {
+    setTimeout(() => { startAutoScroll() }, 300)
+    return
+  }
+  stopAutoScroll()
+  isAutoScrolling = true
+  let direction = 1
+  autoScrollTimer = setInterval(() => {
+    if (!containerRef.value) { stopAutoScroll(); return }
+    const current = containerRef.value.scrollTop
+    if (current >= maxScroll - 2) direction = -1
+    if (current <= 2) direction = 1
+    containerRef.value.scrollTop += direction * 0.6
+  }, 20)
+}
+
+function stopAutoScroll() {
+  isAutoScrolling = false
+  if (autoScrollTimer) {
+    clearInterval(autoScrollTimer)
+    autoScrollTimer = null
+  }
+}
+
+function onFullscreenChange() {
+  isFullscreen.value = !!document.fullscreenElement
+  if (isFullscreen.value) {
+    setTimeout(() => { startAutoScroll() }, 500)
+  } else {
+    stopAutoScroll()
+  }
+}
+
 onMounted(() => {
   fetchData()
   refreshTimer = setInterval(fetchData, 15000)
   window.addEventListener('resize', recalc)
+  document.addEventListener('fullscreenchange', onFullscreenChange)
   nextTick(() => {
     if (containerRef.value) {
       resizeObserver = new ResizeObserver(() => {
@@ -404,6 +463,8 @@ onMounted(() => {
 onUnmounted(() => {
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
   window.removeEventListener('resize', recalc)
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
+  stopAutoScroll()
   if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null }
 })
 </script>
@@ -411,20 +472,29 @@ onUnmounted(() => {
 <style scoped>
 .gantt-page { display: flex; flex-direction: column; height: calc(100vh - 64px); }
 
-.gantt-container { display: flex; flex: 1; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; margin-top: 12px; min-height: 0; }
+.gantt-page.is-fullscreen {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 9999;
+  background: #f7f8fa; padding: 16px; height: 100vh;
+}
+.gantt-page.is-fullscreen .gantt-container { flex: 1; min-height: 0; }
+.gantt-page.is-fullscreen .page-header { display: none; }
+.gantt-page.is-fullscreen .action-bar { padding: 0 0 12px 0; }
 
-.gantt-left { width: 160px; min-width: 160px; background: #f8fafc; border-right: 1px solid #e5e7eb; overflow-y: auto; overflow-x: hidden; }
+.gantt-container { display: flex; flex: 1; border: 1px solid #e5e7eb; border-radius: 8px; overflow: auto; margin-top: 12px; min-height: 0; }
+
+.gantt-left { width: 180px; min-width: 180px; background: #f8fafc; border-right: 1px solid #e5e7eb; position: sticky; left: 0; z-index: 3; }
 .gantt-left::-webkit-scrollbar { width: 0; }
 .gantt-header-cell { height: 50px; display: flex; align-items: center; padding: 0 12px; font-weight: 600; font-size: 13px; color: #475569; border-bottom: 2px solid #c0c7cf; background: #f1f5f9; }
 .gantt-left-row { display: flex; flex-direction: column; justify-content: center; padding: 0 12px; border-bottom: none; overflow: hidden; }
 .gantt-left-row.is-last { border-bottom: 2px solid #b0bec5; }
-.inst-name { font-size: 13px; font-weight: 500; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.inst-code { font-size: 11px; color: #94a3b8; }
+.inst-code { font-size: 12px; font-weight: 700; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.inst-name { font-size: 12px; font-weight: 400; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.inst-model { font-size: 10px; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.gantt-right { flex: 1; overflow: auto; }
+.gantt-right { flex: 1; }
 .gantt-right::-webkit-scrollbar { width: 6px; height: 6px; }
 .gantt-right::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-.gantt-timeline-header { display: flex; height: 50px; border-bottom: 2px solid #c0c7cf; position: sticky; top: 0; background: #f1f5f9; z-index: 2; }
+.gantt-timeline-header { display: flex; height: 50px; border-bottom: 2px solid #c0c7cf; position: sticky; top: 0; background: #f1f5f9; z-index: 4; }
 .gantt-col-header { display: flex; flex-direction: column; align-items: center; justify-content: center; border-right: 1px solid #c0c7cf; font-size: 12px; color: #64748b; flex-shrink: 0; box-sizing: border-box; }
 .gantt-col-header.is-weekend { background: #fef2f2; }
 .gantt-col-header.is-today { background: #dbeafe; }

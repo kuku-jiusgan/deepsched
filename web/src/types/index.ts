@@ -30,6 +30,8 @@ export interface Task {
   predecessor_ids: number[];
   assignee_id: number | null;
   assignee_name: string | null;
+  parent_id: number | null;
+  children?: Task[];
 }
 
 export interface CapabilityReq {
@@ -66,6 +68,7 @@ export interface TimeSlot {
   project_name?: string;
   instrument_name?: string;
   assignee_name?: string;
+  project_id?: number;
 }
 
 export interface DashboardData {

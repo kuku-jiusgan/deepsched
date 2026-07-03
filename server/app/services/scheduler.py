@@ -17,6 +17,8 @@ class SchedulerService:
     # ── Public API ──────────────────────────────────────────────
 
     def generate(self, project_ids: Optional[List[int]] = None) -> dict:
+        # Clear old slots and reset task statuses BEFORE loading
+        self._clear_slots()
         tasks, instruments = self._load_data(project_ids)
         if not tasks:
             return {"status": "ok", "message": "没有待排仪器任务", "timeslots_created": 0}
@@ -121,7 +123,6 @@ class SchedulerService:
             return {"status": "error", "message": "排程求解失败，请检查约束是否冲突"}
 
         # Persist results
-        self._clear_slots()
         created = self._persist_slots(
             tasks, instruments, solver, task_starts, task_ends, presences, horizon_start
         )
@@ -190,8 +191,8 @@ class SchedulerService:
 
     def _load_data(self, project_ids):
         q = self.db.query(Task).filter(
-            Task.requires_instrument == True,
             Task.status.in_(["pending", "ready"]),
+            Task.parent_id == None,
         )
         if project_ids:
             q = q.filter(Task.project_id.in_(project_ids))
@@ -200,7 +201,15 @@ class SchedulerService:
         return tasks, instruments
 
     def _time_horizon(self):
-        now = datetime.now().replace(minute=0, second=0, microsecond=0)
+        now = datetime.now().replace(second=0, microsecond=0)
+        # Round up to next 30-min slot
+        m = now.minute
+        if m % 30 != 0:
+            m = ((m // 30) + 1) * 30
+            if m >= 60:
+                now = now.replace(hour=now.hour + 1, minute=0)
+            else:
+                now = now.replace(minute=m)
         horizon_start = now
         horizon_end = now + timedelta(days=HORIZON_DAYS)
         total_units = int((horizon_end - horizon_start).total_seconds() / 60 / TIME_UNIT_MINUTES)
@@ -218,6 +227,9 @@ class SchedulerService:
     def _build_compatibility(self, tasks, instruments):
         compat: Dict[int, List[Instrument]] = {}
         for t in tasks:
+            if not t.requires_instrument:
+                compat[t.id] = []
+                continue
             reqs = t.capability_requirements
             if not reqs:
                 compat[t.id] = list(instruments)
@@ -251,12 +263,10 @@ class SchedulerService:
         return windows
 
     def _clear_slots(self):
-        self.db.query(TimeSlot).filter(
-            TimeSlot.tier.in_(["forecast", "confirmed"])
-        ).delete()
-        # Reset affected task statuses back to pending
+        # Clear ALL non-frozen old slots, and reset task statuses
+        self.db.query(TimeSlot).delete()
         self.db.query(Task).filter(
-            Task.status == "scheduled"
+            Task.status.in_(["scheduled", "blocked"])
         ).update({"status": "pending"})
 
     def _persist_slots(self, tasks, instruments, solver, task_starts, task_ends, presences, horizon_start):
@@ -267,13 +277,14 @@ class SchedulerService:
 
         for t in tasks:
             assigned_inst = None
-            for inst in instruments:
-                key = (t.id, inst.id)
-                if key in presences and solver.Value(presences[key]) == 1:
-                    assigned_inst = inst
-                    break
-            if assigned_inst is None:
-                continue
+            if t.requires_instrument:
+                for inst in instruments:
+                    key = (t.id, inst.id)
+                    if key in presences and solver.Value(presences[key]) == 1:
+                        assigned_inst = inst
+                        break
+                if assigned_inst is None:
+                    continue
 
             start = self._units_to_datetime(solver.Value(task_starts[t.id]), horizon_start)
             end = self._units_to_datetime(solver.Value(task_ends[t.id]), horizon_start)
@@ -287,7 +298,7 @@ class SchedulerService:
 
             slot = TimeSlot(
                 task_id=t.id,
-                instrument_id=assigned_inst.id,
+                instrument_id=assigned_inst.id if assigned_inst else None,
                 plan_start=start,
                 plan_end=end,
                 tier=tier,

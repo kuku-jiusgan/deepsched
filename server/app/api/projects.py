@@ -84,7 +84,7 @@ def add_task(proj_id: int, data: TaskCreate, db: Session = Depends(get_db)):
         project_id=proj_id, name=data.name, task_type=data.task_type,
         requires_instrument=data.requires_instrument, requires_human=data.requires_human,
         est_duration_hours=data.est_duration_hours, switchover_hours=data.switchover_hours,
-        assignee_id=data.assignee_id,
+        assignee_id=data.assignee_id, parent_id=data.parent_id,
         allow_split=data.allow_split, allow_transfer=data.allow_transfer,
         milestone_id=data.milestone_id, priority_weight=data.priority_weight
     )
@@ -127,6 +127,7 @@ def update_task(task_id: int, data: TaskCreate, db: Session = Depends(get_db)):
     task.est_duration_hours = data.est_duration_hours
     task.switchover_hours = data.switchover_hours
     task.assignee_id = data.assignee_id
+    task.parent_id = data.parent_id
     task.allow_split = data.allow_split
     task.allow_transfer = data.allow_transfer
     task.milestone_id = data.milestone_id
@@ -156,6 +157,7 @@ def _task_to_out(task: Task, db: Session) -> TaskOut:
     caps = [TaskCapabilityReqOut(id=c.id, tag_name=c.tag_name, tag_value=c.tag_value)
             for c in task.capability_requirements]
     preds = [d.predecessor_id for d in task.predecessors]
+    children_out = [_task_to_out(c, db) for c in task.children] if task.children else []
     return TaskOut(
         id=task.id, project_id=task.project_id, name=task.name,
         task_type=task.task_type, requires_instrument=task.requires_instrument,
@@ -164,7 +166,8 @@ def _task_to_out(task: Task, db: Session) -> TaskOut:
         earliest_start=task.earliest_start, latest_due=task.latest_due,
         priority_weight=task.priority_weight,
         capability_requirements=caps, predecessor_ids=preds,
-        assignee_id=task.assignee_id,
-        assignee_name=task.assignee.display_name if task.assignee else None
+        assignee_id=task.assignee_id, parent_id=task.parent_id,
+        assignee_name=task.assignee.display_name if task.assignee else None,
+        children=children_out
     )
 

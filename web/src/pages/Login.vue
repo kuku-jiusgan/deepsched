@@ -1,7 +1,7 @@
 ﻿<template>
   <div class="login-container">
     <div class="login-card">
-      <h1 class="login-title">DeepSched</h1>
+      <h1 class="login-title">仪器与项目智能调度管理平台</h1>
       <p class="login-subtitle">仪器与项目智能调度管理平台</p>
       <a-form layout="vertical"  style="margin-top: 32px">
         <a-form-item>

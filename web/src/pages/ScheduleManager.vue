@@ -64,8 +64,18 @@ const slotColumns = [
 
 async function handleGenerate() {
   genLoading.value = true
-  try { await generateSchedule(); message.success("排程生成成功"); const s = await getTimeslots(); recentSlots.value = s.slice(0, 20); saveToStorage(recentSlots.value) }
-  catch { message.error("生成失败") }
+  try {
+    await generateSchedule()
+    message.success("排程生成成功")
+    // Small delay to ensure DB commit is visible
+    await new Promise(r => setTimeout(r, 300))
+    const s = await getTimeslots()
+    recentSlots.value = s.slice(0, 20)
+    saveToStorage(recentSlots.value)
+  } catch (e: any) {
+    console.error('Generate failed:', e)
+    message.error(e?.response?.data?.detail || '生成失败')
+  }
   finally { genLoading.value = false }
 }
 onMounted(async () => {

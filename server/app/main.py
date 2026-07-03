@@ -2,7 +2,7 @@
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import engine, Base
 from app.models import models
-from app.api import users, schedule_rules, instruments, projects, schedules, stats, notifications, task_types
+from app.api import users, schedule_rules, instruments, projects, schedules, stats, notifications, task_types, alert_rules, calendar_api
 
 Base.metadata.create_all(bind=engine)
 
@@ -27,6 +27,8 @@ app.include_router(users.router)
 app.include_router(stats.router)
 app.include_router(notifications.router)
 app.include_router(task_types.router)
+app.include_router(alert_rules.router)
+app.include_router(calendar_api.router)
 
 @app.get("/api/v1/health")
 def health():

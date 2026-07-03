@@ -195,6 +195,7 @@ h3 { font-size: 1.1rem; font-weight: 600; }
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  position: relative;
 }
 
 .stat-card-label {
@@ -230,6 +231,33 @@ h3 { font-size: 1.1rem; font-weight: 600; }
   font-size: 1.1rem;
   color: var(--color-accent);
   flex-shrink: 0;
+}
+
+.stat-card-clickable {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.stat-card-clickable:hover {
+  border-color: var(--color-accent);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.15);
+  transform: translateY(-1px);
+}
+.stat-card-clickable .stat-card-value {
+  color: var(--color-accent);
+  transition: color 0.2s;
+}
+.stat-card-clickable::after {
+  content: '→';
+  position: absolute;
+  right: 12px;
+  bottom: 8px;
+  font-size: 0.8rem;
+  color: var(--color-accent);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.stat-card-clickable:hover::after {
+  opacity: 1;
 }
 
 /* Chart card */

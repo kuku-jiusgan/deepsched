@@ -20,6 +20,10 @@
         <template v-if="column.key === 'status'">
           <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
         </template>
+        <template v-else-if="column.key === 'task_type'">
+          <a-tag v-if="record.task_type" :color="taskTypeColor(record.task_type)" style="font-size: 11px">{{ taskTypeLabel(record.task_type) }}</a-tag>
+          <span v-else style="color: #ccc">-</span>
+        </template>
         <template v-else-if="column.key === 'task_name'">
           <span style="font-weight: 500">{{ record.task_name }}</span>
         </template>
@@ -98,6 +102,12 @@ function statusColor(s: string) {
   return m[s] || '#94a3b8'
 }
 
+function taskTypeLabel(code: string | null) { return code ? (taskTypeMap.value[code] || code) : '' }
+function taskTypeColor(code: string | null) {
+  if (!code) return '#94a3b8'
+  const m: Record<string, string> = { solution_prep: '#8b5cf6', sample_prep: '#f59e0b', instrument_run: '#3b82f6', report: '#10b981' }
+  return m[code] || '#94a3b8'
+}
 function statusLabel(s: string) {
   const m: Record<string, string> = { pending: '待处理', scheduled: '待执行', running: '运行中', completed: '已完成', blocked: '已延期', interrupted: '已中断' }
   return m[s] || s
@@ -105,6 +115,7 @@ function statusLabel(s: string) {
 
 const columns = [
   { title: '任务名称', dataIndex: 'task_name', key: 'task_name', width: 200, ellipsis: true },
+  { title: '任务类型', key: 'task_type', width: 110 },
   { title: '所属项目', key: 'project', width: 200 },
   { title: '仪器', key: 'instrument', width: 130 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 80 },

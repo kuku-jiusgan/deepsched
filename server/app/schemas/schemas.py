@@ -39,6 +39,7 @@ class TaskCreate(BaseModel):
     predecessor_ids: List[int] = []
     capability_requirements: List[TaskCapabilityReqCreate] = []
     assignee_id: Optional[int] = None
+    parent_id: Optional[int] = None
 
 class TaskOut(BaseModel):
     id: int
@@ -57,6 +58,9 @@ class TaskOut(BaseModel):
     predecessor_ids: List[int] = []
     assignee_id: Optional[int] = None
     assignee_name: Optional[str] = None
+    project_id: Optional[int] = None
+    parent_id: Optional[int] = None
+    children: List["TaskOut"] = []
     model_config = ConfigDict(from_attributes=True)
 
 class ProjectCreate(BaseModel):
@@ -104,7 +108,7 @@ class MaintenanceCreate(BaseModel):
 
 class MaintenanceOut(BaseModel):
     id: int
-    instrument_id: int
+    instrument_id: Optional[int] = None
     start_time: datetime
     end_time: datetime
     mw_type: str
@@ -116,7 +120,7 @@ class FaultCreate(BaseModel):
 
 class FaultOut(BaseModel):
     id: int
-    instrument_id: int
+    instrument_id: Optional[int] = None
     reported_at: datetime
     resolved_at: Optional[datetime]
     description: str
@@ -152,7 +156,7 @@ class InstrumentOut(BaseModel):
 class TimeSlotOut(BaseModel):
     id: int
     task_id: int
-    instrument_id: int
+    instrument_id: Optional[int] = None
     plan_start: datetime
     plan_end: datetime
     actual_start: Optional[datetime]
@@ -164,6 +168,9 @@ class TimeSlotOut(BaseModel):
     project_name: Optional[str] = None
     instrument_name: Optional[str] = None
     assignee_name: Optional[str] = None
+    project_id: Optional[int] = None
+    parent_id: Optional[int] = None
+    children: List["TaskOut"] = []
     model_config = ConfigDict(from_attributes=True)
 
 class TimeSlotUpdate(BaseModel):
@@ -200,7 +207,7 @@ class RescheduleRequest(BaseModel):
 
 # ---- Stats ----
 class UtilizationStats(BaseModel):
-    instrument_id: int
+    instrument_id: Optional[int] = None
     instrument_name: str
     total_available_hours: float
     scheduled_hours: float
@@ -230,6 +237,7 @@ class UserCreate(BaseModel):
     role: str = "分析员"
     email: Optional[str] = None
     phone: Optional[str] = None
+    wecom_id: Optional[str] = None
     is_active: bool = True
 
 class UserOut(BaseModel):

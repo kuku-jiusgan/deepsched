@@ -15,6 +15,7 @@ const routes = [
       { path: '', redirect: '/dashboard' },
       { path: 'dashboard', component: () => import('@/pages/Dashboard.vue') },
       { path: 'operations/reports', component: () => import('@/pages/operations/DetailedReports.vue') },
+      { path: 'operations/project-tasks', component: () => import('@/pages/operations/ProjectTaskDetail.vue') },
       { path: 'operations/lab-status', component: () => import('@/pages/operations/LabStatusScreen.vue') },
       { path: 'kanban/instrument-gantt', component: () => import('@/pages/InstrumentGantt.vue') },
       { path: 'kanban/project-gantt', component: () => import('@/pages/kanban/ProjectGantt.vue') },
@@ -31,6 +32,7 @@ const routes = [
       { path: 'system/external-sync', component: () => import('@/pages/system/ExternalSync.vue') },
       { path: 'system/users', component: () => import('@/pages/system/UserManagement.vue') },
       { path: 'system/basic', component: () => import('@/pages/system/SystemBasic.vue') },
+      { path: 'system/calendar', component: () => import('@/pages/system/WorkCalendar.vue') },
     ]
   }
 ]

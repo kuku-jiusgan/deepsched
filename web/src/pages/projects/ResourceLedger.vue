@@ -1,6 +1,6 @@
 ﻿<template>
   <div>
-    <div class="page-header"><h2>基础资源台账</h2></div>
+    <div class="page-header"><h2>仪器基础信息</h2></div>
     <div class="action-bar">
       <a-button type="primary" @click="openCreate"><PlusOutlined /> 添加仪器</a-button>
       <a-button @click="fetchData"><ReloadOutlined /> 刷新</a-button>

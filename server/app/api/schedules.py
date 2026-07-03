@@ -191,6 +191,7 @@ def _enrich_slot(slot: TimeSlot, db: Session) -> TimeSlotOut:
         task_type=task.task_type if task else None,
         project_name=proj.name if proj else None,
         instrument_name=inst.name if inst else None,
-        assignee_name=task.assignee.display_name if task and task.assignee else None
+        assignee_name=task.assignee.display_name if task and task.assignee else None,
+        project_id=task.project_id if task else None
     )
 

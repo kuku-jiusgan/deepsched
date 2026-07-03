@@ -41,6 +41,7 @@
         <a-form-item label="角色" required><a-select v-model:value="form.role" :options="roleOptions" /></a-form-item>
         <a-form-item label="邮箱"><a-input v-model:value="form.email" placeholder="如：zhangsan@example.com" /></a-form-item>
         <a-form-item label="手机号"><a-input v-model:value="form.phone" placeholder="如：13800138000" /></a-form-item>
+          <a-form-item label="企业微信"><a-input v-model:value="form.wecom_id" placeholder="企业微信号" /></a-form-item>
         <a-form-item label="状态"><a-switch v-model:checked="form.is_active" checked-children="启用" un-checked-children="停用" /></a-form-item>
       </a-form>
     </a-modal>
@@ -72,7 +73,7 @@ const users = ref<User[]>([])
 const loading = ref(true)
 const modalOpen = ref(false)
 const editingId = ref<number | null>(null)
-const form = reactive({ username: '', display_name: '', password: '', role: '分析员', email: '', phone: '', is_active: true })
+const form = reactive({ username: '', display_name: '', password: '', role: '分析员', email: '', phone: '', wecom_id: '', is_active: true })
 
 const pwdOpen = ref(false)
 const pwdTarget = ref<User | null>(null)
@@ -98,6 +99,7 @@ const columns = [
   { title: '角色', dataIndex: 'role', key: 'role', width: 110 },
   { title: '邮箱', dataIndex: 'email', key: 'email', width: 180, ellipsis: true },
   { title: '手机号', dataIndex: 'phone', key: 'phone', width: 130 },
+  { title: '企业微信', dataIndex: 'wecom_id', key: 'wecom_id', width: 130, ellipsis: true },
   { title: '状态', dataIndex: 'is_active', key: 'is_active', width: 70 },
   { title: '创建时间', key: 'created_at', width: 140 },
   { title: '操作', key: 'actions', width: 200 },
@@ -110,7 +112,7 @@ async function fetchData() {
 
 function openCreate() {
   editingId.value = null
-  Object.assign(form, { username: '', display_name: '', password: '', role: '分析员', email: '', phone: '', is_active: true })
+  Object.assign(form, { username: '', display_name: '', password: '', role: '分析员', email: '', phone: '', wecom_id: '', is_active: true })
   modalOpen.value = true
 }
 

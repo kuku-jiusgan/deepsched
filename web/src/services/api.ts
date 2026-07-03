@@ -203,3 +203,26 @@ export const updateTaskType = (id: number, data: Partial<TaskTypeConfig>): Promi
 export const deleteTaskType = (id: number): Promise<void> =>
   api.delete('/task-types/' + id)
 
+export interface AlertRule {
+  id: number; name: string; rule_type: string; enabled: boolean;
+  notify_roles: string | null; threshold_minutes: number; threshold_percent: number;
+}
+export const getAlertRules = (): Promise<AlertRule[]> =>
+  api.get<AlertRule[]>('/alert-rules').then(r => r.data)
+export const updateAlertRule = (id: number, data: Partial<AlertRule>): Promise<AlertRule> =>
+  api.put<AlertRule>(`/alert-rules/${id}`, data).then(r => r.data)
+
+export interface CalendarDay {
+  id: number; date: string; is_working_day: boolean; holiday_name: string | null; day_type: string;
+}
+export const getCalendar = (year?: number, month?: number): Promise<CalendarDay[]> =>
+  api.get<CalendarDay[]>('/calendar', { params: { year, month } }).then(r => r.data)
+export const updateCalendarDay = (id: number, data: Partial<CalendarDay>): Promise<CalendarDay> =>
+  api.put<CalendarDay>(`/calendar/${id}`, data).then(r => r.data)
+export const upsertCalendarDate = (dt: string, data: Partial<CalendarDay>): Promise<CalendarDay> =>
+  api.put<CalendarDay>(`/calendar/date/${dt}`, data).then(r => r.data)
+export const batchFillCalendar = (year: number): Promise<{ detail: string }> =>
+  api.post<{ detail: string }>('/calendar/batch-fill', { year }).then(r => r.data)
+export const syncHolidays = (year: number): Promise<{ detail: string }> =>
+  api.post<{ detail: string }>(`/calendar/sync/${year}`).then(r => r.data)
+

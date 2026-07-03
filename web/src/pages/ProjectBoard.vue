@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div>
     <div class="page-header"><h2>项目看板</h2></div>
     <div class="action-bar">
@@ -135,6 +135,7 @@
 
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, EditOutlined, SearchOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import { getProjects, createProject, updateProject, deleteProject, getProject, getProjectDAG, addTask, updateTask, deleteTask, getUsers, getTaskTypes, type Project, type Task, type DAGData, type TaskTypeConfig } from '@/services/api'
@@ -162,6 +163,7 @@ const filterName = ref('')
 const filterClient = ref('')
 const filterDateRange = ref<any>(null)
 
+const router = useRouter()
 const cf = reactive({ name: '', code: '', client_name: '', manager: '', priority: 3, sla_level: 'standard', profit_weight: 1.0, start_date: null as any, end_date: null as any })
 const ef = reactive({ name: '', code: '', client_name: '', manager: '', priority: 3, sla_level: 'standard', profit_weight: 1.0, start_date: null as any, end_date: null as any })
 const tf = reactive({ name: '', task_type: '', est_duration_hours: 8, switchover_hours: 0.5, predecessor_ids: [] as number[], capability_requirements: [] as { tag_name: string; tag_value: string }[], assignee_id: null as number | null })
@@ -218,11 +220,8 @@ async function handleUpdateProject() {
   } catch { message.error('更新失败') }
 }
 
-async function handleViewDetail(id: number) {
-  try {
-    const [p, d] = await Promise.all([getProject(id), getProjectDAG(id)])
-    selectedProject.value = p; dagData.value = d; detailOpen.value = true
-  } catch { message.error('加载失败') }
+function handleViewDetail(id: number) {
+  router.push(`/projects/plan-breakdown?id=${id}`)
 }
 
 function openEditFromTable(record: Project) { selectedProject.value = record; openEditProject() }

@@ -1,8 +1,9 @@
 ﻿<template>
   <a-layout style="min-height: 100vh; background: #f7f8fa">
     <a-layout-sider width="220" style="background: #1a1a2e; border-right: none; display: flex; flex-direction: column; overflow: hidden">
-      <div style="height: 56px; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid rgba(255,255,255,0.06)">
-        <span style="color: #fff; font-size: 15px; font-weight: 600; letter-spacing: 0.5px">DeepSched</span>
+      <div style="height: 130px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.06)">
+        <img src="/公司logo.png" style="height: 48px; margin-bottom: 10px" />
+        <span style="color: #fff; font-size: 15px; font-weight: 700; letter-spacing: 1.5px">仪器与项目智能调度管理平台</span>
       </div>
       <a-menu
         theme="dark"
@@ -10,7 +11,7 @@
         :selected-keys="[route.path]"
         :default-open-keys="openKeys"
         :items="menuItems"
-        style="background: transparent; border-right: none; margin-top: 8px; flex: 1; overflow-y: auto; overflow-x: hidden"
+        style="background: transparent; border-right: none; margin-top: 20px; flex: 1; overflow-y: auto; overflow-x: hidden"
         @click="navigate"
       />
 
@@ -40,7 +41,7 @@ import {
   WarningOutlined, DatabaseOutlined, PartitionOutlined,
   ApartmentOutlined, TableOutlined, ToolOutlined,
   ThunderboltOutlined, SwapOutlined, DollarOutlined,
-  BellOutlined, SyncOutlined, TeamOutlined, LogoutOutlined,
+  BellOutlined, SyncOutlined, TeamOutlined, CalendarOutlined, LogoutOutlined,
 } from '@ant-design/icons-vue'
 
 const router = useRouter()
@@ -54,7 +55,7 @@ const iconMap: Record<string, any> = {
   WarningOutlined, DatabaseOutlined, PartitionOutlined,
   ApartmentOutlined, TableOutlined, ToolOutlined,
   ThunderboltOutlined, SwapOutlined, DollarOutlined,
-  BellOutlined, SyncOutlined, TeamOutlined, LogoutOutlined,
+  BellOutlined, SyncOutlined, TeamOutlined, CalendarOutlined, LogoutOutlined,
 }
 
 function icon(name: string) {
@@ -78,7 +79,7 @@ const menuItems = [
     { key: '/projects/ledger', icon: icon('DatabaseOutlined'), label: '项目台账管理' },
     { key: '/projects/plan-breakdown', icon: icon('PartitionOutlined'), label: '项目计划拆解' },
     { key: '/projects/process-dag', icon: icon('ApartmentOutlined'), label: '标准工序依赖配置' },
-    { key: '/projects/resource-ledger', icon: icon('TableOutlined'), label: '基础资源台账' },
+    { key: '/projects/resource-ledger', icon: icon('TableOutlined'), label: '仪器基础信息' },
   ]},
   { key: '/schedule', icon: icon('ScheduleOutlined'), label: '排程管理', children: [
     { key: '/schedule/rules', icon: icon('ToolOutlined'), label: '排程规则配置' },
@@ -91,6 +92,7 @@ const menuItems = [
     { key: '/system/external-sync', icon: icon('SyncOutlined'), label: '外部数据同步' },
     { key: '/system/users', icon: icon('TeamOutlined'), label: '用户管理' },
     { key: '/system/basic', icon: icon('SettingOutlined'), label: '系统基础管理' },
+    { key: '/system/calendar', icon: icon('CalendarOutlined'), label: '工作日历管理' },
   ]},
 ]
 

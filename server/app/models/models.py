@@ -1,4 +1,4 @@
-﻿from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, JSON, UniqueConstraint
+﻿from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Date, Text, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.core.database import Base
@@ -48,8 +48,11 @@ class Task(Base):
     milestone_id = Column(Integer, ForeignKey("milestone.id"))
     priority_weight = Column(Float, default=1.0)
     status = Column(String(20), default="pending")
+    parent_id = Column(Integer, ForeignKey("task.id"), nullable=True)
     assignee_id = Column(Integer, ForeignKey("user.id"))
     assignee = relationship("User")
+    parent = relationship("Task", remote_side=[id], back_populates="children")
+    children = relationship("Task", back_populates="parent", cascade="all, delete-orphan")
     earliest_start = Column(DateTime)
     latest_due = Column(DateTime)
     created_at = Column(DateTime, default=datetime.now)
@@ -108,7 +111,7 @@ class Instrument(Base):
 class InstrumentCapability(Base):
     __tablename__ = "instrument_capability"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    instrument_id = Column(Integer, ForeignKey("instrument.id"), nullable=False)
+    instrument_id = Column(Integer, ForeignKey("instrument.id"), nullable=True)
     tag_name = Column(String(100), nullable=False)
     tag_value = Column(String(200), nullable=False)
 
@@ -117,7 +120,7 @@ class InstrumentCapability(Base):
 class MaintenanceWindow(Base):
     __tablename__ = "maintenance_window"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    instrument_id = Column(Integer, ForeignKey("instrument.id"), nullable=False)
+    instrument_id = Column(Integer, ForeignKey("instrument.id"), nullable=True)
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
     mw_type = Column(String(30), nullable=False)
@@ -129,7 +132,7 @@ class MaintenanceWindow(Base):
 class InstrumentFault(Base):
     __tablename__ = "instrument_fault"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    instrument_id = Column(Integer, ForeignKey("instrument.id"), nullable=False)
+    instrument_id = Column(Integer, ForeignKey("instrument.id"), nullable=True)
     reported_at = Column(DateTime, default=datetime.now)
     resolved_at = Column(DateTime)
     description = Column(Text)
@@ -141,7 +144,7 @@ class TimeSlot(Base):
     __tablename__ = "time_slot"
     id = Column(Integer, primary_key=True, autoincrement=True)
     task_id = Column(Integer, ForeignKey("task.id"), nullable=False)
-    instrument_id = Column(Integer, ForeignKey("instrument.id"), nullable=False)
+    instrument_id = Column(Integer, ForeignKey("instrument.id"), nullable=True)
     plan_start = Column(DateTime, nullable=False)
     plan_end = Column(DateTime, nullable=False)
     actual_start = Column(DateTime)
@@ -174,6 +177,7 @@ class User(Base):
     role = Column(String(30), nullable=False, comment="系统管理员/项目管理员/项目负责人/分析员")
     email = Column(String(100))
     phone = Column(String(20))
+    wecom_id = Column(String(100), comment="企业微信号")
     password_hash = Column(String(128))
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.now)
@@ -214,6 +218,28 @@ class TaskTypeConfig(Base):
     description = Column(Text, comment="描述")
     is_active = Column(Boolean, default=True, comment="是否启用")
     sort_order = Column(Integer, default=0, comment="排序")
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+class AlertRule(Base):
+    __tablename__ = "alert_rule"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False)
+    rule_type = Column(String(30), nullable=False, comment="task_start_delay/task_end_delay/schedule_changed/hours_exceeded")
+    enabled = Column(Boolean, default=True)
+    notify_roles = Column(Text, comment="JSON array of roles")
+    threshold_minutes = Column(Integer, default=30)
+    threshold_percent = Column(Integer, default=120)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+class SysCalendar(Base):
+    __tablename__ = "sys_calendar"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(Date, nullable=False, unique=True, comment="日期")
+    is_working_day = Column(Boolean, default=True, comment="是否工作日")
+    holiday_name = Column(String(100), comment="假期名称（如：春节、国庆节）")
+    day_type = Column(String(20), default="workday", comment="workday/weekend/holiday/compensate")
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 

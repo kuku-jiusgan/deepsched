@@ -13,7 +13,7 @@ ROLE_OPTIONS = ["系统管理员", "项目管理员", "项目负责人", "分析
 
 # Token persistence file
 import json as _json
-_TOKEN_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "tokens.json")
+_TOKEN_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "..", "tokens.json")
 
 def _load_tokens() -> Dict[str, Dict]:
     try:

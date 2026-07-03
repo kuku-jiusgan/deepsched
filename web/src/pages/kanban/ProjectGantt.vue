@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="gantt-page">
     <div class="page-header"><h2>项目甘特图</h2></div>
 
@@ -13,21 +13,26 @@
       <a-button @click="goNext"><RightOutlined /></a-button>
       <a-button @click="goToday">今天</a-button>
       <a-button @click="fetchData"><ReloadOutlined /> 刷新</a-button>
-      <span style="margin-left: auto; font-size: 12px; color: #94a3b8">{{ slots.length }} 个时间槽</span>
+      <a-input v-model:value="filterKeyword" placeholder="搜索项目编号/名称" allowClear style="width: 200px" />
+      
     </div>
 
     <a-spin v-if="loading" size="large" style="display: block; margin: 80px auto" />
 
-    <div v-else-if="!projects.length" style="padding: 80px; text-align: center; color: #94a3b8">
-      暂无项目数据，请先在「项目台账管理」中创建项目并生成排程
+    <div v-else-if="!filteredProjects.length" style="padding: 80px; text-align: center; color: #94a3b8">
+      暂无仪器数据，请先在「项目台账管理」中添加仪器并生成排程
     </div>
 
     <div v-else class="gantt-container" ref="containerRef">
       <div class="gantt-left" ref="leftRef">
-        <div class="gantt-header-cell">仪器</div>
-        <div v-for="(inst, idx) in instruments" :key="proj.id" class="gantt-left-row" :style="getLeftRowStyle(idx)">
-          <div class="proj-name">{{ proj.name }}</div>
-          <div class="proj-code">{{ proj.code }}</div>
+        <div class="gantt-header-cell">项目</div>
+        <div v-for="row in flatRows" :key="'l-' + row.inst.id + '-q' + row.quarter"
+          class="gantt-left-row" :class="{ 'is-subrow': row.isSubrow, 'is-last': row.isLast }"
+          :style="{ height: Math.max(12, rowHeight) + 'px' }">
+          <template v-if="!row.isSubrow || viewMode !== 'week'">
+            <div class="proj-name">{{ row.inst.name }}</div>
+            <div class="proj-code">{{ row.inst.code }}</div>
+          </template>
         </div>
       </div>
 
@@ -40,12 +45,14 @@
           </div>
         </div>
         <div class="gantt-timeline-body" :style="{ width: totalWidth + 'px' }">
-          <div v-for="(inst, idx) in instruments" :key="proj.id" class="gantt-entity-row" :style="getEntityRowStyle(idx)">
+          <div v-for="row in flatRows" :key="'r-' + row.inst.id + '-q' + row.quarter"
+            class="gantt-entity-row" :class="{ 'is-subrow': row.isSubrow, 'is-last': row.isLast }"
+            :style="{ height: Math.max(12, rowHeight) + 'px' }">
             <div v-for="col in timeColumns" :key="col.key" class="gantt-grid-cell"
               :style="{ width: colWidth + 'px' }" :class="{ 'is-weekend': col.isWeekend, 'is-today': col.isToday }" />
-            <div v-for="slot in getSlotsForProject(proj.id)" :key="slot.id"
+            <div v-for="slot in getSlotsForQuarter(row.inst.id, row.quarter)" :key="slot.id"
               class="gantt-bar" :class="'status-' + slot.status"
-              :style="getBarStyle(slot)"
+              :style="getBarStyle(slot, row.quarter)"
               @mouseenter="e => showTooltip(slot, e)"
               @mouseleave="hideTooltip">
               <span class="bar-tag">{{ getProcessTag(slot.task_type) }}</span><span class="bar-label">{{ slot.task_name }}</span>
@@ -92,6 +99,24 @@ const rowHeight = ref(200)
 const taskTypeMap = ref<Record<string, string>>({})
 const laneMap = ref<Record<number, Record<number, number>>>({})
 const laneCounts = ref<Record<number, number>>({})
+const filterKeyword = ref('')
+
+const filteredProjects = computed(() => {
+  const kw = filterKeyword.value.toLowerCase()
+  if (!kw) return projects.value
+  return projects.value.filter(p => p.code.toLowerCase().includes(kw) || p.name.toLowerCase().includes(kw))
+})
+
+const flatRows = computed(() => {
+  const rows: { inst: Project; quarter: number; isSubrow: boolean; isLast: boolean }[] = []
+  for (const inst of filteredProjects.value) {
+    const qCount = viewMode.value === 'week' ? 4 : 1
+    for (let q = 0; q < qCount; q++) {
+      rows.push({ inst, quarter: q, isSubrow: viewMode.value === 'week' && q > 0, isLast: q === qCount - 1 })
+    }
+  }
+  return rows
+})
 
 const totalWidth = computed(() => colWidth.value * timeColumns.value.length)
 
@@ -149,8 +174,8 @@ const timeColumns = computed<TimeCol[]>(() => {
 function computeLanes() {
   const map: Record<number, Record<number, number>> = {}
   const counts: Record<number, number> = {}
-  for (const inst of projects.value) {
-    const instSlots = slots.value.filter(s => s.project_id === proj.id).sort((a, b) => dayjs(a.plan_start).valueOf() - dayjs(b.plan_start).valueOf())
+  for (const inst of filteredProjects.value) {
+    const instSlots = slots.value.filter(s => s.project_id === inst.id).sort((a, b) => dayjs(a.plan_start).valueOf() - dayjs(b.plan_start).valueOf())
     const lanes: { end: dayjs.Dayjs }[] = []
     const assign: Record<number, number> = {}
     for (const slot of instSlots) {
@@ -169,37 +194,42 @@ function computeLanes() {
         lanes.push({ end: dayjs(slot.plan_end) })
       }
     }
-    map[proj.id] = assign
-    counts[proj.id] = Math.max(1, lanes.length)
+    map[inst.id] = assign
+    counts[inst.id] = Math.max(1, lanes.length)
   }
   laneMap.value = map
   laneCounts.value = counts
 }
 
-function getEntityRowStyle(index: number) {
-  if (!containerRef.value) return { height: '200px' }
-  const headerH = 50
-  const availableH = containerRef.value.clientHeight - headerH - 2
-  const entityCount = Math.max(1, projects.value.length)
-  const perEntity = Math.floor(availableH / entityCount)
-  const top = index * perEntity
-  return { height: perEntity + 'px' }
+function getEntityRowStyle(_index: number, _quarter?: number) {
+  return { height: Math.max(12, rowHeight.value) + 'px' }
 }
 
-function getLeftRowStyle(index: number) {
-  if (!containerRef.value) return { height: '200px' }
-  const headerH = 50
-  const availableH = containerRef.value.clientHeight - headerH - 2
-  const entityCount = Math.max(1, projects.value.length)
-  const perEntity = Math.floor(availableH / entityCount)
-  return { height: perEntity + 'px' }
+function getLeftRowStyle(_index: number, _quarter?: number) {
+  return { height: Math.max(12, rowHeight.value) + 'px' }
+}
+
+function getSlotsForQuarter(instId: number, quarter: number) {
+  if (viewMode.value !== 'week') return getSlotsForProject(instId)
+  const cols = timeColumns.value
+  return getSlotsForProject(instId).filter(s => {
+    const start = dayjs(s.plan_start)
+    const end = dayjs(s.plan_end)
+    for (const col of cols) {
+      const dayStart = col.start
+      const qStart = dayStart.hour(quarter * 6)
+      const qEnd = dayStart.hour(quarter * 6 + 6)
+      if (end.isAfter(qStart) && start.isBefore(qEnd)) return true
+    }
+    return false
+  })
 }
 
 function getSlotsForProject(instId: number) {
   return slots.value.filter(s => s.project_id === instId)
 }
 
-function getBarStyle(slot: TimeSlot) {
+function getBarStyle(slot: TimeSlot, quarter?: number) {
   const start = dayjs(slot.plan_start)
   const end = dayjs(slot.plan_end)
   const cols = timeColumns.value
@@ -223,13 +253,44 @@ function getBarStyle(slot: TimeSlot) {
   const left = (startCol + startOffset) * cw
   const right = (endCol + endOffset) * cw
 
+  // In week view with quarters, position within the quarter sub-row
+  if (viewMode.value === 'week' && quarter !== undefined) {
+    let barStartCol = -1, barEndCol = -1
+    for (let i = 0; i < cols.length; i++) {
+      const dayStart = cols[i].start
+      const qStart = dayStart.hour(quarter * 6)
+      const qEnd = dayStart.hour(quarter * 6 + 6)
+      if (end.isAfter(qStart) && start.isBefore(qEnd)) {
+        if (barStartCol === -1) barStartCol = i
+        barEndCol = i
+      }
+    }
+    if (barStartCol === -1) return { display: 'none' }
+    const firstDayStart = cols[barStartCol].start
+    const firstQStart = firstDayStart.hour(quarter * 6)
+    const firstQEnd = firstDayStart.hour(quarter * 6 + 6)
+    const clampedStart = start.isBefore(firstQStart) ? firstQStart : start
+    const firstOffset = clampedStart.diff(firstQStart, 'second', true) / 21600
+    const lastDayStart = cols[barEndCol].start
+    const lastQStart = lastDayStart.hour(quarter * 6)
+    const lastQEnd = lastDayStart.hour(quarter * 6 + 6)
+    const clampedEnd = end.isAfter(lastQEnd) ? lastQEnd : end
+    const lastOffset = clampedEnd.diff(lastQStart, 'second', true) / 21600
+    const barLeft = (barStartCol + firstOffset) * cw
+    const barRight = (barEndCol + lastOffset) * cw
+    return {
+      left: barLeft + 'px',
+      width: Math.max(3, barRight - barLeft) + 'px',
+      top: '2px', bottom: '2px'
+    }
+  }
+  
   const lane = (laneMap.value[slot.project_id] || {})[slot.id] || 0
   const laneCount = laneCounts.value[slot.project_id] || 1
-  const entityH = rowHeight.value - 8
-  const laneH = Math.max(26, Math.floor(entityH / laneCount))
-  const top = lane * laneH + 4
+  const laneH = Math.max(26, Math.floor((rowHeight.value - 4) / laneCount))
+  const top = lane * laneH + 2
 
-  return { left: left + 'px', width: Math.max(3, right - left) + 'px', top: top + 'px', height: (laneH - 4) + 'px' }
+  return { left: left + 'px', width: Math.max(3, right - left) + 'px', top: top + 'px', height: (laneH - 2) + 'px' }
 }
 
 const processTags: Record<string, string> = { solution_prep: '溶', sample_prep: '前', instrument_run: '运', report: '审' }
@@ -293,12 +354,10 @@ function scrollToNow() {
 function recalc() {
   nextTick(() => {
     setTimeout(() => {
-      if (!containerRef.value) return
+      if (!containerRef.value || containerRef.value.clientHeight <= 0) return
       computeLanes()
-      const headerH = 50
-      const availableH = containerRef.value.clientHeight - headerH - 2
-      const entityCount = Math.max(1, projects.value.length)
-      rowHeight.value = Math.floor(availableH / entityCount)
+      const fixedH = 35
+      rowHeight.value = fixedH
       const available = containerRef.value.clientWidth - 160 - 2
       const cols = viewMode.value === 'day' ? 24 : viewMode.value === 'week' ? 7 : cursorDate.value.daysInMonth()
       colWidth.value = Math.max(60, available / cols)
@@ -311,20 +370,43 @@ async function fetchData() {
   try {
     const [insts, timeslots, types] = await Promise.all([getProjects(), getTimeslots(), getTaskTypes()])
     projects.value = insts
-    slots.value = timeslots
+    slots.value = timeslots.filter((s: TimeSlot) => s.project_id > 0)
     const map: Record<string, string> = {}
     types.forEach((t: TaskTypeConfig) => { map[t.code] = t.name })
     taskTypeMap.value = map
-    await nextTick()
+  } catch { message.error('加载数据失败') }
+  finally {
+    loading.value = false
     await nextTick()
     recalc()
     if (viewMode.value === 'day') scrollToNow()
-  } catch { message.error('加载数据失败') }
-  finally { loading.value = false }
+  }
 }
 
-onMounted(() => { fetchData(); window.addEventListener('resize', recalc) })
-onUnmounted(() => { window.removeEventListener('resize', recalc) })
+let resizeObserver: ResizeObserver | null = null
+
+let refreshTimer: ReturnType<typeof setInterval> | null = null
+
+onMounted(() => {
+  fetchData()
+  refreshTimer = setInterval(fetchData, 15000)
+  window.addEventListener('resize', recalc)
+  nextTick(() => {
+    if (containerRef.value) {
+      resizeObserver = new ResizeObserver(() => {
+        if (containerRef.value && containerRef.value.clientHeight > 0) {
+          recalc()
+        }
+      })
+      resizeObserver.observe(containerRef.value)
+    }
+  })
+})
+onUnmounted(() => {
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
+  window.removeEventListener('resize', recalc)
+  if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null }
+})
 </script>
 
 <style scoped>
@@ -335,8 +417,8 @@ onUnmounted(() => { window.removeEventListener('resize', recalc) })
 .gantt-left { width: 160px; min-width: 160px; background: #f8fafc; border-right: 1px solid #e5e7eb; overflow-y: auto; overflow-x: hidden; }
 .gantt-left::-webkit-scrollbar { width: 0; }
 .gantt-header-cell { height: 50px; display: flex; align-items: center; padding: 0 12px; font-weight: 600; font-size: 13px; color: #475569; border-bottom: 2px solid #c0c7cf; background: #f1f5f9; }
-.gantt-left-row { display: flex; flex-direction: column; justify-content: center; padding: 0 12px; border-bottom: 1px solid #e5e7eb; overflow: hidden; }
-.gantt-left-row:nth-child(even) { background: #f1f5f9; }
+.gantt-left-row { display: flex; flex-direction: column; justify-content: center; padding: 0 12px; border-bottom: none; overflow: hidden; }
+.gantt-left-row.is-last { border-bottom: 2px solid #b0bec5; }
 .proj-name { font-size: 13px; font-weight: 500; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .proj-code { font-size: 11px; color: #94a3b8; }
 
@@ -351,8 +433,12 @@ onUnmounted(() => { window.removeEventListener('resize', recalc) })
 .col-label-sub { font-size: 10px; color: #94a3b8; }
 
 .gantt-timeline-body { position: relative; background: #fff; }
-.gantt-entity-row { position: relative; display: flex; border-bottom: 1px solid #e5e7eb; }
-.gantt-entity-row:nth-child(even) { background: #f8fafc; }
+.gantt-entity-row { position: relative; display: flex; border-bottom: none; }
+.gantt-entity-row.is-subrow { border-top: none; border-bottom: none; background: #fdfdfe; }
+.gantt-entity-row.is-last { border-bottom: 2px solid #b0bec5; }
+.gantt-entity-row.is-last .gantt-grid-cell { border-bottom: none; }
+.gantt-entity-row.is-subrow:nth-child(even) { background: #f5f6f8; }
+.gantt-entity-row:nth-child(even):not(.is-subrow) { background: #f8fafc; }
 .gantt-grid-cell { border-right: 1px solid #c0c7cf; border-bottom: 1px solid #c0c7cf; flex-shrink: 0; box-sizing: border-box; }
 .gantt-grid-cell.is-weekend { background: #fef2f2; }
 .gantt-grid-cell.is-today { background: #eff6ff; }
