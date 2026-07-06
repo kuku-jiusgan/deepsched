@@ -77,7 +77,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { message } from 'ant-design-vue'
-import { LeftOutlined, RightOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { LeftOutlined, RightOutlined, ReloadOutlined, ExperimentOutlined, EditOutlined, CheckSquareOutlined, DotChartOutlined, FileTextOutlined } from '@ant-design/icons-vue'
 import { getProjects, getTimeslots, getTaskTypes, type TaskTypeConfig } from '@/services/api'
 import type { Project, TimeSlot } from '@/types'
 import dayjs from 'dayjs'
