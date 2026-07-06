@@ -63,9 +63,21 @@ class SchedulerService:
                     p_end_u = self._datetime_to_units(t.project.end_date, horizon_start)
                     p_end_unit = min(total_units, p_end_u)
 
-            # Frozen wall: non-urgent tasks cannot start before frozen boundary
+            # Frozen wall: allow piercing if all predecessors are completed
             is_urgent = getattr(t, 'is_urgent', False)
-            if not is_urgent:
+            can_pierce = False
+            if t.predecessors:
+                pred_ids = [d.predecessor_id for d in t.predecessors]
+                done_count = self.db.query(Task).filter(
+                    Task.id.in_(pred_ids),
+                    Task.status == "done"
+                ).count()
+                if done_count == len(pred_ids):
+                    can_pierce = True
+            elif getattr(t, 'is_sample_ready', False):
+                can_pierce = True
+
+            if not is_urgent and not can_pierce:
                 p_start_unit = max(p_start_unit, frozen_units)
 
             # Guard: task duration exceeds available project window
