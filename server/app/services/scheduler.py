@@ -433,30 +433,51 @@ class SchedulerService:
                 if assigned_inst is None:
                     continue
 
-            start = self._units_to_datetime(solver.Value(task_starts[t.id]), horizon_start)
-            end = self._units_to_datetime(solver.Value(task_ends[t.id]), horizon_start)
+            start_unit = solver.Value(task_starts[t.id])
+            end_unit = solver.Value(task_ends[t.id])
 
-            if start <= frozen_boundary:
-                tier = "frozen"
-            elif start <= confirmed_boundary:
-                tier = "confirmed"
-            else:
-                tier = "forecast"
+            # Split physical span into working chunks, skipping night windows
+            chunk_start = None
+            for i in range(start_unit, end_unit):
+                dt = horizon_start + timedelta(minutes=i * TIME_UNIT_MINUTES)
+                is_work = (8 <= dt.hour < 20)
 
-            slot = TimeSlot(
-                task_id=t.id,
-                instrument_id=assigned_inst.id if assigned_inst else None,
-                plan_start=start,
-                plan_end=end,
-                tier=tier,
-                status="scheduled",
-            )
-            self.db.add(slot)
+                if is_work and chunk_start is None:
+                    chunk_start = dt
+                elif not is_work and chunk_start is not None:
+                    chunk_end = dt
+                    self._create_db_slot(t, assigned_inst, chunk_start, chunk_end, frozen_boundary, confirmed_boundary)
+                    created += 1
+                    chunk_start = None
+
+            # Close any remaining open chunk
+            if chunk_start is not None:
+                final_end = horizon_start + timedelta(minutes=end_unit * TIME_UNIT_MINUTES)
+                self._create_db_slot(t, assigned_inst, chunk_start, final_end, frozen_boundary, confirmed_boundary)
+                created += 1
+
             t.status = "scheduled"
-            created += 1
 
         self.db.commit()
         return created
+
+    def _create_db_slot(self, task, inst, start, end, frozen_boundary, confirmed_boundary):
+        if start <= frozen_boundary:
+            tier = "frozen"
+        elif start <= confirmed_boundary:
+            tier = "confirmed"
+        else:
+            tier = "forecast"
+
+        slot = TimeSlot(
+            task_id=task.id,
+            instrument_id=inst.id if inst else None,
+            plan_start=start,
+            plan_end=end,
+            tier=tier,
+            status="scheduled",
+        )
+        self.db.add(slot)
 
     def _local_repair(self, data: RescheduleRequest) -> dict:
         if data.affected_task_id:
