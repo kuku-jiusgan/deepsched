@@ -111,7 +111,7 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { message } from 'ant-design-vue'
+import { message, Modal } from 'ant-design-vue'
 import { PlusOutlined, EditOutlined, LeftOutlined, DeleteOutlined, PlayCircleOutlined } from '@ant-design/icons-vue'
 import { getProject, getProjectDAG, addTask, updateTask, deleteTask, getUsers, getTaskTypes, getInstruments, generateSchedule, type Project, type Task, type DAGData, type TaskTypeConfig } from '@/services/api'
 import dayjs from 'dayjs'
@@ -280,8 +280,8 @@ async function handleStartSchedule() {
   try {
     const r = await generateSchedule()
     if (r.status === 'ok') message.success(r.message || '排程完成')
-    else message.error(r.message || '排程失败')
-  } catch { message.error('排程请求失败') }
+    else Modal.error({ title: '时间配置冲突', content: r.message || '请调整【项目开始/结束时间】或修改【项目工时】。' })
+  } catch { Modal.error({ title: '排程请求失败', content: '服务器内部错误，请稍后重试。' }) }
   finally { scheduling.value = false }
 }
 

@@ -238,7 +238,7 @@ class SchedulerService:
 
         total_req_hours = sum(t.est_duration_hours or 4 for t in tasks if t.requires_instrument)
         if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            return {"status": "error", "message": f"排程求解失败（无解）。本次待排总工时约 {total_req_hours} 小时，可能由于某些项目的截止时间过于紧迫，或者仪器在所需时间段内被维保/夜间窗口锁死导致资源不足。"}
+            return {"status": "error", "message": f"时间配置冲突：当前待排总工时约 {total_req_hours} 小时，请调整【项目开始/结束时间】或修改【项目工时】。"}
 
         # Persist results
         created = self._persist_slots(
