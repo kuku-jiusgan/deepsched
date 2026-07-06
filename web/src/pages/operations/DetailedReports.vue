@@ -60,16 +60,16 @@
             <template #default="{ record }">{{ record.totalHours.toFixed(1) }}</template>
           </a-table-column>
           <a-table-column title="溶液配制(h)" key="sol" width="110" align="center">
-            <template #default="{ record }">{{ (record.typeHours.solution_prep || 0).toFixed(1) }}</template>
+            <template #default="{ record }">{{ 0.toFixed(1) }}</template>
           </a-table-column>
           <a-table-column title="样品前处理(h)" key="samp" width="110" align="center">
-            <template #default="{ record }">{{ (record.typeHours.sample_prep || 0).toFixed(1) }}</template>
+            <template #default="{ record }">{{ 0.toFixed(1) }}</template>
           </a-table-column>
           <a-table-column title="序列运行(h)" key="run" width="110" align="center">
-            <template #default="{ record }">{{ (record.typeHours.instrument_run || 0).toFixed(1) }}</template>
+            <template #default="{ record }">{{ 0.toFixed(1) }}</template>
           </a-table-column>
           <a-table-column title="出具报告(h)" key="rep" width="110" align="center">
-            <template #default="{ record }">{{ (record.typeHours.report || 0).toFixed(1) }}</template>
+            <template #default="{ record }">{{ 0.toFixed(1) }}</template>
           </a-table-column>
           <a-table-column title="工时占比" key="pct" width="200">
             <template #default="{ record }">
@@ -160,10 +160,10 @@ function expandedRowRender(record: ProjectStat) {
           h('td', { style: 'padding: 6px 12px' }, u.userName),
           h('td', { style: 'padding: 6px 12px; text-align: center' }, String(u.taskCount)),
           h('td', { style: 'padding: 6px 12px; text-align: center' }, u.hours.toFixed(1)),
-          h('td', { style: 'padding: 6px 12px; text-align: center' }, (u.typeHours.solution_prep || 0).toFixed(1)),
-          h('td', { style: 'padding: 6px 12px; text-align: center' }, (u.typeHours.sample_prep || 0).toFixed(1)),
-          h('td', { style: 'padding: 6px 12px; text-align: center' }, (u.typeHours.instrument_run || 0).toFixed(1)),
-          h('td', { style: 'padding: 6px 12px; text-align: center' }, (u.typeHours.report || 0).toFixed(1)),
+          h('td', { style: 'padding: 6px 12px; text-align: center' }, 0.toFixed(1)),
+          h('td', { style: 'padding: 6px 12px; text-align: center' }, 0.toFixed(1)),
+          h('td', { style: 'padding: 6px 12px; text-align: center' }, 0.toFixed(1)),
+          h('td', { style: 'padding: 6px 12px; text-align: center' }, 0.toFixed(1)),
         ])
       ))
     ])
@@ -172,7 +172,7 @@ function expandedRowRender(record: ProjectStat) {
 
 function getTypeName(code: string) { return taskTypeMap.value[code] || code }
 function getTypeColor(code: string) {
-  const m: Record<string, string> = { solution_prep: '#8b5cf6', sample_prep: '#f59e0b', instrument_run: '#3b82f6', report: '#10b981' }
+  const m: Record<string, string> = { }
   return m[code] || '#94a3b8'
 }
 

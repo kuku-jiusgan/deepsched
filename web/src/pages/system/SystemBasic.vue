@@ -35,7 +35,7 @@
           <a-input v-model:value="form.name" placeholder="如：溶液配制" />
         </a-form-item>
         <a-form-item label="类型编码" required>
-          <a-input v-model:value="form.code" placeholder="如：solution_prep" :disabled="!!editing" />
+          <a-input v-model:value="form.code" placeholder="如：FFKF_001" :disabled="!!editing" />
         </a-form-item>
         <a-form-item label="资源依赖" required>
           <a-select v-model:value="form.resource_type" :options="resourceOptions" />

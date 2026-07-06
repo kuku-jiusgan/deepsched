@@ -119,7 +119,7 @@ function statusColor(s: string) {
 function taskTypeLabel(code: string | null) { return code ? (taskTypeMap.value[code] || code) : '' }
 function taskTypeColor(code: string | null) {
   if (!code) return '#94a3b8'
-  const m: Record<string, string> = { solution_prep: '#8b5cf6', sample_prep: '#f59e0b', instrument_run: '#3b82f6', report: '#10b981' }
+  const m: Record<string, string> = { }
   return m[code] || '#94a3b8'
 }
 function statusLabel(s: string) {

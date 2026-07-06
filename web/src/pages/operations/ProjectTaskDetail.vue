@@ -58,7 +58,7 @@ const totalHours = computed(() => tasks.value.reduce((s, t) => s + t.hours, 0))
 
 function getTypeName(code: string) { return taskTypeMap.value[code] || code }
 function getTypeColor(code: string) {
-  const m: Record<string, string> = { solution_prep: '#8b5cf6', sample_prep: '#f59e0b', instrument_run: '#3b82f6', report: '#10b981' }
+  const m: Record<string, string> = { }
   return m[code] || '#94a3b8'
 }
 

@@ -147,7 +147,7 @@ function goBack() { router.push('/projects/ledger') }
 
 function getTaskTypeName(code: string) { return taskTypeMap.value[code]?.name || code }
 function getTaskTypeColor(code: string) {
-  const m: Record<string, string> = { solution_prep: '#8b5cf6', sample_prep: '#f59e0b', instrument_run: '#3b82f6', report: '#10b981' }
+  const m: Record<string, string> = { }
   return m[code] || '#94a3b8'
 }
 function getTaskNameById(id: number) {

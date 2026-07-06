@@ -294,7 +294,7 @@ function getBarStyle(slot: TimeSlot, quarter?: number) {
   return { left: left + 'px', width: Math.max(3, right - left) + 'px', top: top + 'px', height: (laneH - 2) + 'px' }
 }
 
-const processTags: Record<string, string> = { solution_prep: '溶', sample_prep: '前', instrument_run: '运', report: '审' }
+const processTags: Record<string, string> = { }
 function getProcessTag(code: string | undefined) { return code ? (processTags[code] || code.charAt(0)) : '' }
 function getTaskTypeLabel(code: string | undefined) { return code ? (taskTypeMap.value[code] || code) : '' }
 
