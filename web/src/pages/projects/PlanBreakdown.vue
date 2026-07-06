@@ -240,6 +240,7 @@ async function handleTaskSubmit() {
     else { await addTask(project.value.id, payload as any); message.success('任务添加成功') }
     taskOpen.value = false; editingTask.value = null
     await fetchProject()
+    try { await generateSchedule() } catch {}
   } catch { message.error('操作失败') }
 }
 
