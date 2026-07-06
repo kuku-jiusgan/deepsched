@@ -293,7 +293,13 @@ function getBarStyle(slot: TimeSlot, quarter?: number) {
   return { left: left + 'px', width: Math.max(3, right - left) + 'px', top: top + 'px', height: (laneH - 2) + 'px' }
 }
 
-const processTags: Record<string, string> = { }
+const processTags: Record<string, string> = {
+  FFKF_001: '开',   // 方法开发
+  QCFA_001: '案',   // 起草方案
+  FFYZ_001: '验',   // 方法验证
+  SJCL_001: '数',   // 数据处理
+  ZXBG_001: '报',   // 撰写报告
+}
 function getProcessTag(code: string | undefined) { return code ? (processTags[code] || code.charAt(0)) : '' }
 function getTaskTypeLabel(code: string | undefined) { return code ? (taskTypeMap.value[code] || code) : '' }
 
