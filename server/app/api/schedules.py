@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timedelta
@@ -140,7 +140,24 @@ def my_tasks(token: str, db: Session = Depends(get_db)):
     """Return tasks assigned to the current user, with time slot info if scheduled."""
     from app.api.users import get_current_user
     user = get_current_user(token, db)
-    
+
+    # Auto-delay: mark overdue tasks as blocked (no reschedule triggered)
+    now = datetime.now()
+    overdue_tasks = db.query(Task).filter(
+        Task.assignee_id == user.id,
+        Task.status.in_(["scheduled", "running"]),
+    ).all()
+    for t in overdue_tasks:
+        slot = db.query(TimeSlot).filter(
+            TimeSlot.task_id == t.id,
+            TimeSlot.status.in_(["scheduled", "running"]),
+        ).first()
+        if slot and slot.plan_end and slot.plan_end < now:
+            t.status = "blocked"
+            if slot:
+                slot.status = "blocked"
+    db.commit()
+
     # Query tasks assigned to this user
     tasks = db.query(Task).filter(
         Task.assignee_id == user.id,

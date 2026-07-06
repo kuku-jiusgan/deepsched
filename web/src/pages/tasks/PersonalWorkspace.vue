@@ -63,13 +63,7 @@
               @click="handleComplete(record)"
               :loading="actingId === record.slot_id"
             >完成</a-button>
-            <a-button
-              v-if="record.status === 'running' || record.status === 'scheduled'"
-              size="small"
-              danger
-              @click="handleDelay(record)"
-              :loading="actingId === record.slot_id"
-            >延期</a-button>
+
           </a-space>
         </template>
       </template>
@@ -81,7 +75,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { ReloadOutlined } from '@ant-design/icons-vue'
-import { getMyTasks, startTask, completeTask, interruptTask, getTaskTypes, type MyTask } from '@/services/api'
+import { getMyTasks, startTask, completeTask, getTaskTypes, type MyTask } from '@/services/api'
 import dayjs from 'dayjs'
 
 const tasks = ref<MyTask[]>([])
@@ -163,15 +157,6 @@ async function handleComplete(record: MyTask) {
   finally { actingId.value = null }
 }
 
-async function handleDelay(record: MyTask) {
-  actingId.value = record.slot_id
-  try {
-    await interruptTask(record.slot_id)
-    message.warning('已汇报延期')
-    fetchData()
-  } catch { message.error('操作失败') }
-  finally { actingId.value = null }
-}
 
 onMounted(fetchData)
 </script>
