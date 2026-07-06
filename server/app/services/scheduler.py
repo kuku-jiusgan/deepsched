@@ -26,6 +26,13 @@ class SchedulerService:
             return {"status": "error", "message": "没有可用仪器"}
 
         horizon_start, horizon_end, total_units = self._time_horizon()
+
+        # Frozen boundary: non-urgent tasks cannot start before this wall
+        now = datetime.now()
+        frozen_boundary_dt = now + timedelta(days=get_settings().FROZEN_DAYS)
+        frozen_units = self._datetime_to_units(frozen_boundary_dt, horizon_start)
+        frozen_units = max(0, frozen_units)
+
         compat = self._build_compatibility(tasks, instruments)
         task_deps = self._build_dependencies(tasks)
         maint_windows = self._build_maintenance_windows(instruments, horizon_start)
@@ -56,9 +63,14 @@ class SchedulerService:
                     p_end_u = self._datetime_to_units(t.project.end_date, horizon_start)
                     p_end_unit = min(total_units, p_end_u)
 
+            # Frozen wall: non-urgent tasks cannot start before frozen boundary
+            is_urgent = getattr(t, 'is_urgent', False)
+            if not is_urgent:
+                p_start_unit = max(p_start_unit, frozen_units)
+
             # Guard: task duration exceeds available project window
             if p_start_unit + dur > p_end_unit:
-                return {"status": "error", "message": f"排程失败：项目【{t.project.name if t.project else chr(39)+chr(39)}】的时间窗口过短，无法容纳任务【{t.name}】。"}
+                return {"status": "error", "message": f"排程失败：项目【{t.project.name if t.project else chr(39)+chr(39)}】由于冻结期限制，时间窗口不足。"}
 
             # Constrain task start/end within project boundaries
             task_starts[t.id] = model.NewIntVar(p_start_unit, p_end_unit, f"start_t{t.id}")
@@ -481,6 +493,16 @@ class SchedulerService:
                 end_u = self._datetime_to_units(mw.end_time, horizon_start)
                 if end_u > 0:
                     windows.append((inst.id, (max(0, start_u), end_u)))
+
+        # Inject frozen time slots as maintenance windows (instruments occupied)
+        frozen_slots = self.db.query(TimeSlot).filter(TimeSlot.tier == "frozen").all()
+        for slot in frozen_slots:
+            if slot.instrument_id:
+                start_u = self._datetime_to_units(slot.plan_start, horizon_start)
+                end_u = self._datetime_to_units(slot.plan_end, horizon_start)
+                if end_u > 0:
+                    windows.append((slot.instrument_id, (max(0, start_u), end_u)))
+
         return windows
 
 
@@ -509,13 +531,23 @@ class SchedulerService:
         return prefix_sum
 
     def _clear_slots(self):
-        # Only clear forecast and confirmed tiers; preserve frozen/completed history
+        # Find tasks that have frozen time slots (must NOT be reset)
+        frozen_task_ids = self.db.query(TimeSlot.task_id).filter(
+            TimeSlot.tier == "frozen"
+        ).distinct()
+
+        # Clear only forecast and confirmed tiers; preserve frozen history
         self.db.query(TimeSlot).filter(
             TimeSlot.tier.in_(["forecast", "confirmed"])
         ).delete(synchronize_session=False)
+
+        # Reset non-frozen tasks to pending
         self.db.query(Task).filter(
-            Task.status.in_(["scheduled", "blocked"])
+            Task.status.in_(["scheduled", "blocked"]),
+            ~Task.id.in_(frozen_task_ids),
         ).update({"status": "pending"}, synchronize_session=False)
+
+        self.db.commit()
 
     def _persist_slots(self, tasks, instruments, solver, task_starts, task_ends, presences, horizon_start):
         now = datetime.now()
