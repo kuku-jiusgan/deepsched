@@ -108,7 +108,7 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, EditOutlined, LeftOutlined, DeleteOutlined } from '@ant-design/icons-vue'
-import { getProject, getProjectDAG, addTask, updateTask, deleteTask, getUsers, getTaskTypes, type Project, type Task, type DAGData, type TaskTypeConfig } from '@/services/api'
+import { getProject, getProjectDAG, addTask, updateTask, deleteTask, getUsers, getTaskTypes, getInstruments, type Project, type Task, type DAGData, type TaskTypeConfig } from '@/services/api'
 import dayjs from 'dayjs'
 
 const router = useRouter()
