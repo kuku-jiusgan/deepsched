@@ -222,7 +222,7 @@ class SchedulerService:
         weight_main = 1000
         weight_span = 1
         weight_switch = 500
-        weight_split = 300
+        weight_split = 30   #这是同一台仪器跑用一个项目的惩罚系数  越高越不会切换
         model.Minimize(
             (sum(weighted_tardy) + makespan) * weight_main
             + sum(spans) * weight_span
@@ -419,6 +419,7 @@ class SchedulerService:
         is_working = [1] * total_units
 
                 # Apply global night-window: non-working 20:00-08:00
+                # 不工作时间配置大于8点小于20点
         for i in range(total_units):
             dt = horizon_start + timedelta(minutes=i * TIME_UNIT_MINUTES)
             if dt.hour < 8 or dt.hour >= 20:
