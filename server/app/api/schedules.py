@@ -164,10 +164,14 @@ def my_tasks(token: str, db: Session = Depends(get_db)):
                 slot.status = "blocked"
     db.commit()
 
-    # Query tasks assigned to this user
+    # Query leaf tasks only: exclude tasks that have children (parent nodes)
+    from sqlalchemy import not_
+    parent_ids = db.query(Task.parent_id).filter(Task.parent_id != None).subquery()
+
     tasks = db.query(Task).filter(
         Task.assignee_id == user.id,
-        Task.status.in_(["pending", "running", "blocked", "scheduled", "done", "interrupted"])
+        Task.status.in_(["pending", "running", "blocked", "scheduled", "done", "interrupted"]),
+        not_(Task.id.in_(parent_ids)),
     ).order_by(Task.id).all()
     
     result = []
