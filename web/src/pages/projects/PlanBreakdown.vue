@@ -63,6 +63,11 @@
           </template>
         </a-table-column>
       </a-table>
+      <div style="margin-top: 16px; text-align: right">
+        <a-button type="primary" size="large" @click="handleStartSchedule" :loading="scheduling">
+          <PlayCircleOutlined /> 保存并开始排程
+        </a-button>
+      </div>
     </template>
     <a-modal :title="editingTask ? '编辑任务' : '添加任务'" v-model:open="taskOpen" @ok="handleTaskSubmit" width="500" :okText="editingTask ? '保存' : '添加'">
       <a-form layout="vertical" :labelCol="{ style: { paddingBottom: 0 } }">
@@ -240,7 +245,6 @@ async function handleTaskSubmit() {
     else { await addTask(project.value.id, payload as any); message.success('任务添加成功') }
     taskOpen.value = false; editingTask.value = null
     await fetchProject()
-    try { await generateSchedule() } catch {}
   } catch { message.error('操作失败') }
 }
 
@@ -267,6 +271,18 @@ async function loadTaskTypes() {
     taskTypeOptions.value = active.map(t => ({ label: t.name, value: t.code, resource_type: t.resource_type }))
     taskTypeMap.value = {}; active.forEach(t => { taskTypeMap.value[t.code] = t })
   } catch { console.error('loadTaskTypes failed') }
+}
+
+const scheduling = ref(false)
+
+async function handleStartSchedule() {
+  scheduling.value = true
+  try {
+    const r = await generateSchedule()
+    if (r.status === 'ok') message.success(r.message || '排程完成')
+    else message.error(r.message || '排程失败')
+  } catch { message.error('排程请求失败') }
+  finally { scheduling.value = false }
 }
 
 onMounted(async () => {

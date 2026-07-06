@@ -647,7 +647,6 @@ async function handleTaskSubmit() {
 
       message.success('任务更新成功')
 
-      try { await generateSchedule() } catch {}
     } else {
 
       await addTask(selectedProject.value.id, payload as any)
