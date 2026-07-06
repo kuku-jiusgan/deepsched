@@ -311,7 +311,7 @@ class SchedulerService:
         # Load leaf tasks only: tasks that have NO children (actual execution nodes)
         from sqlalchemy import not_
 
-        sub_query = select(self.db.query(Task.parent_id).filter(Task.parent_id != None).subquery())
+        sub_query = self.db.query(Task.parent_id).filter(Task.parent_id != None).subquery()
 
         q = self.db.query(Task).filter(
             Task.status.in_(["pending", "ready"]),
