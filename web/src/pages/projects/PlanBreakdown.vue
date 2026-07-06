@@ -93,8 +93,8 @@
             <a-form-item label="前置任务"><a-select v-model:value="tf.predecessor_ids" mode="multiple" :options="leafTaskOptions" placeholder="可多选" allowClear size="small" /></a-form-item>
           </a-col>
           <a-col :span="12">
-            <a-form-item label="????">
-              <a-select v-model:value="tf.instrument_ids" mode="multiple" :options="instrumentOptions" placeholder="????" allowClear size="small" style="width: 100%" />
+            <a-form-item label="指定仪器">
+              <a-select v-model:value="tf.instrument_ids" mode="multiple" :options="instrumentOptions" placeholder="选择仪器" allowClear size="small" style="width: 100%" />
             </a-form-item>
           </a-col>
         </a-row>
@@ -270,7 +270,7 @@ async function loadTaskTypes() {
 
 onMounted(async () => {
   if (!projectId) { message.error('缺少项目ID'); router.push('/projects/ledger'); return }
-  await loadTaskTypes(); await Promise.all([fetchProject(), loadUsers()])
+  await loadTaskTypes(); await Promise.all([fetchProject(), loadUsers(), loadInstruments()])
 })
 </script>
 
