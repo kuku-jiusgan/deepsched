@@ -76,15 +76,8 @@ def complete_task(slot_id: int, db: Session = Depends(get_db)):
     slot = db.query(TimeSlot).filter(TimeSlot.id == slot_id).first()
     if not slot:
         raise HTTPException(status_code=404, detail="时间槽不存在")
-    task = db.query(Task).filter(Task.id == slot.task_id).first()
-    task.status = "done"
-    # Update ALL time slots for this task (handles night-window chunking)
-    for s in db.query(TimeSlot).filter(TimeSlot.task_id == slot.task_id, TimeSlot.status.in_(["scheduled", "running"])).all():
-        s.status = "completed"
-        if s.id == slot_id:
-            s.actual_end = datetime.now()
-    db.commit()
-    return {"status": "ok"}
+    scheduler = SchedulerService(db)
+    return scheduler.complete_and_shift(slot.task_id)
 
 @router.post("/timeslots/{slot_id}/interrupt")
 def interrupt_task(slot_id: int, db: Session = Depends(get_db)):

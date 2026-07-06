@@ -261,6 +261,77 @@ class SchedulerService:
         else:
             return self._global_reschedule(data)
 
+    def complete_and_shift(self, task_id: int, actual_end_time = None) -> dict:
+        """Early completion: truncate slots and trigger forward shift of dependent tasks."""
+        now = datetime.now()
+        end_time = actual_end_time or now
+
+        task = self.db.query(Task).filter(Task.id == task_id).first()
+        if not task:
+            return {"status": "error", "message": "未找到指定任务"}
+
+        task.status = "done"
+
+        # Delete all future slots for this task
+        self.db.query(TimeSlot).filter(
+            TimeSlot.task_id == task_id,
+            TimeSlot.plan_end > end_time
+        ).delete(synchronize_session=False)
+
+        # Truncate the ongoing slot that spans across end_time
+        ongoing_slot = self.db.query(TimeSlot).filter(
+            TimeSlot.task_id == task_id,
+            TimeSlot.plan_start <= end_time,
+            TimeSlot.plan_end > end_time
+        ).first()
+        if ongoing_slot:
+            ongoing_slot.plan_end = end_time
+            ongoing_slot.actual_end = end_time
+            ongoing_slot.status = "completed"
+
+        self.db.commit()
+        return self._forward_shift_reschedule(task)
+
+    def _forward_shift_reschedule(self, completed_task) -> dict:
+        """Forward-shift: clear future slots of same-project and same-instrument tasks."""
+        last_slot = self.db.query(TimeSlot).filter(
+            TimeSlot.task_id == completed_task.id
+        ).order_by(TimeSlot.plan_end.desc()).first()
+        instrument_id = last_slot.instrument_id if last_slot else None
+
+        # Scope 1: same-project scheduled tasks
+        project_task_ids = self.db.query(Task.id).filter(
+            Task.project_id == completed_task.project_id,
+            Task.status == "scheduled"
+        )
+
+        # Scope 2: same-instrument tasks from other projects
+        inst_task_ids = []
+        if instrument_id:
+            inst_task_ids = self.db.query(TimeSlot.task_id).filter(
+                TimeSlot.instrument_id == instrument_id,
+                TimeSlot.tier.in_(["confirmed", "forecast"]),
+                TimeSlot.plan_start >= datetime.now()
+            ).distinct()
+
+        if inst_task_ids:
+            affected = project_task_ids.union(inst_task_ids).subquery()
+        else:
+            affected = project_task_ids.subquery()
+
+        self.db.query(TimeSlot).filter(
+            TimeSlot.task_id.in_(affected),
+            TimeSlot.tier.in_(["confirmed", "forecast"])
+        ).delete(synchronize_session=False)
+
+        self.db.query(Task).filter(
+            Task.id.in_(affected),
+            Task.status == "scheduled"
+        ).update({"status": "pending"}, synchronize_session=False)
+
+        self.db.commit()
+        return self.generate()
+
     def calculate_insert_cost(self, data: InsertOrderRequest) -> InsertOrderCost:
         tasks = self.db.query(Task).filter(Task.id.in_(data.task_ids)).all()
         if not tasks:
@@ -438,11 +509,13 @@ class SchedulerService:
         return prefix_sum
 
     def _clear_slots(self):
-        # Clear ALL non-frozen old slots, and reset task statuses
-        self.db.query(TimeSlot).delete()
+        # Only clear forecast and confirmed tiers; preserve frozen/completed history
+        self.db.query(TimeSlot).filter(
+            TimeSlot.tier.in_(["forecast", "confirmed"])
+        ).delete(synchronize_session=False)
         self.db.query(Task).filter(
             Task.status.in_(["scheduled", "blocked"])
-        ).update({"status": "pending"})
+        ).update({"status": "pending"}, synchronize_session=False)
 
     def _persist_slots(self, tasks, instruments, solver, task_starts, task_ends, presences, horizon_start):
         now = datetime.now()
