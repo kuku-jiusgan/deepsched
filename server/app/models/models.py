@@ -69,6 +69,11 @@ class Task(Base):
     @property
     def assignee_name(self):
         return self.assignee.display_name if self.assignee else None
+
+    @property
+    def predecessor_ids(self):
+        return [d.predecessor_id for d in self.predecessors] if self.predecessors else []
+
     predecessors = relationship("TaskDependency", foreign_keys="TaskDependency.task_id", back_populates="task", cascade="all, delete-orphan")
     capability_requirements = relationship("TaskCapabilityRequirement", back_populates="task", cascade="all, delete-orphan")
     time_slots = relationship("TimeSlot", back_populates="task", cascade="all, delete-orphan")
