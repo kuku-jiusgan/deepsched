@@ -144,7 +144,7 @@ def my_tasks(token: str, db: Session = Depends(get_db)):
     # Query tasks assigned to this user
     tasks = db.query(Task).filter(
         Task.assignee_id == user.id,
-        Task.status.in_(["pending", "running", "blocked", "scheduled"])
+        Task.status.in_(["pending", "running", "blocked", "scheduled", "done", "interrupted"])
     ).order_by(Task.id).all()
     
     result = []
@@ -153,7 +153,7 @@ def my_tasks(token: str, db: Session = Depends(get_db)):
         # Find a time slot if this task has been scheduled
         slot = db.query(TimeSlot).filter(
             TimeSlot.task_id == task.id,
-            TimeSlot.status.in_(["scheduled", "running", "interrupted", "blocked"])
+            TimeSlot.status.in_(["scheduled", "running", "interrupted", "blocked", "completed"])
         ).first()
         
         inst = db.query(Instrument).filter(Instrument.id == slot.instrument_id).first() if slot else None

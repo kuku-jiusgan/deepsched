@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from typing import List, Optional, Dict, Tuple
 from datetime import datetime, timedelta
 from ortools.sat.python import cp_model
@@ -29,28 +29,58 @@ class SchedulerService:
         compat = self._build_compatibility(tasks, instruments)
         task_deps = self._build_dependencies(tasks)
         maint_windows = self._build_maintenance_windows(instruments, horizon_start)
+        global_prefix_sum = self._build_working_prefix_sum(horizon_start, total_units, maint_windows)
 
         model = cp_model.CpModel()
 
         # Decision variables
         intervals: Dict[Tuple[int, int], cp_model.IntervalVar] = {}
         presences: Dict[Tuple[int, int], cp_model.IntVar] = {}
+        inst_starts: Dict[Tuple[int, int], cp_model.IntVar] = {}
+        inst_ends: Dict[Tuple[int, int], cp_model.IntVar] = {}
         task_starts: Dict[int, cp_model.IntVar] = {}
         task_ends: Dict[int, cp_model.IntVar] = {}
         task_tardiness: Dict[int, cp_model.IntVar] = {}
 
         for t in tasks:
             dur = self._to_units(t.est_duration_hours or 4) + self._to_units(t.switchover_hours or 0)
-            task_starts[t.id] = model.NewIntVar(0, total_units, f"start_t{t.id}")
-            task_ends[t.id] = model.NewIntVar(0, total_units, f"end_t{t.id}")
+
+            # Compute project-level hard constraint window
+            p_start_unit = 0
+            p_end_unit = total_units
+            if t.project:
+                if t.project.start_date:
+                    p_start_u = self._datetime_to_units(t.project.start_date, horizon_start)
+                    p_start_unit = max(0, p_start_u)
+                if t.project.end_date:
+                    p_end_u = self._datetime_to_units(t.project.end_date, horizon_start)
+                    p_end_unit = min(total_units, p_end_u)
+
+            # Guard: task duration exceeds available project window
+            if p_start_unit + dur > p_end_unit:
+                return {"status": "error", "message": f"排程失败：项目【{t.project.name if t.project else chr(39)+chr(39)}】的时间窗口过短，无法容纳任务【{t.name}】。"}
+
+            # Constrain task start/end within project boundaries
+            task_starts[t.id] = model.NewIntVar(p_start_unit, p_end_unit, f"start_t{t.id}")
+            task_ends[t.id] = model.NewIntVar(p_start_unit, p_end_unit, f"end_t{t.id}")
             task_tardiness[t.id] = model.NewIntVar(0, total_units, f"tardy_t{t.id}")
 
+            # Physical span can stretch beyond dur to accommodate night breaks
+            task_span = model.NewIntVar(dur, total_units, f"span_t{t.id}")
+            model.Add(task_ends[t.id] - task_starts[t.id] == task_span)
+
             task_interval = model.NewIntervalVar(
-                task_starts[t.id], dur, task_ends[t.id], f"task_iv_t{t.id}"
+                task_starts[t.id], task_span, task_ends[t.id], f"task_iv_t{t.id}"
             )
 
             candidates = compat.get(t.id, [])
             if not candidates:
+                # Manual task: apply prefix-sum constraint to respect night window
+                start_work_acc = model.NewIntVar(0, total_units, f"start_acc_t{t.id}")
+                end_work_acc = model.NewIntVar(0, total_units, f"end_acc_t{t.id}")
+                model.AddElement(task_starts[t.id], global_prefix_sum, start_work_acc)
+                model.AddElement(task_ends[t.id], global_prefix_sum, end_work_acc)
+                model.Add(end_work_acc - start_work_acc == dur)
                 continue
 
             alt_starts = []
@@ -61,36 +91,91 @@ class SchedulerService:
                 presences[key] = model.NewBoolVar(f"presence_t{t.id}_i{inst.id}")
                 inst_start = model.NewIntVar(0, total_units, f"start_t{t.id}_i{inst.id}")
                 inst_end = model.NewIntVar(0, total_units, f"end_t{t.id}_i{inst.id}")
+                inst_span = model.NewIntVar(0, total_units, f"span_t{t.id}_i{inst.id}")
+                model.Add(inst_end - inst_start == inst_span)
+
                 inst_iv = model.NewOptionalIntervalVar(
-                    inst_start, dur, inst_end, presences[key], f"iv_t{t.id}_i{inst.id}"
+                    inst_start, inst_span, inst_end, presences[key], f"iv_t{t.id}_i{inst.id}"
                 )
                 intervals[key] = inst_iv
                 alt_starts.append(inst_start)
                 alt_ends.append(inst_end)
                 alt_presences.append(presences[key])
 
-                # Link per-instrument start to task start
-                model.Add(inst_start == task_starts[t.id]).OnlyEnforceIf(presences[key])
+                # Store per-instrument start/end for cross-project constraints
+                inst_starts[key] = inst_start
+                inst_ends[key] = inst_end
+
+                # Bidirectional link: per-instrument start/end == task start/end
+                model.Add(task_starts[t.id] == inst_start).OnlyEnforceIf(presences[key])
+                model.Add(task_ends[t.id] == inst_end).OnlyEnforceIf(presences[key])
+                # When not selected, force instrument start/end to zero
+                model.Add(inst_start == 0).OnlyEnforceIf(presences[key].Not())
+                model.Add(inst_end == 0).OnlyEnforceIf(presences[key].Not())
+
+                # Prefix-sum constraint: effective working time within span == dur
+                start_work_acc = model.NewIntVar(0, total_units, f"start_acc_t{t.id}_i{inst.id}")
+                end_work_acc = model.NewIntVar(0, total_units, f"end_acc_t{t.id}_i{inst.id}")
+                model.AddElement(inst_start, global_prefix_sum, start_work_acc)
+                model.AddElement(inst_end, global_prefix_sum, end_work_acc)
+                model.Add(end_work_acc - start_work_acc == dur).OnlyEnforceIf(presences[key])
 
             # Exactly one instrument assigned
             model.AddExactlyOne(alt_presences)
-
         # No-overlap per instrument
         for inst in instruments:
             inst_ivs = [intervals[k] for k in intervals if k[1] == inst.id]
             if inst_ivs:
                 model.AddNoOverlap(inst_ivs)
 
-        # Maintenance windows block instruments
-        for inst_id, (mw_start, mw_end) in maint_windows:
-            for (tid, iid), iv in intervals.items():
-                if iid == inst_id:
-                    # Task must end before maintenance OR start after maintenance
-                    b_before = model.NewBoolVar(f"mw_before_t{tid}_i{iid}")
-                    b_after = model.NewBoolVar(f"mw_after_t{tid}_i{iid}")
-                    model.Add(task_ends[tid] <= mw_start).OnlyEnforceIf(b_before)
-                    model.Add(task_starts[tid] >= mw_end).OnlyEnforceIf(b_after)
-                    model.AddBoolOr([b_before, b_after])
+        # === Cross-project switching: setup time + penalty === (DISABLED FOR DEBUG)
+        # === Cross-project switching: setup time + penalty ===
+        CROSS_PROJECT_SETUP_HOURS = 2.0
+        CROSS_PROJECT_SETUP_UNITS = self._to_units(CROSS_PROJECT_SETUP_HOURS)
+        switch_penalties = []
+        tasks_by_id = {t.id: t for t in tasks}
+
+        for inst in instruments:
+            inst_task_ids = [k[0] for k in intervals if k[1] == inst.id]
+            for i in range(len(inst_task_ids)):
+                for j in range(i + 1, len(inst_task_ids)):
+                    tA_id = inst_task_ids[i]
+                    tB_id = inst_task_ids[j]
+                    tA = tasks_by_id[tA_id]
+                    tB = tasks_by_id[tB_id]
+
+                    if tA.project_id == tB.project_id:
+                        continue
+
+                    pA = presences[(tA_id, inst.id)]
+                    pB = presences[(tB_id, inst.id)]
+                    startA, endA = inst_starts[(tA_id, inst.id)], inst_ends[(tA_id, inst.id)]
+                    startB, endB = inst_starts[(tB_id, inst.id)], inst_ends[(tB_id, inst.id)]
+
+                    a_before_b = model.NewBoolVar(f"seq_{tA_id}_before_{tB_id}_on_{inst.id}")
+                    b_before_a = model.NewBoolVar(f"seq_{tB_id}_before_{tA_id}_on_{inst.id}")
+
+                    # Ordering: when both present, exactly one precedes the other
+                    model.Add(a_before_b + b_before_a == 1).OnlyEnforceIf([pA, pB])
+                    # When not co-present, force ordering vars to 0
+                    model.Add(a_before_b == 0).OnlyEnforceIf(pA.Not())
+                    model.Add(b_before_a == 0).OnlyEnforceIf(pA.Not())
+                    model.Add(a_before_b == 0).OnlyEnforceIf(pB.Not())
+                    model.Add(b_before_a == 0).OnlyEnforceIf(pB.Not())
+
+                    # Setup time between cross-project tasks
+                    model.Add(startB >= endA + CROSS_PROJECT_SETUP_UNITS).OnlyEnforceIf([pA, pB, a_before_b])
+                    model.Add(startA >= endB + CROSS_PROJECT_SETUP_UNITS).OnlyEnforceIf([pA, pB, b_before_a])
+
+                    # Collect cross-project co-presence for penalty
+                    both_present = model.NewBoolVar(f"both_{tA_id}_{tB_id}_on_{inst.id}")
+                    
+                    # Proper AND: both_present = pA AND pB
+                    model.AddImplication(both_present, pA)
+                    model.AddImplication(both_present, pB)
+                    model.AddBoolOr([pA.Not(), pB.Not()]).OnlyEnforceIf(both_present.Not())
+                    
+                    switch_penalties.append(both_present)
 
         # Precedence constraints (DAG)
         for tid, pred_id in task_deps:
@@ -104,14 +189,24 @@ class SchedulerService:
                 if 0 <= deadline <= total_units:
                     model.Add(task_tardiness[t.id] >= task_ends[t.id] - deadline)
 
-        # Objective: minimize weighted tardiness + makespan
+        # Objective: minimize weighted tardiness + makespan + span penalty
         weighted_tardy = []
         for t in tasks:
             w = int(t.priority_weight * 10)
             weighted_tardy.append(task_tardiness[t.id] * w)
         makespan = model.NewIntVar(0, total_units, "makespan")
         model.AddMaxEquality(makespan, [task_ends[t.id] for t in tasks])
-        model.Minimize(sum(weighted_tardy) + makespan)
+
+        # Span penalty: encourage compact spans, avoid unnecessary night gaps
+        spans = [task_ends[t.id] - task_starts[t.id] for t in tasks]
+        weight_main = 1000
+        weight_span = 1
+        weight_switch = 500
+        model.Minimize(
+            (sum(weighted_tardy) + makespan) * weight_main
+            + sum(spans) * weight_span
+            + sum(switch_penalties) * weight_switch
+        )
 
         # Solve
         solver = cp_model.CpSolver()
@@ -119,8 +214,9 @@ class SchedulerService:
         solver.parameters.num_search_workers = 4
         status = solver.Solve(model)
 
+        total_req_hours = sum(t.est_duration_hours or 4 for t in tasks if t.requires_instrument)
         if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            return {"status": "error", "message": "排程求解失败，请检查约束是否冲突"}
+            return {"status": "error", "message": f"排程求解失败（无解）。本次待排总工时约 {total_req_hours} 小时，可能由于某些项目的截止时间过于紧迫，或者仪器在所需时间段内被维保/夜间窗口锁死导致资源不足。"}
 
         # Persist results
         created = self._persist_slots(
@@ -193,11 +289,22 @@ class SchedulerService:
         q = self.db.query(Task).filter(
             Task.status.in_(["pending", "ready"]),
             Task.parent_id == None,
+        ).options(
+            selectinload(Task.project),
+            selectinload(Task.milestone),
+            selectinload(Task.predecessors),
+            selectinload(Task.capability_requirements),
         )
         if project_ids:
             q = q.filter(Task.project_id.in_(project_ids))
         tasks = q.order_by(Task.priority_weight.desc()).all()
-        instruments = self.db.query(Instrument).filter(Instrument.status.in_(["idle", "running"])).all()
+
+        instruments = self.db.query(Instrument).filter(
+            Instrument.status.in_(["idle", "running"])
+        ).options(
+            selectinload(Instrument.capabilities),
+            selectinload(Instrument.maintenance_windows),
+        ).all()
         return tasks, instruments
 
     def _time_horizon(self):
@@ -231,8 +338,19 @@ class SchedulerService:
                 compat[t.id] = []
                 continue
             # Use instrument_ids if set, otherwise fall back to capability matching
-            inst_ids = t.instrument_ids if hasattr(t, 'instrument_ids') and t.instrument_ids else None
-            if inst_ids:
+            inst_ids_raw = t.instrument_ids if hasattr(t, 'instrument_ids') and t.instrument_ids else None
+            if inst_ids_raw:
+                # Normalize: JSON column may return string or list depending on DB backend
+                if isinstance(inst_ids_raw, str):
+                    import json as _json
+                    try:
+                        inst_ids = _json.loads(inst_ids_raw)
+                    except (_json.JSONDecodeError, ValueError):
+                        inst_ids = [int(x.strip()) for x in inst_ids_raw.split(',') if x.strip()]
+                elif isinstance(inst_ids_raw, list):
+                    inst_ids = [int(x) for x in inst_ids_raw]
+                else:
+                    inst_ids = [int(inst_ids_raw)]
                 compat[t.id] = [inst for inst in instruments if inst.id in inst_ids]
             else:
                 reqs = t.capability_requirements
@@ -266,6 +384,30 @@ class SchedulerService:
                 if end_u > 0:
                     windows.append((inst.id, (max(0, start_u), end_u)))
         return windows
+
+
+    def _build_working_prefix_sum(self, horizon_start, total_units, maint_windows=None):
+        """Generate a prefix-sum array mapping physical time slots to cumulative working slots.
+        prefix_sum[t] = number of working slots in [0, t)."""
+        is_working = [1] * total_units
+
+                # Apply global night-window: non-working 20:00-08:00
+        for i in range(total_units):
+            dt = horizon_start + timedelta(minutes=i * TIME_UNIT_MINUTES)
+            if dt.hour < 8 or dt.hour >= 20:
+                is_working[i] = 0
+
+        # Mark maintenance windows as non-working too
+        if maint_windows:
+            for inst_id, (mw_start, mw_end) in maint_windows:
+                for i in range(max(0, mw_start), min(mw_end, total_units)):
+                    is_working[i] = 0
+
+        prefix_sum = [0] * (total_units + 1)
+        for i in range(total_units):
+            prefix_sum[i + 1] = prefix_sum[i] + is_working[i]
+
+        return prefix_sum
 
     def _clear_slots(self):
         # Clear ALL non-frozen old slots, and reset task statuses

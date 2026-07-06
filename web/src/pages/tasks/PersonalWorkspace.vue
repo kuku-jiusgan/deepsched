@@ -6,8 +6,13 @@
 
     <div class="action-bar">
       <a-button @click="fetchData"><ReloadOutlined /> 刷新</a-button>
-      <a-select v-model:value="statusFilter" placeholder="状态筛选" allowClear style="width: 140px" :options="statusOptions" />
-      <span style="margin-left: auto; font-size: 12px; color: #94a3b8; align-self: center">
+      <a-tabs v-model:activeKey="activeTab" size="small" style="flex: 1; margin: 0 16px">
+        <a-tab-pane key="all" tab="全部" />
+        <a-tab-pane key="pending" tab="待处理" />
+        <a-tab-pane key="running" tab="进行中" />
+        <a-tab-pane key="completed" tab="已完成" />
+      </a-tabs>
+      <span style="font-size: 12px; color: #94a3b8; align-self: center; white-space: nowrap">
         共 {{ filtered.length }} 个任务
       </span>
     </div>
@@ -81,20 +86,17 @@ import dayjs from 'dayjs'
 
 const tasks = ref<MyTask[]>([])
 const loading = ref(true)
-const statusFilter = ref<string | undefined>(undefined)
+const activeTab = ref<string>('all')
 const actingId = ref<number | null>(null)
 
-const statusOptions = [
-  { label: '待处理', value: 'pending' },
-  { label: '待执行', value: 'scheduled' },
-  { label: '运行中', value: 'running' },
-  { label: '已延期', value: 'blocked' },
-  { label: '已中断', value: 'interrupted' },
-]
+
 
 const filtered = computed(() => {
-  if (!statusFilter.value) return tasks.value
-  return tasks.value.filter(t => t.status === statusFilter.value)
+  if (activeTab.value === 'all') return tasks.value
+  if (activeTab.value === 'pending') return tasks.value.filter(t => ['pending', 'scheduled'].includes(t.status))
+  if (activeTab.value === 'running') return tasks.value.filter(t => t.status === 'running')
+  if (activeTab.value === 'completed') return tasks.value.filter(t => ['done', 'completed'].includes(t.status))
+  return tasks.value
 })
 
 
@@ -110,7 +112,7 @@ async function loadTaskTypes() {
 }
 
 function statusColor(s: string) {
-  const m: Record<string, string> = { pending: '#94a3b8', scheduled: '#2563eb', running: '#16a34a', completed: '#7c3aed', blocked: '#dc2626', interrupted: '#ea580c' }
+  const m: Record<string, string> = { pending: '#94a3b8', scheduled: '#2563eb', running: '#16a34a', completed: '#7c3aed', done: '#7c3aed', blocked: '#dc2626', interrupted: '#ea580c' }
   return m[s] || '#94a3b8'
 }
 
@@ -121,7 +123,7 @@ function taskTypeColor(code: string | null) {
   return m[code] || '#94a3b8'
 }
 function statusLabel(s: string) {
-  const m: Record<string, string> = { pending: '待处理', scheduled: '待执行', running: '运行中', completed: '已完成', blocked: '已延期', interrupted: '已中断' }
+  const m: Record<string, string> = { pending: '待处理', scheduled: '待执行', running: '运行中', completed: '已完成', done: '已完成', blocked: '已延期', interrupted: '已中断' }
   return m[s] || s
 }
 
