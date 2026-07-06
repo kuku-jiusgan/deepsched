@@ -182,6 +182,27 @@ class SchedulerService:
             if pred_id in task_starts and tid in task_starts:
                 model.Add(task_starts[tid] >= task_ends[pred_id])
 
+        # === Project split penalty: discourage spreading one project across many instruments ===
+        project_to_tasks = {}
+        for t in tasks:
+            if t.requires_instrument and t.project_id:
+                if t.project_id not in project_to_tasks:
+                    project_to_tasks[t.project_id] = []
+                project_to_tasks[t.project_id].append(t)
+
+        project_inst_used_vars = []
+        for pid, p_tasks in project_to_tasks.items():
+            for inst in instruments:
+                used_var = model.NewBoolVar(f"used_p{pid}_i{inst.id}")
+                task_presences = []
+                for t in p_tasks:
+                    key = (t.id, inst.id)
+                    if key in presences:
+                        task_presences.append(presences[key])
+                if task_presences:
+                    model.AddMaxEquality(used_var, task_presences)
+                    project_inst_used_vars.append(used_var)
+
         # Milestone deadlines → tardiness
         for t in tasks:
             if t.milestone_id and t.milestone:
@@ -189,7 +210,7 @@ class SchedulerService:
                 if 0 <= deadline <= total_units:
                     model.Add(task_tardiness[t.id] >= task_ends[t.id] - deadline)
 
-        # Objective: minimize weighted tardiness + makespan + span penalty
+        # Objective: minimize weighted tardiness + makespan + span + switch + split penalties
         weighted_tardy = []
         for t in tasks:
             w = int(t.priority_weight * 10)
@@ -197,15 +218,16 @@ class SchedulerService:
         makespan = model.NewIntVar(0, total_units, "makespan")
         model.AddMaxEquality(makespan, [task_ends[t.id] for t in tasks])
 
-        # Span penalty: encourage compact spans, avoid unnecessary night gaps
         spans = [task_ends[t.id] - task_starts[t.id] for t in tasks]
         weight_main = 1000
         weight_span = 1
         weight_switch = 500
+        weight_split = 300
         model.Minimize(
             (sum(weighted_tardy) + makespan) * weight_main
             + sum(spans) * weight_span
             + sum(switch_penalties) * weight_switch
+            + sum(project_inst_used_vars) * weight_split
         )
 
         # Solve
@@ -286,9 +308,14 @@ class SchedulerService:
     # ── Private helpers ─────────────────────────────────────────
 
     def _load_data(self, project_ids):
+        # Load leaf tasks only: tasks that have NO children (actual execution nodes)
+        from sqlalchemy import not_
+
+        sub_query = select(self.db.query(Task.parent_id).filter(Task.parent_id != None).subquery())
+
         q = self.db.query(Task).filter(
             Task.status.in_(["pending", "ready"]),
-            Task.parent_id == None,
+            not_(Task.id.in_(sub_query)),
         ).options(
             selectinload(Task.project),
             selectinload(Task.milestone),
