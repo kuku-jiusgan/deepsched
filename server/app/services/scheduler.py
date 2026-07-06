@@ -230,17 +230,22 @@ class SchedulerService:
             if not t.requires_instrument:
                 compat[t.id] = []
                 continue
-            reqs = t.capability_requirements
-            if not reqs:
-                compat[t.id] = list(instruments)
-                continue
-            matched = []
-            for inst in instruments:
-                inst_caps = {(c.tag_name, c.tag_value) for c in inst.capabilities}
-                req_set = {(r.tag_name, r.tag_value) for r in reqs}
-                if req_set.issubset(inst_caps):
-                    matched.append(inst)
-            compat[t.id] = matched
+            # Use instrument_ids if set, otherwise fall back to capability matching
+            inst_ids = t.instrument_ids if hasattr(t, 'instrument_ids') and t.instrument_ids else None
+            if inst_ids:
+                compat[t.id] = [inst for inst in instruments if inst.id in inst_ids]
+            else:
+                reqs = t.capability_requirements
+                if not reqs:
+                    compat[t.id] = list(instruments)
+                    continue
+                matched = []
+                for inst in instruments:
+                    inst_caps = {(c.tag_name, c.tag_value) for c in inst.capabilities}
+                    req_set = {(r.tag_name, r.tag_value) for r in reqs}
+                    if req_set.issubset(inst_caps):
+                        matched.append(inst)
+                compat[t.id] = matched
         return compat
 
     def _build_dependencies(self, tasks):
