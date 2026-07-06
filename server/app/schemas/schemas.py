@@ -37,7 +37,7 @@ class TaskCreate(BaseModel):
     milestone_id: Optional[int] = None
     priority_weight: float = 1.0
     predecessor_ids: List[int] = []
-    capability_requirements: List[TaskCapabilityReqCreate] = []
+    instrument_ids: List[int] = []
     assignee_id: Optional[int] = None
     parent_id: Optional[int] = None
 
@@ -54,7 +54,7 @@ class TaskOut(BaseModel):
     earliest_start: Optional[datetime]
     latest_due: Optional[datetime]
     priority_weight: float
-    capability_requirements: List[TaskCapabilityReqOut] = []
+    instrument_ids: List[int] = []
     predecessor_ids: List[int] = []
     assignee_id: Optional[int] = None
     assignee_name: Optional[str] = None
@@ -70,7 +70,7 @@ class ProjectCreate(BaseModel):
     priority: int = 0
     sla_level: Optional[str] = None
     profit_weight: float = 1.0
-    manager: Optional[str] = None
+    manager_id: Optional[int] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
 
@@ -83,7 +83,8 @@ class ProjectOut(BaseModel):
     sla_level: Optional[str]
     status: str
     profit_weight: float
-    manager: Optional[str] = None
+    manager_id: Optional[int] = None
+    manager_name: Optional[str] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     tasks: List[TaskOut] = []

@@ -93,13 +93,8 @@
             <a-form-item label="前置任务"><a-select v-model:value="tf.predecessor_ids" mode="multiple" :options="leafTaskOptions" placeholder="可多选" allowClear size="small" /></a-form-item>
           </a-col>
           <a-col :span="12">
-            <a-form-item label="能力要求">
-              <div v-for="(cap, idx) in tf.capability_requirements" :key="idx" style="display: flex; gap: 4px; margin-bottom: 4px">
-                <a-select v-model:value="cap.tag_name" :options="capTagOptions" placeholder="标签" style="flex:1" size="small" @change="onCapTagChange(idx, $event)" />
-                <a-select v-model:value="cap.tag_value" :options="getCapValueOpts(cap.tag_name)" placeholder="值" style="flex:1" size="small" />
-                <a-button type="text" danger size="small" @click="removeCap(idx)" style="flex-shrink:0"><DeleteOutlined /></a-button>
-              </div>
-              <a-button type="dashed" size="small" @click="addCap"><PlusOutlined /></a-button>
+            <a-form-item label="????">
+              <a-select v-model:value="tf.instrument_ids" mode="multiple" :options="instrumentOptions" placeholder="????" allowClear size="small" style="width: 100%" />
             </a-form-item>
           </a-col>
         </a-row>
@@ -129,8 +124,9 @@ const parentTaskId = ref<number | null>(null)
 const taskTypeOptions = ref<{ label: string; value: string; resource_type: string }[]>([])
 const taskTypeMap = ref<Record<string, TaskTypeConfig>>({})
 const userOptions = ref<{ label: string; value: number }[]>([])
+const instrumentOptions = ref<{ label: string; value: number }[]>([])
 
-const tf = reactive({ name: '', task_type: '', est_duration_hours: 8, switchover_hours: 0.5, predecessor_ids: [] as number[], capability_requirements: [] as { tag_name: string; tag_value: string }[], assignee_id: null as number | null, parent_id: null as number | null })
+const tf = reactive({ name: '', task_type: '', est_duration_hours: 8, switchover_hours: 0.5, predecessor_ids: [] as number[], instrument_ids: [] as number[], assignee_id: null as number | null, parent_id: null as number | null })
 
 const statusLabels: Record<string, string> = { active: '进行中', completed: '已完成', pending: '待启动', suspended: '已暂停', cancelled: '已取消', draft: '草稿' }
 const slaLabels: Record<string, string> = { standard: '标准', expedited: '加急', rush: '特急' }
@@ -147,9 +143,6 @@ const capValOpts: Record<string, { label: string; value: string }[]> = {
 }
 
 function getCapValueOpts(tagName: string) { return capValOpts[tagName] || [] }
-function onCapTagChange(idx: number, _newTag: string) { tf.capability_requirements[idx].tag_value = '' }
-function addCap() { tf.capability_requirements.push({ tag_name: '', tag_value: '' }) }
-function removeCap(idx: number) { tf.capability_requirements.splice(idx, 1) }
 function goBack() { router.push('/projects/ledger') }
 
 function getTaskTypeName(code: string) { return taskTypeMap.value[code]?.name || code }
@@ -216,13 +209,13 @@ async function fetchProject() {
 
 function openAddTask(parentId: number | null) {
   editingTask.value = null; parentTaskId.value = parentId
-  Object.assign(tf, { name: '', task_type: taskTypeOptions.value[0]?.value || '', est_duration_hours: 8, switchover_hours: 0.5, predecessor_ids: [], capability_requirements: [], assignee_id: null, parent_id: parentId })
+  Object.assign(tf, { name: '', task_type: taskTypeOptions.value[0]?.value || '', est_duration_hours: 8, switchover_hours: 0.5, predecessor_ids: [], instrument_ids: [], assignee_id: null, parent_id: parentId })
   taskOpen.value = true
 }
 
 function openEditTask(t: Task) {
   editingTask.value = t; parentTaskId.value = null
-  Object.assign(tf, { name: t.name, task_type: t.task_type, est_duration_hours: t.est_duration_hours || 8, switchover_hours: t.switchover_hours, predecessor_ids: t.predecessor_ids || [], capability_requirements: (t.capability_requirements || []).map(c => ({ tag_name: c.tag_name, tag_value: c.tag_value })), assignee_id: t.assignee_id || null, parent_id: t.parent_id || null })
+  Object.assign(tf, { name: t.name, task_type: t.task_type, est_duration_hours: t.est_duration_hours || 8, switchover_hours: t.switchover_hours, predecessor_ids: t.predecessor_ids || [], instrument_ids: t.instrument_ids || [], assignee_id: t.assignee_id || null, parent_id: t.parent_id || null })
   taskOpen.value = true
 }
 
@@ -240,7 +233,7 @@ async function handleTaskSubmit() {
     requires_instrument: isParent ? false : (taskTypeMap.value[tf.task_type]?.resource_type || 'both') !== 'human',
     est_duration_hours: isParent ? null : tf.est_duration_hours, switchover_hours: isParent ? 0 : tf.switchover_hours,
     predecessor_ids: isParent ? [] : tf.predecessor_ids, assignee_id: isParent ? null : (tf.assignee_id || null),
-    parent_id: tf.parent_id, capability_requirements: isParent ? [] : tf.capability_requirements,
+    parent_id: tf.parent_id, instrument_ids: isParent ? [] : tf.instrument_ids,
   }
   try {
     if (editingTask.value) { await updateTask(editingTask.value.id, payload as any); message.success('任务更新成功') }
@@ -253,6 +246,13 @@ async function handleTaskSubmit() {
 async function handleDeleteTask(taskId: number) {
   try { await deleteTask(taskId); message.success('任务已删除'); await fetchProject() }
   catch { message.error('删除失败') }
+}
+
+async function loadInstruments() {
+  try {
+    const insts = await getInstruments()
+    instrumentOptions.value = insts.map(i => ({ label: i.name + ' (' + i.code + ')', value: i.id }))
+  } catch (e) { console.error("loadInstruments failed:", e) }
 }
 
 async function loadUsers() {

@@ -27,7 +27,7 @@
       <div class="gantt-left">
         <div class="gantt-header-cell">仪器</div>
         <div v-for="row in flatRows" :key="'l-' + row.inst.id + '-q' + row.quarter"
-          class="gantt-left-row" :class="{ 'is-subrow': row.isSubrow, 'is-last': row.isLast }"
+          class="gantt-left-row" :class="{ 'is-subrow': row.isSubrow, 'is-last': row.isLast || (viewMode === 'week' && !row.isSubrow) }"
           :style="getLeftRowStyle(row)">
           <template v-if="!row.isSubrow || viewMode !== 'week'">
             <div class="inst-code">{{ row.inst.code }}</div>
@@ -47,7 +47,7 @@
         </div>
         <div class="gantt-timeline-body" :style="{ width: totalWidth + 'px' }">
           <div v-for="row in flatRows" :key="'r-' + row.inst.id + '-q' + row.quarter"
-            class="gantt-entity-row" :class="{ 'is-subrow': row.isSubrow, 'is-last': row.isLast }"
+            class="gantt-entity-row" :class="{ 'is-subrow': row.isSubrow, 'is-last': row.isLast || (viewMode === 'week' && !row.isSubrow) }"
             :style="{ height: Math.max(12, rowHeight) + 'px' }">
             <div v-for="col in timeColumns" :key="col.key" class="gantt-grid-cell"
               :style="{ width: colWidth + 'px' }" :class="{ 'is-weekend': col.isWeekend, 'is-today': col.isToday }" />
@@ -370,8 +370,8 @@ function recalc() {
   })
 }
 
-async function fetchData() {
-  loading.value = true
+async function fetchData(silent = false) {
+  if (!silent) loading.value = true
   try {
     const [insts, timeslots, types] = await Promise.all([getInstruments(), getTimeslots(), getTaskTypes()])
     instruments.value = insts
@@ -379,9 +379,9 @@ async function fetchData() {
     const map: Record<string, string> = {}
     types.forEach((t: TaskTypeConfig) => { map[t.code] = t.name })
     taskTypeMap.value = map
-  } catch { message.error('加载数据失败') }
+  } catch { if (!silent) message.error('加载数据失败') }
   finally {
-    loading.value = false
+    if (!silent) loading.value = false
     await nextTick()
     recalc()
     if (viewMode.value === 'day') scrollToNow()
@@ -446,7 +446,7 @@ function onFullscreenChange() {
 
 onMounted(() => {
   fetchData()
-  refreshTimer = setInterval(fetchData, 15000)
+  refreshTimer = setInterval(() => fetchData(true), 30000)
   window.addEventListener('resize', recalc)
   document.addEventListener('fullscreenchange', onFullscreenChange)
   nextTick(() => {

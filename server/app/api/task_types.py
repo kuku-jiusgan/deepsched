@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+﻿from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
@@ -14,6 +14,7 @@ class TaskTypeCreate(BaseModel):
     description: Optional[str] = None
     is_active: bool = True
     sort_order: int = 0
+    predecessor_type_ids: Optional[List[int]] = []
 
 class TaskTypeOut(BaseModel):
     id: int
@@ -23,6 +24,7 @@ class TaskTypeOut(BaseModel):
     description: Optional[str]
     is_active: bool
     sort_order: int
+    predecessor_type_ids: Optional[List[int]] = []
     model_config = {"from_attributes": True}
 
 @router.get("", response_model=List[TaskTypeOut])

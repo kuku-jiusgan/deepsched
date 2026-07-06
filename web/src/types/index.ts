@@ -26,7 +26,7 @@ export interface Task {
   earliest_start?: string;
   latest_due?: string;
   priority_weight: number;
-  capability_requirements: CapabilityReq[];
+  instrument_ids: number[];
   predecessor_ids: number[];
   assignee_id: number | null;
   assignee_name: string | null;

@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
     proj = Project(
         name=data.name, code=data.code, client_name=data.client_name,
-        priority=data.priority, sla_level=data.sla_level, profit_weight=data.profit_weight, manager=data.manager,
+        priority=data.priority, sla_level=data.sla_level, profit_weight=data.profit_weight, manager_id=data.manager_id,
         start_date=data.start_date, end_date=data.end_date
     )
     db.add(proj)
@@ -44,7 +44,7 @@ def update_project(proj_id: int, data: ProjectCreate, db: Session = Depends(get_
     proj.priority = data.priority
     proj.sla_level = data.sla_level
     proj.profit_weight = data.profit_weight
-    proj.manager = data.manager
+    proj.manager_id = data.manager_id
     proj.start_date = data.start_date
     proj.end_date = data.end_date
     db.commit()
@@ -88,11 +88,9 @@ def add_task(proj_id: int, data: TaskCreate, db: Session = Depends(get_db)):
         allow_split=data.allow_split, allow_transfer=data.allow_transfer,
         milestone_id=data.milestone_id, priority_weight=data.priority_weight
     )
+    task.instrument_ids = data.instrument_ids
     db.add(task)
     db.flush()
-    # Capability requirements
-    for cap in data.capability_requirements:
-        db.add(TaskCapabilityRequirement(task_id=task.id, tag_name=cap.tag_name, tag_value=cap.tag_value))
     # Dependencies
     for pred_id in data.predecessor_ids:
         db.add(TaskDependency(task_id=task.id, predecessor_id=pred_id))
@@ -132,9 +130,7 @@ def update_task(task_id: int, data: TaskCreate, db: Session = Depends(get_db)):
     task.allow_transfer = data.allow_transfer
     task.milestone_id = data.milestone_id
     task.priority_weight = data.priority_weight
-    db.query(TaskCapabilityRequirement).filter(TaskCapabilityRequirement.task_id == task_id).delete()
-    for cap in data.capability_requirements:
-        db.add(TaskCapabilityRequirement(task_id=task_id, tag_name=cap.tag_name, tag_value=cap.tag_value))
+    task.instrument_ids = data.instrument_ids
     db.query(TaskDependency).filter(TaskDependency.task_id == task_id).delete()
     for pred_id in data.predecessor_ids:
         db.add(TaskDependency(task_id=task_id, predecessor_id=pred_id))
@@ -154,8 +150,6 @@ def get_project_dag(proj_id: int, db: Session = Depends(get_db)):
     return {"nodes": nodes, "edges": edges}
 
 def _task_to_out(task: Task, db: Session) -> TaskOut:
-    caps = [TaskCapabilityReqOut(id=c.id, tag_name=c.tag_name, tag_value=c.tag_value)
-            for c in task.capability_requirements]
     preds = [d.predecessor_id for d in task.predecessors]
     children_out = [_task_to_out(c, db) for c in task.children] if task.children else []
     return TaskOut(
@@ -165,7 +159,7 @@ def _task_to_out(task: Task, db: Session) -> TaskOut:
         switchover_hours=task.switchover_hours, status=task.status,
         earliest_start=task.earliest_start, latest_due=task.latest_due,
         priority_weight=task.priority_weight,
-        capability_requirements=caps, predecessor_ids=preds,
+        instrument_ids=task.instrument_ids or [], predecessor_ids=preds,
         assignee_id=task.assignee_id, parent_id=task.parent_id,
         assignee_name=task.assignee.display_name if task.assignee else None,
         children=children_out

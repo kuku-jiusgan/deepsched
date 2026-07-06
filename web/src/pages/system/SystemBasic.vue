@@ -43,6 +43,9 @@
         <a-form-item label="描述">
           <a-textarea v-model:value="form.description" placeholder="任务类型说明" :rows="2" />
         </a-form-item>
+        <a-form-item label="前置任务">
+          <a-select v-model:value="form.predecessor_type_ids" mode="multiple" placeholder="选择需先完成的任务类型" :options="predecessorOptions" style="width: 100%" />
+        </a-form-item>
         <a-form-item label="排序">
           <a-input-number v-model:value="form.sort_order" :min="0" style="width: 100px" />
         </a-form-item>
@@ -52,7 +55,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import { getTaskTypes, createTaskType, updateTaskType, deleteTaskType, type TaskTypeConfig } from '@/services/api'
@@ -60,7 +63,7 @@ import { getTaskTypes, createTaskType, updateTaskType, deleteTaskType, type Task
 const taskTypes = ref<TaskTypeConfig[]>([])
 const modalOpen = ref(false)
 const editing = ref<TaskTypeConfig | null>(null)
-const form = reactive({ name: '', code: '', resource_type: 'both', description: '', sort_order: 0 })
+const form = reactive({ name: '', code: '', resource_type: 'both', description: '', sort_order: 0, predecessor_type_ids: [] as number[] })
 
 const resourceLabels: Record<string, string> = { instrument: '仪器依赖', human: '人工依赖', both: '仪器+人工' }
 const resourceOptions = [
@@ -79,19 +82,25 @@ const columns = [
   { title: '操作', key: 'actions', width: 100 },
 ]
 
+const predecessorOptions = computed(() => 
+  taskTypes.value
+    .filter(t => t.id !== editing.value?.id)
+    .map(t => ({ label: t.name, value: t.id }))
+)
+
 async function loadData() {
   try { taskTypes.value = await getTaskTypes() } catch { message.error('加载失败') }
 }
 
 function openCreate() {
   editing.value = null
-  Object.assign(form, { name: '', code: '', resource_type: 'both', description: '', sort_order: 0 })
+  Object.assign(form, { name: '', code: '', resource_type: 'both', description: '', sort_order: 0, predecessor_type_ids: [] })
   modalOpen.value = true
 }
 
 function openEdit(record: TaskTypeConfig) {
   editing.value = record
-  Object.assign(form, { name: record.name, code: record.code, resource_type: record.resource_type, description: record.description || '', sort_order: record.sort_order })
+  Object.assign(form, { name: record.name, code: record.code, resource_type: record.resource_type, description: record.description || '', sort_order: record.sort_order, predecessor_type_ids: record.predecessor_type_ids || [] })
   modalOpen.value = true
 }
 

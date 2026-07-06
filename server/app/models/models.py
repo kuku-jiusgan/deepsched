@@ -1,4 +1,4 @@
-﻿from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Date, Text, ForeignKey, JSON, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Date, Text, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.core.database import Base
@@ -13,7 +13,7 @@ class Project(Base):
     sla_level = Column(String(20))
     status = Column(String(20), default="active")
     profit_weight = Column(Float, default=1.0)
-    manager = Column(String(100))
+    manager_id = Column(Integer, ForeignKey("user.id"))
     start_date = Column(DateTime)
     end_date = Column(DateTime)
     created_at = Column(DateTime, default=datetime.now)
@@ -21,6 +21,10 @@ class Project(Base):
 
     milestones = relationship("Milestone", back_populates="project", cascade="all, delete-orphan")
     tasks = relationship("Task", back_populates="project", cascade="all, delete-orphan")
+    manager = relationship("User")
+    @property
+    def manager_name(self):
+        return self.manager.display_name if self.manager else None
 
 class Milestone(Base):
     __tablename__ = "milestone"
@@ -47,6 +51,7 @@ class Task(Base):
     allow_transfer = Column(Boolean, default=False)
     milestone_id = Column(Integer, ForeignKey("milestone.id"))
     priority_weight = Column(Float, default=1.0)
+    instrument_ids = Column(JSON, default=[], comment="????ID??")
     status = Column(String(20), default="pending")
     parent_id = Column(Integer, ForeignKey("task.id"), nullable=True)
     assignee_id = Column(Integer, ForeignKey("user.id"))
@@ -218,6 +223,7 @@ class TaskTypeConfig(Base):
     description = Column(Text, comment="描述")
     is_active = Column(Boolean, default=True, comment="是否启用")
     sort_order = Column(Integer, default=0, comment="排序")
+    predecessor_type_ids = Column(JSON, default=[], comment="前置任务类型ID列表")
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 

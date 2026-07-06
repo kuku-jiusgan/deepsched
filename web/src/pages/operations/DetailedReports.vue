@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div>
     <div class="page-header"><h2>精细化运营报表</h2></div>
 
@@ -22,7 +22,7 @@
           <a-table-column title="项目编号" dataIndex="projectCode" key="code" width="130" />
           <a-table-column title="项目名称" dataIndex="projectName" key="name" ellipsis />
           <a-table-column title="客户" dataIndex="clientName" key="client" width="120" />
-          <a-table-column title="负责人" dataIndex="manager" key="manager" width="90" />
+          <a-table-column title="负责人" dataIndex="manager_name" key="manager" width="90" />
           <a-table-column title="任务数" dataIndex="taskCount" key="count" width="80" align="center" />
           <a-table-column title="总工时(h)" dataIndex="totalHours" key="hours" width="110" align="center" sortable>
             <template #default="{ record }">{{ record.totalHours.toFixed(1) }}</template>
@@ -209,7 +209,7 @@ async function buildStats() {
           projectCode: p.code,
           projectName: p.name,
           clientName: p.client_name || '-',
-          manager: p.manager || '-',
+          manager: p.manager_name || '-',
           taskCount: 0,
           totalHours: 0,
           humanHours: 0,

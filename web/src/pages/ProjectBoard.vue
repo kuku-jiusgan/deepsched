@@ -120,13 +120,10 @@
           <a-select mode="multiple" v-model:value="tf.predecessor_ids" placeholder="选择依赖的前置任务（可选）"
             :options="(selectedProject?.tasks || []).map(t => ({ label: t.name + ' (' + (taskTypeMap[t.task_type]?.name || t.task_type) + ')', value: t.id }))" />
         </a-form-item>
-        <a-divider>仪器能力要求（仅仪器任务需要）</a-divider>
-        <a-space v-for="(cap, idx) in tf.capability_requirements" :key="idx" style="display: flex; margin-bottom: 8px" align="baseline">
-          <a-select v-model:value="cap.tag_name" placeholder="能力标签" style="width: 140px" :options="[{label:'离子源',value:'离子源'},{label:'质量分析器',value:'质量分析器'},{label:'方法类型',value:'方法类型'},{label:'灵敏度等级',value:'灵敏度等级'}]" />
-          <a-select v-model:value="cap.tag_value" placeholder="标签值" style="width: 160px" :options="(capValOpts as any)[cap.tag_name] || []" />
-          <a-button type="text" danger @click="tf.capability_requirements.splice(idx, 1)"><DeleteOutlined /></a-button>
-        </a-space>
-        <a-button type="dashed" block @click="tf.capability_requirements.push({ tag_name: '', tag_value: '' })"><PlusOutlined /> 添加能力要求</a-button>
+        <a-divider>????</a-divider>
+        <a-form-item label="????">
+          <a-select v-model:value="tf.instrument_ids" mode="multiple" placeholder="???????????????" :options="instrumentOptions" style="width: 100%" />
+        </a-form-item>
       </a-form>
     </a-modal>
   </div>
@@ -138,7 +135,7 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, EditOutlined, SearchOutlined, DeleteOutlined } from '@ant-design/icons-vue'
-import { getProjects, createProject, updateProject, deleteProject, getProject, getProjectDAG, addTask, updateTask, deleteTask, getUsers, getTaskTypes, type Project, type Task, type DAGData, type TaskTypeConfig } from '@/services/api'
+import { getProjects, createProject, updateProject, deleteProject, getProject, getProjectDAG, addTask, updateTask, deleteTask, getUsers, getTaskTypes, getInstruments, type Project, type Task, type DAGData, type TaskTypeConfig } from '@/services/api'
 import dayjs from 'dayjs'
 
 const projects = ref<Project[]>([])
@@ -155,6 +152,7 @@ const newTaskType = ref("")
 const newTaskDuration = ref(8)
 const newAssigneeId = ref<number | null>(null)
 const userOptions = ref<{ label: string; value: number }[]>([])
+const instrumentOptions = ref<{ label: string; value: number }[]>([])
 const taskTypeOptions = ref<{ label: string; value: string; resource_type: string }[]>([])
 const taskTypeMap = ref<Record<string, TaskTypeConfig>>({})
 const dagData = ref<DAGData | null>(null)
@@ -166,7 +164,7 @@ const filterDateRange = ref<any>(null)
 const router = useRouter()
 const cf = reactive({ name: '', code: '', client_name: '', manager: '', priority: 3, sla_level: 'standard', profit_weight: 1.0, start_date: null as any, end_date: null as any })
 const ef = reactive({ name: '', code: '', client_name: '', manager: '', priority: 3, sla_level: 'standard', profit_weight: 1.0, start_date: null as any, end_date: null as any })
-const tf = reactive({ name: '', task_type: '', est_duration_hours: 8, switchover_hours: 0.5, predecessor_ids: [] as number[], capability_requirements: [] as { tag_name: string; tag_value: string }[], assignee_id: null as number | null })
+const tf = reactive({ name: '', task_type: '', est_duration_hours: 8, switchover_hours: 0.5, predecessor_ids: [] as number[], instrument_ids: [] as number[], assignee_id: null as number | null })
 
 const slaOptions = [{ label: '标准', value: 'standard' }, { label: '加急', value: 'expedited' }, { label: '特急', value: 'rush' }]
 const statusLabels: Record<string, string> = { active: '进行中', completed: '已完成', pending: '待启动', suspended: '已暂停', cancelled: '已取消', draft: '草稿' }
@@ -270,7 +268,7 @@ async function handleAddInline() {
       switchover_hours: 0.5,
       predecessor_ids: [],
       assignee_id: newAssigneeId.value || null,
-      capability_requirements: [],
+      instrument_ids: [],
     } as any)
     message.success('任务添加成功')
     isAddingTask.value = false
@@ -303,11 +301,11 @@ async function handleDeleteTask(taskId: number) {
 }
 
 function openAddTask() { editingTask.value = null; Object.assign(tf, { name: '', task_type: taskTypeOptions.value[0]?.value || '', est_duration_hours: 8, switchover_hours: 0.5, predecessor_ids: [],
-      assignee_id: newAssigneeId.value || null, capability_requirements: [] }); taskOpen.value = true }
+      assignee_id: newAssigneeId.value || null, instrument_ids: [] }); taskOpen.value = true }
 
 function openEditTask(t: Task) {
   editingTask.value = t
-  Object.assign(tf, { name: t.name, task_type: t.task_type, est_duration_hours: t.est_duration_hours || 8, switchover_hours: t.switchover_hours, predecessor_ids: t.predecessor_ids || [], capability_requirements: (t.capability_requirements || []).map(c => ({ tag_name: c.tag_name, tag_value: c.tag_value })), assignee_id: t.assignee_id || null })
+  Object.assign(tf, { name: t.name, task_type: t.task_type, est_duration_hours: t.est_duration_hours || 8, switchover_hours: t.switchover_hours, predecessor_ids: t.predecessor_ids || [], instrument_ids: t.instrument_ids || [], assignee_id: t.assignee_id || null })
   taskOpen.value = true
 }
 
@@ -320,7 +318,7 @@ async function handleTaskSubmit() {
     switchover_hours: tf.switchover_hours,
     predecessor_ids: tf.predecessor_ids,
       assignee_id: tf.assignee_id || null,
-    capability_requirements: tf.capability_requirements,
+    instrument_ids: tf.instrument_ids,
   }
   try {
     if (editingTask.value) {
@@ -334,6 +332,13 @@ async function handleTaskSubmit() {
     const [p, d] = await Promise.all([getProject(selectedProject.value.id), getProjectDAG(selectedProject.value.id)])
     selectedProject.value = p; dagData.value = d
   } catch { message.error('操作失败') }
+}
+
+async function loadInstruments() {
+  try {
+    const insts = await getInstruments()
+    instrumentOptions.value = insts.map(i => ({ label: i.name + ' (' + i.code + ')', value: i.id }))
+  } catch (e) { console.error("loadInstruments failed:", e) }
 }
 
 async function loadUsers() {
@@ -354,7 +359,7 @@ async function loadTaskTypes() {
   } catch (e) { console.error('loadTaskTypes failed:', e); return [] }
 }
 
-onMounted(async () => { await loadTaskTypes(); await Promise.all([fetchProjects(), loadUsers()]) })
+onMounted(async () => { await loadTaskTypes(); await Promise.all([fetchProjects(), loadUsers(), loadInstruments()]) })
 </script>
 
 

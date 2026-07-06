@@ -76,7 +76,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { ReloadOutlined } from '@ant-design/icons-vue'
-import { getMyTasks, startTask, completeTask, interruptTask, type MyTask } from '@/services/api'
+import { getMyTasks, startTask, completeTask, interruptTask, getTaskTypes, type MyTask } from '@/services/api'
 import dayjs from 'dayjs'
 
 const tasks = ref<MyTask[]>([])
@@ -96,6 +96,18 @@ const filtered = computed(() => {
   if (!statusFilter.value) return tasks.value
   return tasks.value.filter(t => t.status === statusFilter.value)
 })
+
+
+const taskTypeMap = ref<Record<string, string>>({})
+
+async function loadTaskTypes() {
+  try {
+    const types = await getTaskTypes()
+    const map: Record<string, string> = {}
+    types.forEach(t => { map[t.code] = t.name })
+    taskTypeMap.value = map
+  } catch { /* ignore */ }
+}
 
 function statusColor(s: string) {
   const m: Record<string, string> = { pending: '#94a3b8', scheduled: '#2563eb', running: '#16a34a', completed: '#7c3aed', blocked: '#dc2626', interrupted: '#ea580c' }
@@ -126,7 +138,7 @@ const columns = [
 
 async function fetchData() {
   loading.value = true
-  try { tasks.value = await getMyTasks() } catch { message.error('加载任务失败') } finally { loading.value = false }
+  try { tasks.value = await getMyTasks(); loadTaskTypes() } catch { message.error('加载任务失败') } finally { loading.value = false }
 }
 
 async function handleStart(record: MyTask) {

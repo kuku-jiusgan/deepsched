@@ -56,7 +56,7 @@ export const getProjectDAG = (id: number): Promise<DAGData> =>
 export const addTask = (projId: number, data: {
   name: string; task_type: string; requires_instrument: boolean;
   est_duration_hours: number; switchover_hours: number;
-  predecessor_ids: number[]; capability_requirements: CapabilityReq[];
+  predecessor_ids: number[]; instrument_ids: number[];
 }): Promise<Task> =>
   api.post<Task>(`/projects/${projId}/tasks`, data).then(r => r.data);
 
@@ -67,7 +67,7 @@ export const deleteTask = (id: number): Promise<void> =>
 export const updateTask = (taskId: number, data: {
   name: string; task_type: string; requires_instrument: boolean;
   est_duration_hours: number; switchover_hours: number;
-  predecessor_ids: number[]; capability_requirements: CapabilityReq[];
+  predecessor_ids: number[]; instrument_ids: number[];
 }): Promise<Task> =>
   api.put<Task>(`/projects/tasks/${taskId}`, data).then(r => r.data);
 
