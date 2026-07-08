@@ -8,6 +8,7 @@ export interface Project {
   status: string;
   profit_weight: number;
   manager?: string;
+  manager_name?: string;
   start_date?: string;
   end_date?: string;
   tasks: Task[];
@@ -65,10 +66,12 @@ export interface TimeSlot {
   tier: string;
   status: string;
   task_name?: string;
+  task_type?: string | null;
+  project_code?: string | null;
   project_name?: string;
   instrument_name?: string;
   assignee_name?: string;
-  project_id?: number;
+  project_id?: number | null;
 }
 
 export interface DashboardData {

@@ -1,0 +1,12 @@
+[2m18:42:54[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/stats/lab-status?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m18:43:25[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/stats/lab-status?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m18:43:54[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/stats/lab-status?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)

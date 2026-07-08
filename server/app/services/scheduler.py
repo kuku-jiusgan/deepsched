@@ -1,13 +1,11 @@
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 from typing import List, Optional, Dict, Tuple
-from datetime import datetime, timedelta
 from ortools.sat.python import cp_model
 from app.models import Instrument, Task, TimeSlot
-from app.models.models import SysCalendar
 from app.core.config import get_settings
-from app.schemas.schemas import InsertOrderRequest, InsertOrderCost, RescheduleRequest
 from app.services.schedule_rule_service import get_solver_constraints
+from app.services.schedule_slot_cleanup_service import clear_reschedulable_slots
 from app.services.scheduler_persistence import persist_slots
 from app.services.scheduler_helpers import (
     build_compatibility,
@@ -15,6 +13,7 @@ from app.services.scheduler_helpers import (
     build_maintenance_windows,
     build_working_prefix_sum,
     datetime_to_units,
+    load_calendar_days,
     time_horizon,
     to_units,
     working_time_bounds,
@@ -29,7 +28,7 @@ class SchedulerService:
 
     def generate(self, project_ids: Optional[List[int]] = None) -> dict:
         # Clear old slots and reset task statuses BEFORE loading
-        self._clear_slots()
+        clear_reschedulable_slots(self.db)
         tasks, instruments = self._load_data(project_ids)
         if not tasks:
             return {"status": "ok", "message": "没有待排仪器任务", "timeslots_created": 0}
@@ -65,7 +64,7 @@ class SchedulerService:
         if not working_rule.is_enabled:
             day_start_minutes, day_end_minutes = 0, 24 * 60
             include_weekends, include_holidays = True, True
-        calendar_days = self._load_calendar_days(horizon_start, horizon_end)
+        calendar_days = load_calendar_days(self.db, horizon_start, horizon_end)
         global_prefix_sum = build_working_prefix_sum(
             horizon_start,
             total_units,
@@ -354,129 +353,6 @@ class SchedulerService:
             "objective_value": int(solver.ObjectiveValue()),
         }
 
-    def reschedule(self, data: RescheduleRequest) -> dict:
-        if data.strategy == "local":
-            return self._local_repair(data)
-        elif data.strategy == "project":
-            return self._project_reschedule(data)
-        else:
-            return self._global_reschedule(data)
-
-    def complete_and_shift(self, task_id: int, actual_end_time = None) -> dict:
-        """Early completion: truncate slots and trigger forward shift of dependent tasks."""
-        now = datetime.now()
-        end_time = actual_end_time or now
-
-        task = self.db.query(Task).filter(Task.id == task_id).first()
-        if not task:
-            return {"status": "error", "message": "未找到指定任务"}
-
-        task.status = "done"
-
-        # Delete all future slots for this task
-        self.db.query(TimeSlot).filter(
-            TimeSlot.task_id == task_id,
-            TimeSlot.plan_end > end_time
-        ).delete(synchronize_session=False)
-
-        # Truncate the ongoing slot that spans across end_time
-        ongoing_slot = self.db.query(TimeSlot).filter(
-            TimeSlot.task_id == task_id,
-            TimeSlot.plan_start <= end_time,
-            TimeSlot.plan_end > end_time
-        ).first()
-        if ongoing_slot:
-            ongoing_slot.plan_end = end_time
-            ongoing_slot.actual_end = end_time
-            ongoing_slot.status = "completed"
-
-        self.db.commit()
-        return self._forward_shift_reschedule(task)
-
-    def _forward_shift_reschedule(self, completed_task) -> dict:
-        """Forward-shift: clear future slots of same-project and same-instrument tasks."""
-        last_slot = self.db.query(TimeSlot).filter(
-            TimeSlot.task_id == completed_task.id
-        ).order_by(TimeSlot.plan_end.desc()).first()
-        instrument_id = last_slot.instrument_id if last_slot else None
-
-        # Scope 1: same-project scheduled tasks
-        project_task_ids = self.db.query(Task.id).filter(
-            Task.project_id == completed_task.project_id,
-            Task.status == "scheduled"
-        )
-
-        # Scope 2: same-instrument tasks from other projects
-        inst_task_ids = []
-        if instrument_id:
-            inst_task_ids = self.db.query(TimeSlot.task_id).filter(
-                TimeSlot.instrument_id == instrument_id,
-                TimeSlot.tier.in_(["confirmed", "forecast"]),
-                TimeSlot.plan_start >= datetime.now()
-            ).distinct()
-
-        if inst_task_ids:
-            affected = project_task_ids.union(inst_task_ids).subquery()
-        else:
-            affected = project_task_ids.subquery()
-
-        self.db.query(TimeSlot).filter(
-            TimeSlot.task_id.in_(affected),
-            TimeSlot.tier.in_(["confirmed", "forecast"])
-        ).delete(synchronize_session=False)
-
-        self.db.query(Task).filter(
-            Task.id.in_(affected),
-            Task.status == "scheduled"
-        ).update({"status": "pending"}, synchronize_session=False)
-
-        self.db.commit()
-        return self.generate()
-
-    def calculate_insert_cost(self, data: InsertOrderRequest) -> InsertOrderCost:
-        tasks = self.db.query(Task).filter(Task.id.in_(data.task_ids)).all()
-        if not tasks:
-            return InsertOrderCost()
-
-        total_hours = sum(t.est_duration_hours or 4 for t in tasks)
-        now = datetime.now()
-        affected_slots = (
-            self.db.query(TimeSlot)
-            .filter(
-                TimeSlot.tier == "confirmed",
-                TimeSlot.status == "scheduled",
-                TimeSlot.plan_start >= now,
-            )
-            .order_by(TimeSlot.plan_start)
-            .limit(20)
-            .all()
-        )
-
-        displaced = []
-        affected_projects = set()
-        milestone_violations = []
-        total_delay = 0.0
-
-        for slot in affected_slots:
-            delay = total_hours * 0.5
-            total_delay += delay
-            displaced.append({
-                "task_id": slot.task_id,
-                "task_name": slot.task_name or "",
-                "project_name": slot.project_name or "",
-                "original_start": slot.plan_start.isoformat() if slot.plan_start else "",
-                "delay_hours": round(delay, 1),
-            })
-            if slot.task and slot.task.project:
-                affected_projects.add(slot.task.project.name)
-
-        return InsertOrderCost(
-            displaced_tasks=displaced,
-            affected_projects=[{"name": n} for n in affected_projects],
-            milestone_violations=milestone_violations,
-            total_delay_hours=round(total_delay, 1),
-        )
-
     # ── Private helpers ─────────────────────────────────────────
 
     def _load_data(self, project_ids):
@@ -507,77 +383,3 @@ class SchedulerService:
         return tasks, instruments
 
                 # 不工作时间配置大于8点小于20点
-    def _load_calendar_days(self, horizon_start: datetime, horizon_end: datetime) -> dict:
-        rows = self.db.query(SysCalendar).filter(
-            SysCalendar.date >= horizon_start.date(),
-            SysCalendar.date <= horizon_end.date(),
-        ).all()
-        return {
-            row.date: {
-                "is_working_day": row.is_working_day,
-                "day_type": row.day_type,
-            }
-            for row in rows
-        }
-
-    def _clear_slots(self):
-        # Find tasks that have frozen time slots (must NOT be reset)
-        frozen_task_ids = self.db.query(TimeSlot.task_id).filter(
-            TimeSlot.tier == "frozen"
-        ).distinct()
-
-        # Also preserve completed/done task slots (historical record)
-        done_task_ids = self.db.query(Task.id).filter(Task.status == "done").distinct()
-
-        # Clear only forecast and confirmed tiers; preserve frozen + done history
-        self.db.query(TimeSlot).filter(
-            TimeSlot.tier.in_(["forecast", "confirmed"]),
-            ~TimeSlot.task_id.in_(frozen_task_ids),
-            ~TimeSlot.task_id.in_(done_task_ids),
-        ).delete(synchronize_session=False)
-
-        # Reset non-frozen, non-done tasks to pending
-        self.db.query(Task).filter(
-            Task.status.in_(["scheduled", "blocked"]),
-            ~Task.id.in_(frozen_task_ids),
-        ).update({"status": "pending"}, synchronize_session=False)
-
-        self.db.commit()
-
-    def _local_repair(self, data: RescheduleRequest) -> dict:
-        if data.affected_task_id:
-            task = self.db.query(Task).filter(Task.id == data.affected_task_id).first()
-            if task:
-                self.db.query(TimeSlot).filter(
-                    TimeSlot.task_id == data.affected_task_id,
-                    TimeSlot.tier.in_(["confirmed", "forecast"]),
-                ).delete()
-                task.status = "pending"
-                self.db.commit()
-        return self.generate()
-
-    def _project_reschedule(self, data: RescheduleRequest) -> dict:
-        if data.affected_task_id:
-            task = self.db.query(Task).filter(Task.id == data.affected_task_id).first()
-            if task:
-                self.db.query(TimeSlot).filter(
-                    TimeSlot.task_id.in_(
-                        self.db.query(Task.id).filter(Task.project_id == task.project_id)
-                    ),
-                    TimeSlot.tier.in_(["confirmed", "forecast"]),
-                ).delete()
-                self.db.query(Task).filter(
-                    Task.project_id == task.project_id,
-                    Task.status == "scheduled",
-                ).update({"status": "pending"})
-                self.db.commit()
-                return self.generate([task.project_id])
-        return {"status": "error", "message": "未指定受影响任务"}
-
-    def _global_reschedule(self, data: RescheduleRequest) -> dict:
-        self.db.query(TimeSlot).filter(
-            TimeSlot.tier.in_(["confirmed", "forecast"])
-        ).delete()
-        self.db.query(Task).filter(Task.status == "scheduled").update({"status": "pending"})
-        self.db.commit()
-        return self.generate()

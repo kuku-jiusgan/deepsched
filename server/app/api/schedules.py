@@ -17,6 +17,9 @@ from app.services.schedule_delay_service import (
     ScheduleDelayNotFoundError,
     report_task_delay,
 )
+from app.services.schedule_completion_service import complete_task_and_shift
+from app.services.schedule_insert_service import calculate_insert_cost as calculate_insert_cost_service
+from app.services.schedule_reschedule_service import reschedule as reschedule_service
 
 router = APIRouter(prefix="/api/v1/schedules", tags=["schedules"])
 
@@ -82,8 +85,7 @@ def complete_task(slot_id: int, db: Session = Depends(get_db)):
     slot = db.query(TimeSlot).filter(TimeSlot.id == slot_id).first()
     if not slot:
         raise HTTPException(status_code=404, detail="时间槽不存在")
-    scheduler = SchedulerService(db)
-    return scheduler.complete_and_shift(slot.task_id)
+    return complete_task_and_shift(db, slot.task_id)
 
 @router.post("/timeslots/{slot_id}/interrupt")
 def interrupt_task(slot_id: int, db: Session = Depends(get_db)):
@@ -129,6 +131,7 @@ def night_run(slot_id: int, data: NightRunRequest, db: Session = Depends(get_db)
     if night_slot:
         night_slot.plan_end = end_time
         night_slot.tier = slot.tier
+        night_slot.status = slot.status
     else:
         night_slot = TimeSlot(
             task_id=slot.task_id,
@@ -136,7 +139,7 @@ def night_run(slot_id: int, data: NightRunRequest, db: Session = Depends(get_db)
             plan_start=start_time,
             plan_end=end_time,
             tier=slot.tier,
-            status="scheduled",
+            status=slot.status,
         )
         db.add(night_slot)
         db.flush()
@@ -153,14 +156,11 @@ def generate_schedule(data: ScheduleGenerateRequest, db: Session = Depends(get_d
 
 @router.post("/reschedule")
 def reschedule(data: RescheduleRequest, db: Session = Depends(get_db)):
-    scheduler = SchedulerService(db)
-    result = scheduler.reschedule(data)
-    return result
+    return reschedule_service(db, data)
 
 @router.post("/insert-order", response_model=InsertOrderCost)
 def calculate_insert_cost(data: InsertOrderRequest, db: Session = Depends(get_db)):
-    scheduler = SchedulerService(db)
-    return scheduler.calculate_insert_cost(data)
+    return calculate_insert_cost_service(db, data)
 
 @router.post("/insert-order/confirm")
 def confirm_insert(data: InsertOrderRequest, db: Session = Depends(get_db)):
@@ -295,6 +295,7 @@ def _enrich_slot(slot: TimeSlot, db: Session) -> TimeSlotOut:
         tier=slot.tier, status=slot.status,
         task_name=task.name if task else None,
         task_type=task.task_type if task else None,
+        project_code=proj.code if proj else None,
         project_name=proj.name if proj else None,
         instrument_name=inst.name if inst else None,
         assignee_name=task.assignee.display_name if task and task.assignee else None,

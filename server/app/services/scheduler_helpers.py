@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta
 from typing import Dict, List
 
 from app.models import Instrument
+from app.models.models import SysCalendar
 
 
 TIME_UNIT_MINUTES = 30
@@ -206,6 +207,20 @@ def is_allowed_calendar_day(
     if day_type == "holiday":
         return include_holidays
     return bool(day.get("is_working_day", True))
+
+
+def load_calendar_days(db, horizon_start: datetime, horizon_end: datetime) -> dict:
+    rows = db.query(SysCalendar).filter(
+        SysCalendar.date >= horizon_start.date(),
+        SysCalendar.date <= horizon_end.date(),
+    ).all()
+    return {
+        row.date: {
+            "is_working_day": row.is_working_day,
+            "day_type": row.day_type,
+        }
+        for row in rows
+    }
 
 
 def _parse_instrument_ids(task) -> list[int]:

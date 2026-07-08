@@ -166,6 +166,7 @@ class TimeSlotOut(BaseModel):
     status: str
     task_name: Optional[str] = None
     task_type: Optional[str] = None
+    project_code: Optional[str] = None
     project_name: Optional[str] = None
     instrument_name: Optional[str] = None
     assignee_name: Optional[str] = None

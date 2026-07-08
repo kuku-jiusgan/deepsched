@@ -1,0 +1,12 @@
+
+  [32m[1mVITE[22m v6.4.3[39m  [2mready in [0m[1m8810[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m3000[22m/[39m
+[2m17:54:41[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Dashboard.vue, /src/pages/InstrumentGantt.vue[22m
+[2m17:54:41[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/InstrumentGantt.vue[22m
+[2m17:55:08[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/InstrumentGantt.vue[22m
+[2m18:01:21[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/tasks/TodayTaskCards.vue[22m
+[2m18:01:32[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/tasks/TodayTaskCards.vue[22m
+[2m18:02:27[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/tasks/TodayTaskCards.vue[22m
+[2m18:02:37[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/tasks/TodayTaskCards.vue?vue&type=style&index=0&scoped=6c78779a&lang.css[22m
+[2m18:12:12[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/InstrumentGantt.vue, /src/pages/InstrumentGantt.vue?vue&type=style&index=0&scoped=3483692d&lang.css[22m

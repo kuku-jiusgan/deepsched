@@ -4,6 +4,11 @@ import type {
   DAGData, InsertCost, Task, CapabilityReq,
 } from '@/types';
 
+export type {
+  Project, Instrument, TimeSlot, DashboardData, UtilizationStats,
+  DAGData, InsertCost, Task, CapabilityReq,
+}
+
 
 const api = axios.create({ baseURL: '/api/v1' });
 
@@ -220,6 +225,7 @@ export interface TaskTypeConfig {
   description: string | null
   is_active: boolean
   sort_order: number
+  predecessor_type_ids?: number[]
 }
 
 export const getTaskTypes = (): Promise<TaskTypeConfig[]> =>

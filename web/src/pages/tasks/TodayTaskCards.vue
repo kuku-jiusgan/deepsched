@@ -28,6 +28,9 @@
             </div>
 
             <div class="today-card-choice">请选择：</div>
+            <div v-if="card.nightRunSummary" class="today-card-night-summary">
+              {{ card.nightRunSummary }}
+            </div>
             <div class="today-card-actions">
               <a-popconfirm
                 title="确认该任务已经完成？"
@@ -110,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { recordNightRun, reportTaskDelay, type MyTask } from '@/services/api'
 import dayjs from 'dayjs'
@@ -141,6 +144,7 @@ interface TodayTaskCard {
   statusText: string
   earliestStart: string
   latestEnd: string
+  nightRunSummary: string
 }
 
 interface TodayCardGroup {
@@ -155,6 +159,10 @@ interface AutoSequenceForm {
   latestEnd: string
   requiresOperator: boolean
   remark: string
+}
+
+interface StoredAutoSequenceForm extends AutoSequenceForm {
+  savedAt: string
 }
 
 interface DelayForm {
@@ -172,6 +180,7 @@ const NIGHT_RESERVE_END = '次日 08:30'
 const DEFAULT_NIGHT_START = '17:30'
 const DEFAULT_SEQUENCE_DURATION_HOURS = 8
 const DEFAULT_DELAY_HOURS = 1
+const NIGHT_RUN_STORAGE_PREFIX = 'deepsched:today-night-run'
 
 const autoSequenceOpen = ref(false)
 const delayReportOpen = ref(false)
@@ -189,6 +198,7 @@ const delayForm = reactive<DelayForm>({
   delayHours: DEFAULT_DELAY_HOURS,
   reason: '',
 })
+const nightRunRevision = ref(0)
 
 const todayTasks = computed(() => props.tasks.filter(isTodayTask))
 
@@ -259,6 +269,8 @@ function scheduleText(task: MyTask) {
 
 function buildTodayCard(task: MyTask, category: TodayCardCategory): TodayTaskCard {
   const nightStart = formatTaskTime(task.plan_end, DEFAULT_NIGHT_START)
+  nightRunRevision.value
+  const storedNightRun = readNightRunForm(task)
   const tagTextMap: Record<TodayCardCategory, string> = {
     completion: '完成',
     exception: '异常',
@@ -282,6 +294,7 @@ function buildTodayCard(task: MyTask, category: TodayCardCategory): TodayTaskCar
     statusText: statusLabel(task.status),
     earliestStart: nightStart,
     latestEnd: NIGHT_RESERVE_END,
+    nightRunSummary: storedNightRun ? formatNightRunSummary(storedNightRun) : '',
   }
 }
 
@@ -291,11 +304,14 @@ function handleCardAction(card: TodayTaskCard, action: string) {
 
 function openAutoSequence(card: TodayTaskCard) {
   selectedCard.value = card
-  autoSequenceForm.durationHours = DEFAULT_SEQUENCE_DURATION_HOURS
-  autoSequenceForm.earliestStart = card.earliestStart
-  autoSequenceForm.latestEnd = card.latestEnd
-  autoSequenceForm.requiresOperator = false
-  autoSequenceForm.remark = ''
+  const savedForm = readNightRunForm(card.task)
+  setAutoSequenceForm(savedForm || {
+    durationHours: DEFAULT_SEQUENCE_DURATION_HOURS,
+    earliestStart: card.earliestStart,
+    latestEnd: card.latestEnd,
+    requiresOperator: false,
+    remark: '',
+  })
   autoSequenceOpen.value = true
 }
 
@@ -318,6 +334,7 @@ async function submitAutoSequence() {
       remark: autoSequenceForm.remark.trim() || undefined,
     })
     message.success(`${selectedCard.value.taskText} 已记录为夜间运行`)
+    saveNightRunForm(selectedCard.value.task)
     autoSequenceOpen.value = false
     emit('refreshed')
   } catch {
@@ -326,6 +343,66 @@ async function submitAutoSequence() {
     autoSequenceSubmitting.value = false
   }
 }
+
+function setAutoSequenceForm(form: AutoSequenceForm) {
+  autoSequenceForm.durationHours = form.durationHours
+  autoSequenceForm.earliestStart = form.earliestStart
+  autoSequenceForm.latestEnd = form.latestEnd
+  autoSequenceForm.requiresOperator = form.requiresOperator
+  autoSequenceForm.remark = form.remark
+}
+
+function nightRunStorageKey(task: MyTask) {
+  const todayKey = dayjs().format('YYYY-MM-DD')
+  const resourceKey = task.instrument_id || task.slot_id
+  return `${NIGHT_RUN_STORAGE_PREFIX}:${todayKey}:${task.task_id}:${resourceKey}`
+}
+
+function readNightRunForm(task: MyTask): StoredAutoSequenceForm | null {
+  try {
+    const rawValue = localStorage.getItem(nightRunStorageKey(task))
+    if (!rawValue) return null
+    const parsedValue = JSON.parse(rawValue) as Partial<StoredAutoSequenceForm>
+    if (!parsedValue.durationHours || !parsedValue.earliestStart || !parsedValue.latestEnd) return null
+    return {
+      durationHours: parsedValue.durationHours,
+      earliestStart: parsedValue.earliestStart,
+      latestEnd: parsedValue.latestEnd,
+      requiresOperator: Boolean(parsedValue.requiresOperator),
+      remark: parsedValue.remark || '',
+      savedAt: parsedValue.savedAt || dayjs().toISOString(),
+    }
+  } catch {
+    return null
+  }
+}
+
+function saveNightRunForm(task: MyTask) {
+  const storedForm: StoredAutoSequenceForm = {
+    durationHours: autoSequenceForm.durationHours,
+    earliestStart: autoSequenceForm.earliestStart,
+    latestEnd: autoSequenceForm.latestEnd,
+    requiresOperator: autoSequenceForm.requiresOperator,
+    remark: autoSequenceForm.remark,
+    savedAt: dayjs().toISOString(),
+  }
+  localStorage.setItem(nightRunStorageKey(task), JSON.stringify(storedForm))
+  nightRunRevision.value += 1
+}
+
+function formatNightRunSummary(form: StoredAutoSequenceForm) {
+  const operatorText = form.requiresOperator ? '需人在场启动' : '无需人在场'
+  return `今日夜间运行已填写：${form.earliestStart} - ${form.latestEnd}，${form.durationHours}h，${operatorText}`
+}
+
+watch(
+  autoSequenceForm,
+  () => {
+    if (!autoSequenceOpen.value || !selectedCard.value) return
+    saveNightRunForm(selectedCard.value.task)
+  },
+  { deep: true },
+)
 
 async function submitDelayReport() {
   if (!selectedCard.value) return
@@ -446,6 +523,17 @@ async function submitDelayReport() {
   margin-bottom: var(--space-xs);
   color: var(--color-text-secondary);
   font-size: 0.78rem;
+}
+
+.today-card-night-summary {
+  margin-bottom: var(--space-xs);
+  padding: 6px 8px;
+  color: #166534;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  line-height: 1.45;
 }
 
 .today-card-actions {

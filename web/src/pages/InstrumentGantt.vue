@@ -56,7 +56,11 @@
               :style="getBarStyle(slot, row.quarter)"
               @mouseenter="e => showTooltip(slot, e)"
               @mouseleave="hideTooltip">
-                            <span class="bar-tag"><component :is="getTaskIcon(slot.task_type)" /></span><span class="bar-label">{{ slot.task_name }}</span>
+              <span class="bar-tag"><component :is="getTaskIcon(slot.task_type)" /></span>
+              <span class="bar-label">
+                <span class="bar-project">{{ getBarProjectText(slot) }}</span>
+                <span class="bar-task">{{ getBarTaskText(slot) }}</span>
+              </span>
             </div>
           </div>
         </div>
@@ -66,7 +70,7 @@
     <div v-if="hoveredSlot" class="gantt-tooltip" :style="tooltipStyle">
       <div class="tooltip-title">{{ hoveredSlot.task_name }}</div>
       <div class="tooltip-row"><span>工序</span>{{ getTaskTypeLabel(hoveredSlot.task_type) }}</div>
-      <div class="tooltip-row"><span>项目</span>{{ hoveredSlot.project_name }}</div>
+      <div class="tooltip-row"><span>项目</span>{{ getBarProjectText(hoveredSlot) }}</div>
       <div class="tooltip-row"><span>负责人</span>{{ hoveredSlot.assignee_name || '-' }}</div>
       <div class="tooltip-row"><span>开始</span>{{ dayjs(hoveredSlot.plan_start).format('MM-DD HH:mm') }}</div>
       <div class="tooltip-row"><span>结束</span>{{ dayjs(hoveredSlot.plan_end).format('MM-DD HH:mm') }}</div>
@@ -77,6 +81,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import type { CSSProperties } from 'vue'
 import { message } from 'ant-design-vue'
 import { LeftOutlined, RightOutlined, ReloadOutlined, FullscreenOutlined, FullscreenExitOutlined, ExperimentOutlined, EditOutlined, CheckSquareOutlined, DotChartOutlined, FileTextOutlined } from '@ant-design/icons-vue'
 import { getInstruments, getTimeslots, getTaskTypes, type TaskTypeConfig } from '@/services/api'
@@ -200,7 +205,7 @@ function getEntityRowStyle(_index: number, _quarter?: number) {
   return { height: Math.max(12, rowHeight.value) + 'px' }
 }
 
-function getLeftRowStyle(row: { isSubrow: boolean }) {
+function getLeftRowStyle(row: { isSubrow: boolean }): CSSProperties {
   if (viewMode.value === 'week' && !row.isSubrow) {
     return { height: rowHeight.value * 4 + 'px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }
   }
@@ -301,8 +306,18 @@ const taskIconMap: Record<string, any> = {
   SJCL_001: DotChartOutlined,
   ZXBG_001: FileTextOutlined,
 }
-function getTaskIcon(code: string | undefined) { return code ? (taskIconMap[code] || null) : null }
-function getTaskTypeLabel(code: string | undefined) { return code ? (taskTypeMap.value[code] || code) : '' }
+function getTaskIcon(code: string | null | undefined) { return code ? (taskIconMap[code] || null) : null }
+function getTaskTypeLabel(code: string | null | undefined) { return code ? (taskTypeMap.value[code] || code) : '' }
+function getBarProjectText(slot: TimeSlot) {
+  const code = slot.project_code || ''
+  const name = slot.project_name || ''
+  return [code, name].filter(Boolean).join(' / ') || '-'
+}
+function getBarTaskText(slot: TimeSlot) {
+  const taskName = slot.task_name || '-'
+  const ownerName = slot.assignee_name || '-'
+  return `${taskName} · ${ownerName}`
+}
 
 function statusLabel(s: string) {
   const m: Record<string, string> = { scheduled: '待处理', pending: '待处理', running: '运行中', completed: '已完成', blocked: '已延期', interrupted: '已延期' }
@@ -349,9 +364,12 @@ function goToday() {
 function scrollToNow() {
   if (viewMode.value !== 'day' || !rightRef.value) return
   nextTick(() => {
+    const container = containerRef.value
+    const right = rightRef.value
+    if (!container || !right) return
     const hour = dayjs().hour()
-    const containerH = containerRef.value.clientHeight
-    rightRef.value.scrollTop = Math.max(0, hour * (rowHeight.value / 24) - containerH / 2)
+    const containerH = container.clientHeight
+    right.scrollTop = Math.max(0, hour * (rowHeight.value / 24) - containerH / 2)
   })
 }
 
@@ -521,7 +539,10 @@ onUnmounted(() => {
 .gantt-bar { position: absolute; border-radius: 3px; display: flex; align-items: center; padding: 0 5px; cursor: pointer; overflow: hidden; transition: box-shadow 0.15s; z-index: 1; box-sizing: border-box; gap: 3px; min-width: 0; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
 .gantt-bar:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 3; }
 .bar-tag { flex-shrink: 0; width: 18px; height: 18px; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; background: rgba(0,0,0,0.12); color: inherit; }
-.bar-label { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; min-width: 0; color: inherit; }
+.bar-label { display: flex; flex-direction: column; justify-content: center; gap: 1px; overflow: hidden; min-width: 0; color: inherit; line-height: 1.15; }
+.bar-project, .bar-task { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar-project { font-size: 11px; font-weight: 700; }
+.bar-task { font-size: 10px; font-weight: 500; opacity: 0.92; }
 
 /* Status colors */
 .status-scheduled, .status-pending {
