@@ -12,70 +12,85 @@
         <a-tab-pane key="running" tab="进行中" />
         <a-tab-pane key="completed" tab="已完成" />
       </a-tabs>
-      <span style="font-size: 12px; color: #94a3b8; align-self: center; white-space: nowrap">
-        共 {{ filtered.length }} 个任务
-      </span>
     </div>
 
     <a-spin v-if="loading" size="large" style="display: block; margin: 80px auto" />
 
-    <a-table v-else :dataSource="filtered" :columns="columns" rowKey="slot_id" size="middle"
-      :pagination="{ pageSize: 20, showSizeChanger: true }">
-      <template #bodyCell="{ column, record }">
-        <template v-if="column.key === 'status'">
-          <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
-        </template>
-        <template v-else-if="column.key === 'task_type'">
-          <a-tag v-if="record.task_type" :color="taskTypeColor(record.task_type)" style="font-size: 11px">{{ taskTypeLabel(record.task_type) }}</a-tag>
-          <span v-else style="color: #ccc">-</span>
-        </template>
-        <template v-else-if="column.key === 'task_name'">
-          <span style="font-weight: 500">{{ record.task_name }}</span>
-        </template>
-        <template v-else-if="column.key === 'project'">
-          <span style="font-family: monospace; font-size: 12px; color: #2563eb">{{ record.project_code }}</span>
-          <span style="margin-left: 6px; font-size: 12px; color: #64748b">{{ record.project_name }}</span>
-        </template>
-        <template v-else-if="column.key === 'instrument'">
-          {{ record.instrument_name || record.instrument_code || '-' }}
-        </template>
-        <template v-else-if="column.key === 'plan_start'">
-          {{ record.plan_start ? dayjs(record.plan_start).format('MM-DD HH:mm') : '-' }}
-        </template>
-        <template v-else-if="column.key === 'plan_end'">
-          {{ record.plan_end ? dayjs(record.plan_end).format('MM-DD HH:mm') : '-' }}
-        </template>
-        <template v-else-if="column.key === 'actions'">
-          <template v-if="!record.slot_id">
-            <a-tag color="default">未排程</a-tag>
-          </template>
-          <a-space v-else :size="4">
-            <a-button
-              v-if="record.status === 'scheduled' || record.status === 'pending'"
-              type="primary" size="small"
-              @click="handleStart(record)"
-              :loading="actingId === record.slot_id"
-            >开始</a-button>
-            <a-button
-              v-if="record.status === 'running'"
-              type="primary" size="small"
-              style="background: #16a34a; border-color: #16a34a"
-              @click="handleComplete(record)"
-              :loading="actingId === record.slot_id"
-            >完成</a-button>
+    <template v-else>
+      <TodayTaskCards :tasks="tasks" @complete="handleComplete" @refreshed="fetchData" />
 
-          </a-space>
+      <a-table :dataSource="filtered" :columns="columns" rowKey="slot_id" size="middle"
+        :pagination="{ pageSize: 20, showSizeChanger: true }">
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'status'">
+            <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
+          </template>
+          <template v-else-if="column.key === 'task_type'">
+            <a-tag v-if="record.task_type" :color="taskTypeColor(record.task_type)" style="font-size: 11px">{{ taskTypeLabel(record.task_type) }}</a-tag>
+            <span v-else style="color: #ccc">-</span>
+          </template>
+          <template v-else-if="column.key === 'task_name'">
+            <span style="font-weight: 500">{{ record.task_name }}</span>
+          </template>
+          <template v-else-if="column.key === 'project'">
+            <span style="font-family: monospace; font-size: 12px; color: #2563eb">{{ record.project_code }}</span>
+            <span style="margin-left: 6px; font-size: 12px; color: #64748b">{{ record.project_name }}</span>
+          </template>
+          <template v-else-if="column.key === 'instrument'">
+            {{ record.instrument_name || record.instrument_code || '-' }}
+          </template>
+          <template v-else-if="column.key === 'plan_start'">
+            {{ record.plan_start ? dayjs(record.plan_start).format('MM-DD HH:mm') : '-' }}
+          </template>
+          <template v-else-if="column.key === 'plan_end'">
+            {{ record.plan_end ? dayjs(record.plan_end).format('MM-DD HH:mm') : '-' }}
+          </template>
+          <template v-else-if="column.key === 'actions'">
+            <template v-if="!record.slot_id">
+              <a-tag color="default">未排程</a-tag>
+            </template>
+            <a-space v-else :size="4">
+              <a-button
+                v-if="record.status === 'scheduled' || record.status === 'pending'"
+                type="primary"
+                size="small"
+                class="task-action-button task-action-button-start"
+                @click="handleStart(record)"
+                :loading="actingId === record.slot_id"
+              >
+                <PlayCircleOutlined /> 开始
+              </a-button>
+              <a-popconfirm
+                v-if="record.status === 'running'"
+                title="确认将该任务标记为已完成？"
+                ok-text="确认完成"
+                cancel-text="再检查一下"
+                placement="topRight"
+                @confirm="handleComplete(record)"
+              >
+                <a-button
+                  size="small"
+                  class="task-action-button task-action-button-complete"
+                  :loading="actingId === record.slot_id"
+                >
+                  <CheckCircleOutlined /> 完成
+                </a-button>
+              </a-popconfirm>
+
+            </a-space>
+          </template>
         </template>
-      </template>
-    </a-table>
+      </a-table>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
-import { ReloadOutlined } from '@ant-design/icons-vue'
+import { CheckCircleOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { getMyTasks, startTask, completeTask, getTaskTypes, type MyTask } from '@/services/api'
+import TodayTaskCards from './TodayTaskCards.vue'
 import dayjs from 'dayjs'
 
 const tasks = ref<MyTask[]>([])
@@ -160,3 +175,31 @@ async function handleComplete(record: MyTask) {
 
 onMounted(fetchData)
 </script>
+
+<style scoped>
+.task-action-button {
+  min-width: 72px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.task-action-button-start {
+  background: var(--color-accent) !important;
+  border-color: var(--color-accent) !important;
+}
+
+.task-action-button-complete {
+  color: #ffffff !important;
+  background: var(--color-success) !important;
+  border-color: var(--color-success) !important;
+}
+
+.task-action-button-complete:hover,
+.task-action-button-complete:focus {
+  color: #ffffff !important;
+  background: #15803d !important;
+  border-color: #15803d !important;
+}
+</style>

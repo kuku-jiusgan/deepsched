@@ -60,16 +60,16 @@
             <template #default="{ record }">{{ record.totalHours.toFixed(1) }}</template>
           </a-table-column>
           <a-table-column title="溶液配制(h)" key="sol" width="110" align="center">
-            <template #default="{ record }">{{ 0.toFixed(1) }}</template>
+            <template #default>0.0</template>
           </a-table-column>
           <a-table-column title="样品前处理(h)" key="samp" width="110" align="center">
-            <template #default="{ record }">{{ 0.toFixed(1) }}</template>
+            <template #default>0.0</template>
           </a-table-column>
           <a-table-column title="序列运行(h)" key="run" width="110" align="center">
-            <template #default="{ record }">{{ 0.toFixed(1) }}</template>
+            <template #default>0.0</template>
           </a-table-column>
           <a-table-column title="出具报告(h)" key="rep" width="110" align="center">
-            <template #default="{ record }">{{ 0.toFixed(1) }}</template>
+            <template #default>0.0</template>
           </a-table-column>
           <a-table-column title="工时占比" key="pct" width="200">
             <template #default="{ record }">
@@ -160,10 +160,10 @@ function expandedRowRender(record: ProjectStat) {
           h('td', { style: 'padding: 6px 12px' }, u.userName),
           h('td', { style: 'padding: 6px 12px; text-align: center' }, String(u.taskCount)),
           h('td', { style: 'padding: 6px 12px; text-align: center' }, u.hours.toFixed(1)),
-          h('td', { style: 'padding: 6px 12px; text-align: center' }, 0.toFixed(1)),
-          h('td', { style: 'padding: 6px 12px; text-align: center' }, 0.toFixed(1)),
-          h('td', { style: 'padding: 6px 12px; text-align: center' }, 0.toFixed(1)),
-          h('td', { style: 'padding: 6px 12px; text-align: center' }, 0.toFixed(1)),
+          h('td', { style: 'padding: 6px 12px; text-align: center' }, '0.0'),
+          h('td', { style: 'padding: 6px 12px; text-align: center' }, '0.0'),
+          h('td', { style: 'padding: 6px 12px; text-align: center' }, '0.0'),
+          h('td', { style: 'padding: 6px 12px; text-align: center' }, '0.0'),
         ])
       ))
     ])

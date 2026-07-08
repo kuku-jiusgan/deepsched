@@ -1,13 +1,24 @@
+from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 from typing import List, Optional, Dict, Tuple
 from datetime import datetime, timedelta
 from ortools.sat.python import cp_model
-from app.models import Task, Instrument, TimeSlot, Project, TaskDependency, InstrumentCapability, TaskCapabilityRequirement, MaintenanceWindow, InstrumentFault, Milestone
+from app.models import Instrument, Task, TimeSlot
+from app.models.models import SysCalendar
 from app.core.config import get_settings
 from app.schemas.schemas import InsertOrderRequest, InsertOrderCost, RescheduleRequest
-
-TIME_UNIT_MINUTES = 30
-HORIZON_DAYS = 90
+from app.services.schedule_rule_service import get_solver_constraints
+from app.services.scheduler_persistence import persist_slots
+from app.services.scheduler_helpers import (
+    build_compatibility,
+    build_dependencies,
+    build_maintenance_windows,
+    build_working_prefix_sum,
+    datetime_to_units,
+    time_horizon,
+    to_units,
+    working_time_bounds,
+)
 
 
 class SchedulerService:
@@ -25,18 +36,46 @@ class SchedulerService:
         if not instruments:
             return {"status": "error", "message": "没有可用仪器"}
 
-        horizon_start, horizon_end, total_units = self._time_horizon()
+        constraints = get_solver_constraints(self.db)
+        horizon_start, horizon_end, total_units = time_horizon()
 
-        # Frozen boundary: non-urgent tasks cannot start before this wall
-        now = datetime.now()
-        frozen_boundary_dt = now + timedelta(days=get_settings().FROZEN_DAYS)
-        frozen_units = self._datetime_to_units(frozen_boundary_dt, horizon_start)
-        frozen_units = max(0, frozen_units)
+        freezing_rule = constraints["freezing"]
+        freeze_days = (freezing_rule.params or {}).get(
+            "freeze_days",
+            get_settings().FROZEN_DAYS,
+        )
 
-        compat = self._build_compatibility(tasks, instruments)
-        task_deps = self._build_dependencies(tasks)
-        maint_windows = self._build_maintenance_windows(instruments, horizon_start)
-        global_prefix_sum = self._build_working_prefix_sum(horizon_start, total_units, maint_windows)
+        compat = build_compatibility(
+            tasks,
+            instruments,
+            constraints["capability_matching"].is_enabled,
+        )
+        task_deps = build_dependencies(tasks)
+        maintenance_rule = constraints["maintenance_avoidance"]
+        maint_windows = (
+            build_maintenance_windows(instruments, horizon_start)
+            if maintenance_rule.is_enabled
+            else []
+        )
+        working_rule = constraints["working_hours"]
+        working_params = working_rule.params or {}
+        day_start_minutes, day_end_minutes = working_time_bounds(working_params)
+        include_weekends = bool(working_params.get("include_weekends", False))
+        include_holidays = bool(working_params.get("include_holidays", False))
+        if not working_rule.is_enabled:
+            day_start_minutes, day_end_minutes = 0, 24 * 60
+            include_weekends, include_holidays = True, True
+        calendar_days = self._load_calendar_days(horizon_start, horizon_end)
+        global_prefix_sum = build_working_prefix_sum(
+            horizon_start,
+            total_units,
+            day_start_minutes,
+            day_end_minutes,
+            maint_windows,
+            calendar_days,
+            include_weekends,
+            include_holidays,
+        )
 
         model = cp_model.CpModel()
 
@@ -50,39 +89,22 @@ class SchedulerService:
         task_tardiness: Dict[int, cp_model.IntVar] = {}
 
         for t in tasks:
-            dur = self._to_units(t.est_duration_hours or 4) + self._to_units(t.switchover_hours or 0)
+            dur = to_units(t.est_duration_hours or 4) + to_units(t.switchover_hours or 0)
 
             # Compute project-level hard constraint window
             p_start_unit = 0
             p_end_unit = total_units
-            if t.project:
+            if t.project and constraints["project_window"].is_enabled:
                 if t.project.start_date:
-                    p_start_u = self._datetime_to_units(t.project.start_date, horizon_start)
+                    p_start_u = datetime_to_units(t.project.start_date, horizon_start)
                     p_start_unit = max(0, p_start_u)
                 if t.project.end_date:
-                    p_end_u = self._datetime_to_units(t.project.end_date, horizon_start)
+                    p_end_u = datetime_to_units(t.project.end_date, horizon_start)
                     p_end_unit = min(total_units, p_end_u)
-
-            # Frozen wall: allow piercing if all predecessors are completed
-            is_urgent = getattr(t, 'is_urgent', False)
-            can_pierce = False
-            if t.predecessors:
-                pred_ids = [d.predecessor_id for d in t.predecessors]
-                done_count = self.db.query(Task).filter(
-                    Task.id.in_(pred_ids),
-                    Task.status == "done"
-                ).count()
-                if done_count == len(pred_ids):
-                    can_pierce = True
-            elif getattr(t, 'is_sample_ready', False):
-                can_pierce = True
-
-            if not is_urgent and not can_pierce:
-                p_start_unit = max(p_start_unit, frozen_units)
 
             # Guard: task duration exceeds available project window
             if p_start_unit + dur > p_end_unit:
-                return {"status": "error", "message": f"排程失败：项目【{t.project.name if t.project else chr(39)+chr(39)}】由于冻结期限制，时间窗口不足。"}
+                return {"status": "error", "message": f"排程失败：项目【{t.project.name if t.project else chr(39)+chr(39)}】时间窗口不足。"}
 
             # Constrain task start/end within project boundaries
             task_starts[t.id] = model.NewIntVar(p_start_unit, p_end_unit, f"start_t{t.id}")
@@ -147,15 +169,31 @@ class SchedulerService:
             # Exactly one instrument assigned
             model.AddExactlyOne(alt_presences)
         # No-overlap per instrument
+        # Bug 3 fix: frozen slots as immovable interval bricks (NOT via prefix-sum)
+        frozen_slots = self.db.query(TimeSlot).filter(TimeSlot.tier == "frozen").all()
+
         for inst in instruments:
             inst_ivs = [intervals[k] for k in intervals if k[1] == inst.id]
-            if inst_ivs:
-                model.AddNoOverlap(inst_ivs)
 
+            for slot in frozen_slots:
+                if slot.instrument_id == inst.id:
+                    f_start = max(0, datetime_to_units(slot.plan_start, horizon_start))
+                    f_end = datetime_to_units(slot.plan_end, horizon_start)
+                    if f_end > f_start:
+                        fixed_iv = model.NewIntervalVar(f_start, f_end - f_start, f_end, f"froz_{slot.id}")
+                        inst_ivs.append(fixed_iv)
+
+            if inst_ivs and constraints["non_overlap"].is_enabled:
+                model.AddNoOverlap(inst_ivs)
         # === Cross-project switching: setup time + penalty === (DISABLED FOR DEBUG)
         # === Cross-project switching: setup time + penalty ===
-        CROSS_PROJECT_SETUP_HOURS = 2.0
-        CROSS_PROJECT_SETUP_UNITS = self._to_units(CROSS_PROJECT_SETUP_HOURS)
+        setup_rule = constraints["cross_project_setup"]
+        setup_hours = (
+            (setup_rule.params or {}).get("setup_hours", 2)
+            if setup_rule.is_enabled
+            else 0
+        )
+        CROSS_PROJECT_SETUP_UNITS = to_units(setup_hours) if setup_hours else 0
         switch_penalties = []
         tasks_by_id = {t.id: t for t in tasks}
 
@@ -202,9 +240,31 @@ class SchedulerService:
                     switch_penalties.append(both_present)
 
         # Precedence constraints (DAG)
-        for tid, pred_id in task_deps:
-            if pred_id in task_starts and tid in task_starts:
-                model.Add(task_starts[tid] >= task_ends[pred_id])
+        # Bug 1 fix: handle frozen/missing predecessors as constant bounds
+        missing_pred_ids = {pred_id for tid, pred_id in task_deps if pred_id not in task_starts}
+        all_dep_pred_ids = {d.predecessor_id for t in tasks for d in t.predecessors}
+        missing_pred_ids |= (all_dep_pred_ids - {t.id for t in tasks})
+
+        missing_pred_ends = {}
+        if missing_pred_ids:
+            latest_slots = self.db.query(
+                TimeSlot.task_id,
+                func.max(TimeSlot.plan_end).label("max_end")
+            ).filter(TimeSlot.task_id.in_(missing_pred_ids)).group_by(TimeSlot.task_id).all()
+            for pid, max_end in latest_slots:
+                if max_end:
+                    missing_pred_ends[pid] = max(0, datetime_to_units(max_end, horizon_start))
+
+        if constraints["precedence"].is_enabled:
+            for tid, pred_id in task_deps:
+                if pred_id in task_starts and tid in task_starts:
+                    model.Add(task_starts[tid] >= task_ends[pred_id])
+
+            # Frozen/missing predecessors: apply constant lower-bound
+            for t in tasks:
+                for dep in t.predecessors:
+                    if dep.predecessor_id in missing_pred_ends and t.id in task_starts:
+                        model.Add(task_starts[t.id] >= missing_pred_ends[dep.predecessor_id])
 
         # === Project split penalty: discourage spreading one project across many instruments ===
         project_to_tasks = {}
@@ -229,8 +289,12 @@ class SchedulerService:
 
         # Milestone deadlines → tardiness
         for t in tasks:
-            if t.milestone_id and t.milestone:
-                deadline = self._datetime_to_units(t.milestone.due_date, horizon_start)
+            if (
+                constraints["milestone_deadline"].is_enabled
+                and t.milestone_id
+                and t.milestone
+            ):
+                deadline = datetime_to_units(t.milestone.due_date, horizon_start)
                 if 0 <= deadline <= total_units:
                     model.Add(task_tardiness[t.id] >= task_ends[t.id] - deadline)
 
@@ -265,8 +329,21 @@ class SchedulerService:
             return {"status": "error", "message": f"时间配置冲突：当前待排总工时约 {total_req_hours} 小时，请调整【项目开始/结束时间】或修改【项目工时】。"}
 
         # Persist results
-        created = self._persist_slots(
-            tasks, instruments, solver, task_starts, task_ends, presences, horizon_start
+        created = persist_slots(
+            self.db,
+            tasks,
+            instruments,
+            solver,
+            task_starts,
+            task_ends,
+            presences,
+            horizon_start,
+            day_start_minutes,
+            day_end_minutes,
+            freeze_days,
+            calendar_days,
+            include_weekends,
+            include_holidays,
         )
 
         return {
@@ -429,118 +506,19 @@ class SchedulerService:
         ).all()
         return tasks, instruments
 
-    def _time_horizon(self):
-        now = datetime.now().replace(second=0, microsecond=0)
-        # Round up to next 30-min slot
-        m = now.minute
-        if m % 30 != 0:
-            m = ((m // 30) + 1) * 30
-            if m >= 60:
-                now = now.replace(hour=now.hour + 1, minute=0)
-            else:
-                now = now.replace(minute=m)
-        horizon_start = now
-        horizon_end = now + timedelta(days=HORIZON_DAYS)
-        total_units = int((horizon_end - horizon_start).total_seconds() / 60 / TIME_UNIT_MINUTES)
-        return horizon_start, horizon_end, total_units
-
-    def _to_units(self, hours: float) -> int:
-        return max(1, int(hours * 60 / TIME_UNIT_MINUTES))
-
-    def _datetime_to_units(self, dt: datetime, horizon_start: datetime) -> int:
-        return int((dt - horizon_start).total_seconds() / 60 / TIME_UNIT_MINUTES)
-
-    def _units_to_datetime(self, units: int, horizon_start: datetime) -> datetime:
-        return horizon_start + timedelta(minutes=units * TIME_UNIT_MINUTES)
-
-    def _build_compatibility(self, tasks, instruments):
-        compat: Dict[int, List[Instrument]] = {}
-        for t in tasks:
-            if not t.requires_instrument:
-                compat[t.id] = []
-                continue
-            # Use instrument_ids if set, otherwise fall back to capability matching
-            inst_ids_raw = t.instrument_ids if hasattr(t, 'instrument_ids') and t.instrument_ids else None
-            if inst_ids_raw:
-                # Normalize: JSON column may return string or list depending on DB backend
-                if isinstance(inst_ids_raw, str):
-                    import json as _json
-                    try:
-                        inst_ids = _json.loads(inst_ids_raw)
-                    except (_json.JSONDecodeError, ValueError):
-                        inst_ids = [int(x.strip()) for x in inst_ids_raw.split(',') if x.strip()]
-                elif isinstance(inst_ids_raw, list):
-                    inst_ids = [int(x) for x in inst_ids_raw]
-                else:
-                    inst_ids = [int(inst_ids_raw)]
-                compat[t.id] = [inst for inst in instruments if inst.id in inst_ids]
-            else:
-                reqs = t.capability_requirements
-                if not reqs:
-                    compat[t.id] = list(instruments)
-                    continue
-                matched = []
-                for inst in instruments:
-                    inst_caps = {(c.tag_name, c.tag_value) for c in inst.capabilities}
-                    req_set = {(r.tag_name, r.tag_value) for r in reqs}
-                    if req_set.issubset(inst_caps):
-                        matched.append(inst)
-                compat[t.id] = matched
-        return compat
-
-    def _build_dependencies(self, tasks):
-        task_ids = {t.id for t in tasks}
-        deps = []
-        for t in tasks:
-            for dep in t.predecessors:
-                if dep.predecessor_id in task_ids:
-                    deps.append((t.id, dep.predecessor_id))
-        return deps
-
-    def _build_maintenance_windows(self, instruments, horizon_start):
-        windows = []
-        for inst in instruments:
-            for mw in inst.maintenance_windows:
-                start_u = self._datetime_to_units(mw.start_time, horizon_start)
-                end_u = self._datetime_to_units(mw.end_time, horizon_start)
-                if end_u > 0:
-                    windows.append((inst.id, (max(0, start_u), end_u)))
-
-        # Inject frozen time slots as maintenance windows (instruments occupied)
-        frozen_slots = self.db.query(TimeSlot).filter(TimeSlot.tier == "frozen").all()
-        for slot in frozen_slots:
-            if slot.instrument_id:
-                start_u = self._datetime_to_units(slot.plan_start, horizon_start)
-                end_u = self._datetime_to_units(slot.plan_end, horizon_start)
-                if end_u > 0:
-                    windows.append((slot.instrument_id, (max(0, start_u), end_u)))
-
-        return windows
-
-
-    def _build_working_prefix_sum(self, horizon_start, total_units, maint_windows=None):
-        """Generate a prefix-sum array mapping physical time slots to cumulative working slots.
-        prefix_sum[t] = number of working slots in [0, t)."""
-        is_working = [1] * total_units
-
-                # Apply global night-window: non-working 20:00-08:00
                 # 不工作时间配置大于8点小于20点
-        for i in range(total_units):
-            dt = horizon_start + timedelta(minutes=i * TIME_UNIT_MINUTES)
-            if dt.hour < 8 or dt.hour >= 20:
-                is_working[i] = 0
-
-        # Mark maintenance windows as non-working too
-        if maint_windows:
-            for inst_id, (mw_start, mw_end) in maint_windows:
-                for i in range(max(0, mw_start), min(mw_end, total_units)):
-                    is_working[i] = 0
-
-        prefix_sum = [0] * (total_units + 1)
-        for i in range(total_units):
-            prefix_sum[i + 1] = prefix_sum[i] + is_working[i]
-
-        return prefix_sum
+    def _load_calendar_days(self, horizon_start: datetime, horizon_end: datetime) -> dict:
+        rows = self.db.query(SysCalendar).filter(
+            SysCalendar.date >= horizon_start.date(),
+            SysCalendar.date <= horizon_end.date(),
+        ).all()
+        return {
+            row.date: {
+                "is_working_day": row.is_working_day,
+                "day_type": row.day_type,
+            }
+            for row in rows
+        }
 
     def _clear_slots(self):
         # Find tasks that have frozen time slots (must NOT be reset)
@@ -548,81 +526,23 @@ class SchedulerService:
             TimeSlot.tier == "frozen"
         ).distinct()
 
-        # Clear only forecast and confirmed tiers; preserve frozen history
+        # Also preserve completed/done task slots (historical record)
+        done_task_ids = self.db.query(Task.id).filter(Task.status == "done").distinct()
+
+        # Clear only forecast and confirmed tiers; preserve frozen + done history
         self.db.query(TimeSlot).filter(
-            TimeSlot.tier.in_(["forecast", "confirmed"])
+            TimeSlot.tier.in_(["forecast", "confirmed"]),
+            ~TimeSlot.task_id.in_(frozen_task_ids),
+            ~TimeSlot.task_id.in_(done_task_ids),
         ).delete(synchronize_session=False)
 
-        # Reset non-frozen tasks to pending
+        # Reset non-frozen, non-done tasks to pending
         self.db.query(Task).filter(
             Task.status.in_(["scheduled", "blocked"]),
             ~Task.id.in_(frozen_task_ids),
         ).update({"status": "pending"}, synchronize_session=False)
 
         self.db.commit()
-
-    def _persist_slots(self, tasks, instruments, solver, task_starts, task_ends, presences, horizon_start):
-        now = datetime.now()
-        frozen_boundary = now + timedelta(days=get_settings().FROZEN_DAYS)
-        confirmed_boundary = now + timedelta(days=get_settings().CONFIRMED_DAYS)
-        created = 0
-
-        for t in tasks:
-            assigned_inst = None
-            if t.requires_instrument:
-                for inst in instruments:
-                    key = (t.id, inst.id)
-                    if key in presences and solver.Value(presences[key]) == 1:
-                        assigned_inst = inst
-                        break
-                if assigned_inst is None:
-                    continue
-
-            start_unit = solver.Value(task_starts[t.id])
-            end_unit = solver.Value(task_ends[t.id])
-
-            # Split physical span into working chunks, skipping night windows
-            chunk_start = None
-            for i in range(start_unit, end_unit):
-                dt = horizon_start + timedelta(minutes=i * TIME_UNIT_MINUTES)
-                is_work = (8 <= dt.hour < 20)
-
-                if is_work and chunk_start is None:
-                    chunk_start = dt
-                elif not is_work and chunk_start is not None:
-                    chunk_end = dt
-                    self._create_db_slot(t, assigned_inst, chunk_start, chunk_end, frozen_boundary, confirmed_boundary)
-                    created += 1
-                    chunk_start = None
-
-            # Close any remaining open chunk
-            if chunk_start is not None:
-                final_end = horizon_start + timedelta(minutes=end_unit * TIME_UNIT_MINUTES)
-                self._create_db_slot(t, assigned_inst, chunk_start, final_end, frozen_boundary, confirmed_boundary)
-                created += 1
-
-            t.status = "scheduled"
-
-        self.db.commit()
-        return created
-
-    def _create_db_slot(self, task, inst, start, end, frozen_boundary, confirmed_boundary):
-        if start <= frozen_boundary:
-            tier = "frozen"
-        elif start <= confirmed_boundary:
-            tier = "confirmed"
-        else:
-            tier = "forecast"
-
-        slot = TimeSlot(
-            task_id=task.id,
-            instrument_id=inst.id if inst else None,
-            plan_start=start,
-            plan_end=end,
-            tier=tier,
-            status="scheduled",
-        )
-        self.db.add(slot)
 
     def _local_repair(self, data: RescheduleRequest) -> dict:
         if data.affected_task_id:

@@ -8,9 +8,15 @@ from app.models import TimeSlot, Task, Instrument, Project
 from app.schemas.schemas import (
     TimeSlotOut, TimeSlotUpdate, TaskStatusUpdate,
     ScheduleGenerateRequest, InsertOrderRequest, InsertOrderCost,
-    RescheduleRequest
+    RescheduleRequest, TaskDelayRequest, TaskDelayResponse,
+    NightRunRequest
 )
 from app.services.scheduler import SchedulerService
+from app.services.schedule_delay_service import (
+    ScheduleDelayInvalidError,
+    ScheduleDelayNotFoundError,
+    report_task_delay,
+)
 
 router = APIRouter(prefix="/api/v1/schedules", tags=["schedules"])
 
@@ -90,6 +96,54 @@ def interrupt_task(slot_id: int, db: Session = Depends(get_db)):
     task.status = "blocked"
     db.commit()
     return {"status": "ok"}
+
+@router.post("/timeslots/{slot_id}/delay", response_model=TaskDelayResponse)
+def delay_task(slot_id: int, data: TaskDelayRequest, db: Session = Depends(get_db)):
+    try:
+        return report_task_delay(db, slot_id, data.delay_hours, data.reason)
+    except ScheduleDelayNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ScheduleDelayInvalidError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+@router.post("/timeslots/{slot_id}/night-run", response_model=TimeSlotOut)
+def night_run(slot_id: int, data: NightRunRequest, db: Session = Depends(get_db)):
+    slot = db.query(TimeSlot).filter(TimeSlot.id == slot_id).first()
+    if not slot:
+        raise HTTPException(status_code=404, detail="时间槽不存在")
+    if not slot.instrument_id:
+        raise HTTPException(status_code=400, detail="该任务未绑定仪器，不能记录夜间运行")
+
+    start_time = _resolve_night_start(slot, data.earliest_start)
+    end_time = start_time + timedelta(hours=data.duration_hours)
+    latest_end = _resolve_night_latest_end(start_time, data.latest_end)
+    if latest_end and end_time > latest_end:
+        raise HTTPException(status_code=400, detail="自动序列预计时长超过最晚结束时间")
+
+    night_slot = db.query(TimeSlot).filter(
+        TimeSlot.task_id == slot.task_id,
+        TimeSlot.instrument_id == slot.instrument_id,
+        TimeSlot.plan_start == start_time,
+        TimeSlot.status.in_(["scheduled", "running"]),
+    ).first()
+    if night_slot:
+        night_slot.plan_end = end_time
+        night_slot.tier = slot.tier
+    else:
+        night_slot = TimeSlot(
+            task_id=slot.task_id,
+            instrument_id=slot.instrument_id,
+            plan_start=start_time,
+            plan_end=end_time,
+            tier=slot.tier,
+            status="scheduled",
+        )
+        db.add(night_slot)
+        db.flush()
+
+    db.commit()
+    db.refresh(night_slot)
+    return _enrich_slot(night_slot, db)
 
 @router.post("/generate")
 def generate_schedule(data: ScheduleGenerateRequest, db: Session = Depends(get_db)):
@@ -197,6 +251,38 @@ def my_tasks(token: str, db: Session = Depends(get_db)):
             "est_duration_hours": task.est_duration_hours,
         })
     return result
+
+def _resolve_night_start(slot: TimeSlot, value: Optional[str]) -> datetime:
+    fallback = slot.plan_end
+    parsed = _parse_clock_time(fallback, value)
+    if parsed is None or parsed < fallback:
+        return fallback
+    return parsed
+
+def _resolve_night_latest_end(start_time: datetime, value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    return _parse_clock_time(start_time, value)
+
+def _parse_clock_time(base_time: datetime, value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    clean_value = value.strip()
+    next_day = clean_value.startswith("次日")
+    clean_value = clean_value.replace("次日", "").strip()
+    try:
+        hour_text, minute_text = clean_value.split(":", 1)
+        parsed = base_time.replace(
+            hour=int(hour_text),
+            minute=int(minute_text),
+            second=0,
+            microsecond=0,
+        )
+    except (TypeError, ValueError):
+        return None
+    if next_day or parsed < base_time:
+        parsed = parsed + timedelta(days=1)
+    return parsed
 
 def _enrich_slot(slot: TimeSlot, db: Session) -> TimeSlotOut:
     task = db.query(Task).filter(Task.id == slot.task_id).first()

@@ -206,6 +206,26 @@ class RescheduleRequest(BaseModel):
     strategy: str = "local"
     description: Optional[str] = None
 
+class TaskDelayRequest(BaseModel):
+    delay_hours: float
+    reason: str
+
+class TaskDelayResponse(BaseModel):
+    status: str
+    task_id: int
+    slot_id: int
+    delay_hours: float
+    shifted_slots: int
+    affected_tasks: int
+    reason: str
+
+class NightRunRequest(BaseModel):
+    duration_hours: float = Field(gt=0)
+    earliest_start: Optional[str] = None
+    latest_end: Optional[str] = None
+    requires_operator: bool = False
+    remark: Optional[str] = None
+
 # ---- Stats ----
 class UtilizationStats(BaseModel):
     instrument_id: Optional[int] = None

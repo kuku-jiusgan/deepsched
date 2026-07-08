@@ -100,6 +100,35 @@ export const completeTask = (slotId: number): Promise<{ status: string }> =>
 export const interruptTask = (slotId: number): Promise<{ status: string }> =>
   api.post(`/schedules/timeslots/${slotId}/interrupt`).then(r => r.data);
 
+export interface NightRunRequest {
+  duration_hours: number
+  earliest_start?: string
+  latest_end?: string
+  requires_operator: boolean
+  remark?: string
+}
+
+export const recordNightRun = (slotId: number, data: NightRunRequest): Promise<TimeSlot> =>
+  api.post<TimeSlot>(`/schedules/timeslots/${slotId}/night-run`, data).then(r => r.data)
+
+export interface TaskDelayRequest {
+  delay_hours: number
+  reason: string
+}
+
+export interface TaskDelayResponse {
+  status: string
+  task_id: number
+  slot_id: number
+  delay_hours: number
+  shifted_slots: number
+  affected_tasks: number
+  reason: string
+}
+
+export const reportTaskDelay = (slotId: number, data: TaskDelayRequest): Promise<TaskDelayResponse> =>
+  api.post<TaskDelayResponse>(`/schedules/timeslots/${slotId}/delay`, data).then(r => r.data)
+
 export const calculateInsertCost = (data: { project_id: number; task_ids: number[] }): Promise<InsertCost> =>
   api.post<InsertCost>('/schedules/insert-order', data).then(r => r.data);
 
@@ -139,13 +168,15 @@ export const updateUser = (id: number, data: Partial<User>): Promise<User> =>
 export const deleteUser = (id: number): Promise<void> =>
   api.delete(`/users/${id}`)
 // Schedule Rules
+export type ScheduleRuleParamValue = string | number | boolean | number[] | null
+
 export interface ScheduleRule {
   id: number
   category: string
   name: string
   code: string
   description: string | null
-  params: Record<string, any> | null
+  params: Record<string, ScheduleRuleParamValue> | null
   is_enabled: boolean
   sort_order: number
   created_at: string
@@ -155,7 +186,7 @@ export interface ScheduleRule {
 export const getScheduleRules = (): Promise<ScheduleRule[]> =>
   api.get<ScheduleRule[]>('/schedule-rules').then(r => r.data)
 
-export const updateScheduleRule = (id: number, data: { params?: Record<string, any>; is_enabled?: boolean; sort_order?: number }): Promise<ScheduleRule> =>
+export const updateScheduleRule = (id: number, data: { params?: Record<string, ScheduleRuleParamValue>; is_enabled?: boolean; sort_order?: number }): Promise<ScheduleRule> =>
   api.put<ScheduleRule>(`/schedule-rules/${id}`, data).then(r => r.data)
 
 export const toggleScheduleRule = (id: number): Promise<ScheduleRule> =>
