@@ -331,6 +331,7 @@ function getDelaySegmentStyle(slot: TimeSlot, quarter?: number): CSSProperties {
   const delayStart = end.subtract(slot.delay_hours, 'hour')
   const visibleRange = getVisibleBarRange(start, end, quarter)
   if (!visibleRange) return { display: 'none' }
+  if (isFullDelaySlot(slot)) return { left: '0', width: '100%' }
 
   const [visibleStart, visibleEnd] = visibleRange
   const segmentStart = delayStart.isAfter(visibleStart) ? delayStart : visibleStart
@@ -346,6 +347,19 @@ function getDelaySegmentStyle(slot: TimeSlot, quarter?: number): CSSProperties {
     minWidth: '8px',
     maxWidth: `calc(${100 - leftPercent}% - 1px)`,
   }
+}
+function isFullDelaySlot(slot: TimeSlot) {
+  if (!slot.delay_hours || slot.delay_hours <= 0) return false
+  const slotStart = dayjs(slot.plan_start)
+  const slotEnd = dayjs(slot.plan_end)
+  const slotDurationHours = slotEnd.diff(slotStart, 'hour', true)
+  if (slot.delay_hours >= slotDurationHours) return true
+  return slots.value.some(other =>
+    other.id !== slot.id &&
+    other.task_id === slot.task_id &&
+    Boolean(other.plan_end) &&
+    !dayjs(other.plan_end).isAfter(slotStart)
+  )
 }
 function getVisibleBarRange(start: dayjs.Dayjs, end: dayjs.Dayjs, quarter?: number): [dayjs.Dayjs, dayjs.Dayjs] | null {
   const cols = timeColumns.value

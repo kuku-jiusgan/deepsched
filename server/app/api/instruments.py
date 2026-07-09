@@ -9,6 +9,7 @@ from app.schemas.schemas import (
     InstrumentCreate, InstrumentOut, CapabilityCreate, CapabilityOut,
     MaintenanceCreate, MaintenanceOut, FaultCreate, FaultOut
 )
+from app.services.instrument_status_service import list_instruments_with_effective_status
 
 router = APIRouter(prefix="/api/v1/instruments", tags=["instruments"])
 
@@ -37,7 +38,7 @@ def create_instrument(data: InstrumentCreate, db: Session = Depends(get_db)):
 
 @router.get("", response_model=List[InstrumentOut])
 def list_instruments(db: Session = Depends(get_db)):
-    return db.query(Instrument).all()
+    return list_instruments_with_effective_status(db)
 
 @router.get("/{inst_id}", response_model=InstrumentOut)
 def get_instrument(inst_id: int, db: Session = Depends(get_db)):

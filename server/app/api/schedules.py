@@ -19,6 +19,7 @@ from app.services.schedule_delay_service import (
     report_task_delay,
 )
 from app.services.schedule_completion_service import complete_task_and_shift
+from app.services.instrument_status_service import mark_instrument_running, refresh_instrument_status
 from app.services.schedule_insert_service import calculate_insert_cost as calculate_insert_cost_service
 from app.services.schedule_reschedule_service import reschedule as reschedule_service
 
@@ -78,6 +79,7 @@ def start_task(slot_id: int, db: Session = Depends(get_db)):
         s.status = "running"
         if s.id == slot_id:
             s.actual_start = datetime.now()
+        mark_instrument_running(db, s.instrument_id)
     db.commit()
     return {"status": "ok"}
 
@@ -97,6 +99,7 @@ def interrupt_task(slot_id: int, db: Session = Depends(get_db)):
     slot.actual_end = datetime.now()
     task = db.query(Task).filter(Task.id == slot.task_id).first()
     task.status = "blocked"
+    refresh_instrument_status(db, slot.instrument_id)
     db.commit()
     return {"status": "ok"}
 
@@ -144,6 +147,8 @@ def night_run(slot_id: int, data: NightRunRequest, db: Session = Depends(get_db)
         )
         db.add(night_slot)
         db.flush()
+    if night_slot.status == "running":
+        mark_instrument_running(db, night_slot.instrument_id)
 
     db.commit()
     db.refresh(night_slot)
@@ -290,7 +295,7 @@ def _enrich_slot(slot: TimeSlot, db: Session) -> TimeSlotOut:
     task = db.query(Task).filter(Task.id == slot.task_id).first()
     inst = db.query(Instrument).filter(Instrument.id == slot.instrument_id).first()
     proj = db.query(Project).filter(Project.id == task.project_id).first() if task else None
-    delay_fields = _latest_delay_fields(task.id, db) if task else {}
+    delay_fields = _latest_delay_fields(task.id, db, slot.id) if task else {}
     return TimeSlotOut(
         id=slot.id, task_id=slot.task_id, instrument_id=slot.instrument_id,
         plan_start=slot.plan_start, plan_end=slot.plan_end,
@@ -307,7 +312,7 @@ def _enrich_slot(slot: TimeSlot, db: Session) -> TimeSlotOut:
     )
 
 
-def _latest_delay_fields(task_id: int, db: Session) -> dict:
+def _latest_delay_fields(task_id: int, db: Session, slot_id: Optional[int] = None) -> dict:
     logs = (
         db.query(AuditLog)
         .filter(AuditLog.action == "task_delay_reported")
@@ -316,6 +321,8 @@ def _latest_delay_fields(task_id: int, db: Session) -> dict:
         .all()
     )
     for log in logs:
+        if slot_id is not None and log.target_id != slot_id:
+            continue
         detail = _audit_detail_dict(log.detail)
         if detail.get("task_id") == task_id:
             return {

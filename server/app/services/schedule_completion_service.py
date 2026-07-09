@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
 from app.models import Task, TimeSlot
+from app.services.instrument_status_service import refresh_instrument_status
 from app.services.schedule_rule_service import get_solver_constraints
 from app.services.scheduler_helpers import (
     is_allowed_calendar_day,
@@ -35,6 +36,7 @@ def complete_task_and_shift(
         .order_by(TimeSlot.plan_start)
         .all()
     )
+    affected_instrument_ids = {slot.instrument_id for slot in task_slots if slot.instrument_id}
 
     for slot in task_slots:
         if slot.plan_start > end_time:
@@ -46,6 +48,9 @@ def complete_task_and_shift(
             slot.actual_start = slot.plan_start
         slot.actual_end = end_time
         slot.status = "completed"
+
+    for instrument_id in affected_instrument_ids:
+        refresh_instrument_status(db, instrument_id)
 
     db.commit()
     return _forward_shift_same_project_work(db, task)

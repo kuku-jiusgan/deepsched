@@ -24,7 +24,8 @@
               <div><span>任务：</span>{{ card.taskText }}</div>
               <div><span>仪器：</span>{{ card.instrumentText }}</div>
               <div><span>负责人：</span>{{ card.ownerText }}</div>
-              <div><span>当前排程：</span>{{ card.scheduleText }}</div>
+              <div><span>计划时间：</span>{{ card.scheduleText }}</div>
+              <div><span>实际时间：</span>{{ card.actualText }}</div>
               <div v-if="card.delayText"><span>延期：</span>{{ card.delayText }}</div>
             </div>
 
@@ -41,7 +42,11 @@
               >
                 <a-button size="small" class="task-action-button-complete">确认完成</a-button>
               </a-popconfirm>
-              <a-button size="small" type="primary" @click="openAutoSequence(card)">夜间运行</a-button>
+              <a-tooltip :title="card.nightRunDisabledReason">
+                <span>
+                  <a-button size="small" type="primary" :disabled="!card.canNightRun" @click="openAutoSequence(card)">夜间运行</a-button>
+                </span>
+              </a-tooltip>
               <a-button size="small" @click="handleCardAction(card, '释放仪器')">释放仪器</a-button>
               <a-button size="small" danger @click="openDelayReport(card)">延期使用</a-button>
             </div>
@@ -114,9 +119,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { recordNightRun, reportTaskDelay, type MyTask } from '@/services/api'
+import { getScheduleRules, recordNightRun, reportTaskDelay, type MyTask } from '@/services/api'
 import dayjs from 'dayjs'
 
 type TodayCardCategory = 'completion' | 'exception'
@@ -140,6 +145,7 @@ interface TodayTaskCard {
   instrumentText: string
   ownerText: string
   scheduleText: string
+  actualText: string
   tagText: string
   tagColor: string
   statusText: string
@@ -147,6 +153,8 @@ interface TodayTaskCard {
   latestEnd: string
   nightRunSummary: string
   delayText: string
+  canNightRun: boolean
+  nightRunDisabledReason: string
 }
 
 interface TodayCardGroup {
@@ -180,9 +188,11 @@ const emit = defineEmits<{
 
 const NIGHT_RESERVE_END = '次日 08:30'
 const DEFAULT_NIGHT_START = '17:30'
+const DEFAULT_WORK_END = '20:00'
 const DEFAULT_SEQUENCE_DURATION_HOURS = 8
 const DEFAULT_DELAY_HOURS = 1
 const NIGHT_RUN_STORAGE_PREFIX = 'deepsched:today-night-run'
+const WORKING_HOURS_RULE_CODE = 'working_hours'
 
 const autoSequenceOpen = ref(false)
 const delayReportOpen = ref(false)
@@ -201,6 +211,7 @@ const delayForm = reactive<DelayForm>({
   reason: '',
 })
 const nightRunRevision = ref(0)
+const workdayEndTime = ref(DEFAULT_WORK_END)
 
 const todayTasks = computed(() => props.tasks.filter(isTodayTask))
 
@@ -217,6 +228,32 @@ const todayCardGroups = computed<TodayCardGroup[]>(() => {
     { key: 'exception', title: '异常/延期确认', cards: exceptionCards },
   ]
 })
+
+onMounted(() => {
+  fetchWorkingHours()
+})
+
+async function fetchWorkingHours() {
+  try {
+    const rules = await getScheduleRules()
+    const workingRule = rules.find(rule => rule.code === WORKING_HOURS_RULE_CODE)
+    const dayEnd = workingRule?.params?.day_end
+    workdayEndTime.value = normalizeWorkdayEndTime(dayEnd)
+  } catch {
+    workdayEndTime.value = DEFAULT_WORK_END
+  }
+}
+
+function normalizeWorkdayEndTime(value: unknown) {
+  if (typeof value === 'string' && /^\d{2}:\d{2}$/.test(value)) return value
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const totalMinutes = Math.round(value * 60)
+    const hours = Math.floor(totalMinutes / 60).toString().padStart(2, '0')
+    const minutes = (totalMinutes % 60).toString().padStart(2, '0')
+    return `${hours}:${minutes}`
+  }
+  return DEFAULT_WORK_END
+}
 
 function currentUserName() {
   const rawUser = localStorage.getItem('user')
@@ -251,6 +288,18 @@ function formatTaskTime(value: string | null, fallback: string) {
   return value ? dayjs(value).format('HH:mm') : fallback
 }
 
+function canNightRunTask(task: MyTask) {
+  if (!task.plan_end) return false
+  const planEnd = dayjs(task.plan_end)
+  return planEnd.isSame(dayjs(), 'day') && planEnd.format('HH:mm') === workdayEndTime.value
+}
+
+function nightRunDisabledReason(task: MyTask) {
+  if (canNightRunTask(task)) return ''
+  if (!task.plan_end) return '任务没有计划结束时间，不能继续夜间运行'
+  return `仅当任务当天计划结束时间到达有效工作时段最晚时间 ${workdayEndTime.value} 时，才能继续夜间运行`
+}
+
 function statusLabel(status: string) {
   const labels: Record<string, string> = {
     pending: '待处理',
@@ -268,6 +317,12 @@ function scheduleText(task: MyTask) {
   const startText = formatTaskTime(task.plan_start, '--:--')
   const endText = formatTaskTime(task.plan_end, '--:--')
   return `${startText}–${endText} ${task.task_name || '未命名任务'}`
+}
+
+function actualText(task: MyTask) {
+  const startText = formatTaskTime(task.actual_start, '--:--')
+  const endText = formatTaskTime(task.actual_end, '--:--')
+  return `${startText}–${endText}`
 }
 
 function buildTodayCard(task: MyTask, category: TodayCardCategory): TodayTaskCard {
@@ -292,6 +347,7 @@ function buildTodayCard(task: MyTask, category: TodayCardCategory): TodayTaskCar
     instrumentText: task.instrument_name || task.instrument_code || '未指定仪器',
     ownerText: currentUserName(),
     scheduleText: scheduleText(task),
+    actualText: actualText(task),
     tagText: tagTextMap[category],
     tagColor: tagColorMap[category],
     statusText: statusLabel(task.status),
@@ -299,6 +355,8 @@ function buildTodayCard(task: MyTask, category: TodayCardCategory): TodayTaskCar
     latestEnd: NIGHT_RESERVE_END,
     nightRunSummary: storedNightRun ? formatNightRunSummary(storedNightRun) : '',
     delayText: getDelayText(task),
+    canNightRun: canNightRunTask(task),
+    nightRunDisabledReason: nightRunDisabledReason(task),
   }
 }
 
@@ -313,6 +371,10 @@ function handleCardAction(card: TodayTaskCard, action: string) {
 }
 
 function openAutoSequence(card: TodayTaskCard) {
+  if (!card.canNightRun) {
+    message.warning(card.nightRunDisabledReason)
+    return
+  }
   selectedCard.value = card
   const savedForm = readNightRunForm(card.task)
   setAutoSequenceForm(savedForm || {

@@ -202,7 +202,7 @@ export interface MyTask {
   slot_id: number; task_id: number; task_name: string | null; task_type: string | null
   project_id: number | null; project_name: string | null; project_code: string | null
   instrument_id: number; instrument_name: string | null; instrument_code: string | null
-  plan_start: string | null; plan_end: string | null; actual_start: string | null
+  plan_start: string | null; plan_end: string | null; actual_start: string | null; actual_end: string | null
   status: string; tier: string; est_duration_hours: number | null
   delay_hours?: number | null; delay_reason?: string | null; delay_reported_at?: string | null
 }
