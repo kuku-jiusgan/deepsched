@@ -7,7 +7,7 @@ export interface Project {
   sla_level?: string;
   status: string;
   profit_weight: number;
-  manager?: string;
+  manager_id?: number | null;
   manager_name?: string;
   start_date?: string;
   end_date?: string;
@@ -55,6 +55,37 @@ export interface Instrument {
   capabilities: CapabilityReq[];
 }
 
+export interface InstrumentFault {
+  id: number;
+  instrument_id: number | null;
+  reported_at: string;
+  estimated_resolved_at: string | null;
+  resolved_at: string | null;
+  description: string;
+  status: string;
+  schedule_impact?: {
+    shifted_slots: number;
+    affected_tasks: number;
+    notified_users: number;
+  };
+  affected_tasks?: FaultAffectedTask[];
+}
+
+export interface FaultAffectedTask {
+  task_id: number;
+  task_name: string;
+  project_id: number | null;
+  project_name: string | null;
+  project_code: string | null;
+  assignee_name: string | null;
+  original_start: string;
+  original_end: string;
+  shifted_start: string;
+  shifted_end: string;
+  can_shift: boolean;
+  reason: string;
+}
+
 export interface TimeSlot {
   id: number;
   task_id: number;
@@ -91,9 +122,12 @@ export interface DashboardData {
 export interface UtilizationStats {
   instrument_id: number;
   instrument_name: string;
+  instrument_code?: string | null;
   total_available_hours: number;
   scheduled_hours: number;
   actual_run_hours: number;
+  expected_utilization_rate: number;
+  actual_utilization_rate: number;
   utilization_rate: number;
   buffer_consumed_rate: number;
 }

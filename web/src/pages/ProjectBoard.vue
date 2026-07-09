@@ -40,7 +40,7 @@
 
         <template v-else-if="column.key === 'client'">{{ record.client_name || '-' }}</template>
 
-        <template v-else-if="column.key === 'manager'">{{ record.manager || '-' }}</template>
+        <template v-else-if="column.key === 'manager'">{{ record.manager_name || '-' }}</template>
 
         <template v-else-if="column.key === 'start'">{{ record.start_date ? dayjs(record.start_date).format('YYYY-MM-DD') : '-' }}</template>
 
@@ -84,7 +84,9 @@
 
         <a-form-item label="客户名称"><a-input v-model:value="cf.client_name" placeholder="如：某制药公司" /></a-form-item>
 
-        <a-form-item label="项目负责人"><a-input v-model:value="cf.manager" placeholder="如：张三" /></a-form-item>
+        <a-form-item label="项目负责人">
+          <a-select v-model:value="cf.manager_id" placeholder="选择项目负责人" allowClear :options="userOptions" />
+        </a-form-item>
 
         <a-space :size="16">
 
@@ -118,7 +120,9 @@
 
         <a-form-item label="客户名称"><a-input v-model:value="ef.client_name" /></a-form-item>
 
-        <a-form-item label="项目负责人"><a-input v-model:value="ef.manager" /></a-form-item>
+        <a-form-item label="项目负责人">
+          <a-select v-model:value="ef.manager_id" placeholder="选择项目负责人" allowClear :options="userOptions" />
+        </a-form-item>
 
         <a-space :size="16">
 
@@ -323,9 +327,9 @@ const filterDateRange = ref<any>(null)
 
 const router = useRouter()
 
-const cf = reactive({ name: '', code: '', client_name: '', manager: '', priority: 3, sla_level: 'standard', profit_weight: 1.0, start_date: null as any, end_date: null as any })
+const cf = reactive({ name: '', code: '', client_name: '', manager_id: null as number | null, priority: 3, sla_level: 'standard', profit_weight: 1.0, start_date: null as any, end_date: null as any })
 
-const ef = reactive({ name: '', code: '', client_name: '', manager: '', priority: 3, sla_level: 'standard', profit_weight: 1.0, start_date: null as any, end_date: null as any })
+const ef = reactive({ name: '', code: '', client_name: '', manager_id: null as number | null, priority: 3, sla_level: 'standard', profit_weight: 1.0, start_date: null as any, end_date: null as any })
 
 const tf = reactive({ name: '', task_type: '', est_duration_hours: 8, switchover_hours: 0.5, predecessor_ids: [] as number[], instrument_ids: [] as number[], assignee_id: null as number | null })
 
@@ -401,7 +405,7 @@ async function fetchProjects() { loading.value = true; try { projects.value = aw
 
 
 
-function openCreate() { Object.assign(cf, { name: '', code: '', client_name: '', manager: '', priority: 3, sla_level: 'standard', profit_weight: 1.0, start_date: null, end_date: null }); createOpen.value = true }
+function openCreate() { Object.assign(cf, { name: '', code: '', client_name: '', manager_id: null, priority: 3, sla_level: 'standard', profit_weight: 1.0, start_date: null, end_date: null }); createOpen.value = true }
 
 
 
@@ -453,7 +457,7 @@ function openEditProject() {
 
   const p = selectedProject.value
 
-  Object.assign(ef, { name: p.name, code: p.code, client_name: p.client_name || '', manager: p.manager || '', priority: p.priority, sla_level: p.sla_level || 'standard', profit_weight: p.profit_weight, start_date: p.start_date ? dayjs(p.start_date) : null, end_date: p.end_date ? dayjs(p.end_date) : null })
+  Object.assign(ef, { name: p.name, code: p.code, client_name: p.client_name || '', manager_id: p.manager_id || null, priority: p.priority, sla_level: p.sla_level || 'standard', profit_weight: p.profit_weight, start_date: p.start_date ? dayjs(p.start_date) : null, end_date: p.end_date ? dayjs(p.end_date) : null })
 
   editOpen.value = true
 

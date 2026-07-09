@@ -65,8 +65,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, ReloadOutlined, EditOutlined, DeleteOutlined, KeyOutlined } from '@ant-design/icons-vue'
-import { getUsers, createUser, updateUser, deleteUser, type User } from '@/services/api'
-import axios from 'axios'
+import { getUsers, createUser, updateUser, deleteUser, type User, type UserPayload } from '@/services/api'
 import dayjs from 'dayjs'
 
 const users = ref<User[]>([])
@@ -118,7 +117,16 @@ function openCreate() {
 
 function openEdit(r: User) {
   editingId.value = r.id
-  Object.assign(form, { username: r.username, display_name: r.display_name, password: '', role: r.role, email: r.email || '', phone: r.phone || '', is_active: r.is_active })
+  Object.assign(form, {
+    username: r.username,
+    display_name: r.display_name,
+    password: '',
+    role: r.role,
+    email: r.email || '',
+    phone: r.phone || '',
+    wecom_id: r.wecom_id || '',
+    is_active: r.is_active,
+  })
   modalOpen.value = true
 }
 
@@ -126,7 +134,15 @@ async function handleSubmit() {
   if (!form.username || !form.display_name) { message.error('请填写用户名和显示名称'); return }
   if (!editingId.value && !form.password) { message.error('请设置登录密码'); return }
   try {
-    const data: any = { username: form.username, display_name: form.display_name, role: form.role, email: form.email, phone: form.phone, is_active: form.is_active }
+    const data: UserPayload = {
+      username: form.username,
+      display_name: form.display_name,
+      role: form.role,
+      email: form.email,
+      phone: form.phone,
+      wecom_id: form.wecom_id,
+      is_active: form.is_active,
+    }
     if (form.password) data.password = form.password
     editingId.value ? await updateUser(editingId.value, data) : await createUser(data)
     message.success(editingId.value ? '更新成功' : '添加成功')
@@ -150,19 +166,19 @@ async function handleChangePwd() {
   if (newPassword.value !== confirmPassword.value) { message.error('两次输入的密码不一致'); return }
   if (newPassword.value.length < 4) { message.error('密码至少4位'); return }
   try {
-    const token = localStorage.getItem('token')
-    await axios.put(`/api/v1/users/${pwdTarget.value!.id}`, {
+    await updateUser(pwdTarget.value!.id, {
       username: pwdTarget.value!.username,
       display_name: pwdTarget.value!.display_name,
       role: pwdTarget.value!.role,
       email: pwdTarget.value!.email,
       phone: pwdTarget.value!.phone,
+      wecom_id: pwdTarget.value!.wecom_id,
       is_active: pwdTarget.value!.is_active,
       password: newPassword.value,
-    }, { params: { token } })
+    })
     message.success('密码修改成功')
     pwdOpen.value = false
-  } catch (e: any) {
+  } catch {
     message.error('修改失败')
   }
 }

@@ -89,7 +89,9 @@
 import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { CheckCircleOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons-vue'
-import { getMyTasks, startTask, completeTask, getTaskTypes, type MyTask } from '@/services/api'
+import {
+  getMyTasks, startTask, completeTask, getTaskTypes, type MyTask,
+} from '@/services/api'
 import TodayTaskCards from './TodayTaskCards.vue'
 import dayjs from 'dayjs'
 
@@ -149,7 +151,14 @@ const columns = [
 
 async function fetchData() {
   loading.value = true
-  try { tasks.value = await getMyTasks(); loadTaskTypes() } catch { message.error('加载任务失败') } finally { loading.value = false }
+  try {
+    tasks.value = await getMyTasks()
+    loadTaskTypes()
+  } catch {
+    message.error('加载工作台失败')
+  } finally {
+    loading.value = false
+  }
 }
 
 async function handleStart(record: MyTask) {
@@ -171,7 +180,6 @@ async function handleComplete(record: MyTask) {
   } catch { message.error('操作失败') }
   finally { actingId.value = null }
 }
-
 
 onMounted(fetchData)
 </script>

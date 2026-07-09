@@ -2,7 +2,7 @@
 
 ## 技术栈
 - 后端: Python 3.12 + FastAPI + SQLAlchemy + MySQL/SQLite
-- 前端: React 18 + TypeScript + Ant Design 5 + Recharts + vis-timeline
+- 前端: Vue 3 + TypeScript + Ant Design Vue 4 + 图表组件 + vis-timeline
 - 排程引擎: OR-Tools CP-SAT（Phase 2 引入）
 
 ---
@@ -38,9 +38,10 @@ core/       → 配置层：config + database 连接
 ## 前端规则
 
 ### 组件
-- 用函数组件，不用 class
+- 使用 Vue SFC（`.vue`）和 `<script setup lang="ts">`
 - 状态尽量靠近使用处，不提前提升
-- 提取重复逻辑到自定义 hook
+- 派生状态用 `computed`，副作用用 `watch` / 生命周期钩子
+- 提取重复逻辑到 composable（`useXxx.ts`）
 
 ### TypeScript
 - 对象定义用 `interface`，联合类型用 `type`
@@ -49,13 +50,13 @@ core/       → 配置层：config + database 连接
 - `tsconfig.json` 保持 `strict: true`
 
 ### 命名
-- 组件文件: PascalCase（`InstrumentGantt.tsx`）
-- 工具/hook 文件: camelCase（`useSchedule.ts`）
+- 组件文件: PascalCase（`InstrumentGantt.vue`）
+- 工具/composable 文件: camelCase（`useSchedule.ts`）
 - 变量/函数: camelCase，布尔值加 `is/has` 前缀
 
 ### 状态管理
-- 单页面状态用 `useState`
-- 跨组件共享用 React Context（不引入 Redux）
+- 单页面状态用 `ref` / `reactive`
+- 跨组件共享用 provide/inject 或轻量 composable（不引入 Redux）
 - API 请求结果直接存在调用组件中
 
 ---

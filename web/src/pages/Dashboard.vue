@@ -4,6 +4,17 @@
       <h2>仪表盘</h2>
     </div>
 
+    <div class="action-bar">
+      <a-range-picker
+        v-model:value="dateRange"
+        :disabled-date="disabledFutureDate"
+        :allow-clear="false"
+        format="YYYY-MM-DD"
+      />
+      <a-button type="primary" :loading="loading" @click="loadDashboard">查询</a-button>
+      <a-button @click="resetRange">最近 7 天</a-button>
+    </div>
+
     <div class="stat-grid">
       <div v-for="(item, i) in stats" :key="i" class="stat-card" :class="{ 'stat-card-clickable': !!item.link }" @click="item.link && router.push(item.link)">
         <div>
@@ -18,19 +29,36 @@
     </div>
 
     <a-row :gutter="[16, 16]">
-      <a-col :xs="24" :lg="14">
-        <div class="chart-card">
-          <div class="chart-card-header">仪器占用对比</div>
-          <div class="chart-card-body">
-            <div ref="barChart" style="width: 100%; height: 280px"></div>
+      <a-col :span="24">
+        <div class="chart-card utilization-card">
+          <div class="chart-card-header">
+            <span>仪器使用率</span>
+            <div class="utilization-legend">
+              <span><i class="legend-dot expected"></i>预期使用率</span>
+              <span><i class="legend-dot actual"></i>实际使用率</span>
+            </div>
           </div>
-        </div>
-      </a-col>
-      <a-col :xs="24" :lg="10">
-        <div class="chart-card">
-          <div class="chart-card-header">运行时间分布</div>
           <div class="chart-card-body">
-            <div ref="pieChart" style="width: 100%; height: 280px"></div>
+            <a-empty v-if="!utilization.length" description="暂无数据" />
+            <div v-else class="utilization-chart">
+              <div v-for="item in utilization" :key="item.instrument_id" class="utilization-item">
+                <div class="bar-area">
+                  <div class="bar-pair">
+                    <a-tooltip :title="`预期使用率 ${rateText(item.expected_utilization_rate)}（计划 ${item.scheduled_hours}h / 可用 ${item.total_available_hours}h）`">
+                      <div class="bar expected" :style="{ height: barHeight(item.expected_utilization_rate) }"></div>
+                    </a-tooltip>
+                    <a-tooltip :title="`实际使用率 ${rateText(item.actual_utilization_rate)}（实际 ${item.actual_run_hours}h / 可用 ${item.total_available_hours}h）`">
+                      <div class="bar actual" :style="{ height: barHeight(item.actual_utilization_rate) }"></div>
+                    </a-tooltip>
+                  </div>
+                </div>
+                <div class="rate-line">{{ rateText(item.expected_utilization_rate) }} / {{ rateText(item.actual_utilization_rate) }}</div>
+                <div class="instrument-code">{{ instrumentCode(item) }}</div>
+                <a-tooltip :title="`${item.instrument_name}（${item.instrument_code || '-'}）`">
+                  <div class="instrument-name">{{ item.instrument_name }}</div>
+                </a-tooltip>
+              </div>
+            </div>
           </div>
         </div>
       </a-col>
@@ -50,73 +78,70 @@ import { message } from 'ant-design-vue'
 import { ExperimentOutlined, ProjectOutlined, ClockCircleOutlined, ThunderboltOutlined } from '@ant-design/icons-vue'
 import { getDashboard, getUtilization } from '@/services/api'
 import type { DashboardData, UtilizationStats } from '@/types'
+import dayjs, { type Dayjs } from 'dayjs'
 
 const data = ref<DashboardData | null>(null)
 const utilization = ref<UtilizationStats[]>([])
+const loading = ref(false)
+const dateRange = ref<[Dayjs, Dayjs]>([dayjs().subtract(6, 'day'), dayjs()])
 const router = useRouter()
-const barChart = ref<HTMLElement>()
-const pieChart = ref<HTMLElement>()
 
-onMounted(async () => {
+onMounted(loadDashboard)
+
+async function loadDashboard() {
+  loading.value = true
   try {
-    const [d, u] = await Promise.all([getDashboard(), getUtilization()])
+    const params = rangeParams()
+    const [d, u] = await Promise.all([getDashboard(params), getUtilization(params)])
     data.value = d
     utilization.value = u
-    renderCharts()
   } catch {
     message.error('加载仪表盘数据失败')
-  }
-})
-
-function renderCharts() {
-  // Simple CSS bar chart
-  if (barChart.value && utilization.value.length) {
-    const maxH = Math.max(...utilization.value.map(u => u.scheduled_hours + u.actual_run_hours), 1)
-    let html = '<div style="display:flex;align-items:flex-end;gap:20px;height:240px;padding:0 20px">'
-    utilization.value.forEach((u, i) => {
-      const colors = ['#2563eb', '#16a34a', '#7c3aed', '#ea580c', '#0891b2', '#dc2626']
-      const p1 = (u.scheduled_hours / maxH * 200) || 4
-      const p2 = (u.actual_run_hours / maxH * 200) || 4
-      const name = u.instrument_name.length > 6 ? u.instrument_name.slice(0, 6) + '...' : u.instrument_name
-      html += `<div style="flex:1;text-align:center">
-        <div style="display:flex;gap:4px;justify-content:center;align-items:flex-end;height:210px">
-          <div title="计划占用 ${u.scheduled_hours}h" style="width:20px;height:${p1}px;background:${colors[i % 6]};border-radius:4px 4px 0 0;opacity:0.5"></div>
-          <div title="实际运行 ${u.actual_run_hours}h" style="width:20px;height:${p2}px;background:${colors[i % 6]};border-radius:4px 4px 0 0"></div>
-        </div>
-        <div style="font-size:10px;color:#94a3b8;margin-top:4px">${name}</div>
-      </div>`
-    })
-    html += '</div>'
-    barChart.value.innerHTML = html
-  }
-
-  // Simple SVG pie chart
-  if (pieChart.value && utilization.value.length) {
-    const total = utilization.value.reduce((s, u) => s + u.actual_run_hours, 0) || 1
-    const colors = ['#2563eb', '#16a34a', '#7c3aed', '#ea580c', '#0891b2', '#dc2626']
-    let cumulative = 0
-    let paths = ''
-    utilization.value.forEach((u, i) => {
-      const startAngle = (cumulative / total) * Math.PI * 2
-      cumulative += u.actual_run_hours
-      const endAngle = (cumulative / total) * Math.PI * 2
-      const r = 90; const cx = 150; const cy = 150
-      const x1 = cx + r * Math.sin(startAngle)
-      const y1 = cy - r * Math.cos(startAngle)
-      const x2 = cx + r * Math.sin(endAngle)
-      const y2 = cy - r * Math.cos(endAngle)
-      const large = (endAngle - startAngle) > Math.PI ? 1 : 0
-      paths += `<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large} 1 ${x2},${y2} Z" fill="${colors[i % 6]}" stroke="#fff" stroke-width="1"/>`
-    })
-    pieChart.value.innerHTML = `<svg width="300" height="300" viewBox="0 0 300 300">${paths}<circle cx="150" cy="150" r="45" fill="#fff"/></svg>`
+  } finally {
+    loading.value = false
   }
 }
 
+function rangeParams() {
+  const [start, end] = dateRange.value
+  return {
+    start_date: start.startOf('day').format('YYYY-MM-DDTHH:mm:ss'),
+    end_date: end.endOf('day').format('YYYY-MM-DDTHH:mm:ss'),
+  }
+}
+
+function disabledFutureDate(current: Dayjs) {
+  return current && current.isAfter(dayjs(), 'day')
+}
+
+function resetRange() {
+  dateRange.value = [dayjs().subtract(6, 'day'), dayjs()]
+  loadDashboard()
+}
+
+function clampRate(value: number) {
+  return Math.max(0, Math.min(100, Number(value) || 0))
+}
+
+function rateText(value: number) {
+  return `${clampRate(value)}%`
+}
+
+function barHeight(value: number) {
+  return `${Math.max(4, clampRate(value) * 1.9)}px`
+}
+
+function instrumentCode(item: UtilizationStats) {
+  return item.instrument_code || `ID-${item.instrument_id}`
+}
+
 const utilColumns = [
-  { title: '仪器', dataIndex: 'instrument_name', key: 'name' },
-  { title: '利用率', dataIndex: 'utilization_rate', key: 'rate' },
-  { title: '计划 (h)', dataIndex: 'scheduled_hours', key: 'scheduled' },
-  { title: '实际 (h)', dataIndex: 'actual_run_hours', key: 'actual' },
+  { title: '仪器编码', dataIndex: 'instrument_code', key: 'code', width: 130 },
+  { title: '仪器名称', dataIndex: 'instrument_name', key: 'name' },
+  { title: '预期使用率', dataIndex: 'expected_utilization_rate', key: 'expectedRate' },
+  { title: '实际使用率', dataIndex: 'actual_utilization_rate', key: 'actualRate' },
+  { title: '计划占用 (h)', dataIndex: 'scheduled_hours', key: 'scheduled' },
+  { title: '实际占用 (h)', dataIndex: 'actual_run_hours', key: 'actual' },
 ]
 
 const stats = computed(() => [
@@ -126,4 +151,125 @@ const stats = computed(() => [
   { title: '延期任务', value: data.value?.delayed_tasks || 0, suffix: '', icon: ClockCircleOutlined, danger: !!(data.value?.delayed_tasks), link: '/tasks/workspace' },
 ])
 </script>
+
+<style scoped>
+.utilization-card :deep(.chart-card-header) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.utilization-legend {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  font-weight: 400;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 5px;
+}
+
+.legend-dot.expected {
+  background: #8fb7e8;
+}
+
+.legend-dot.actual {
+  background: #165c4a;
+}
+
+.utilization-chart {
+  min-height: 310px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 16px;
+  align-items: end;
+}
+
+.utilization-item {
+  min-width: 0;
+  text-align: center;
+}
+
+.bar-area {
+  height: 210px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.bar-pair {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 7px;
+}
+
+.bar {
+  width: 22px;
+  min-height: 4px;
+  border-radius: 4px 4px 0 0;
+}
+
+.bar.expected {
+  background: #8fb7e8;
+}
+
+.bar.actual {
+  background: #165c4a;
+}
+
+.rate-line {
+  margin-top: 8px;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.instrument-name {
+  margin-top: 4px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.instrument-code {
+  display: inline-block;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 1px 5px;
+  color: #334155;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .utilization-card :deep(.chart-card-header) {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .utilization-chart {
+    grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));
+  }
+}
+</style>
 

@@ -10,3 +10,111 @@ AggregateError [ECONNREFUSED]:
 AggregateError [ECONNREFUSED]: 
     at internalConnectMultiple (node:net:1142:49)
     at afterConnectMultiple (node:net:1723:7)
+[2m10:00:35[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/task-types?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:00:35[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/projects?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:00:35[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/users?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:00:35[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/instruments?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:00:53[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/stats/dashboard?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:00:53[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/stats/utilization?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:14:53[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/stats/dashboard?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:14:53[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/stats/utilization?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:14:58[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/instruments?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:14:58[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/schedules/timeslots?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:14:58[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/task-types?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:15:29[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/schedules/timeslots?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:15:29[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/task-types?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:15:29[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/instruments?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:15:58[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/instruments?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:15:58[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/schedules/timeslots?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:15:58[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/task-types?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:16:04[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/instruments?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:16:04[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/schedules/timeslots?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:16:04[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/task-types?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:16:06[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/alert-rules?token=5ba2fd18563cb3f1a7ee6623d29b3398cc0113174d222555a98adc68918787fd[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:52:50[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/projects?token=65806bea5e0c1c5a561ea063d9782e1ad6fba08939ea53b6d53ccb62b212f7e0[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:52:51[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/users?token=65806bea5e0c1c5a561ea063d9782e1ad6fba08939ea53b6d53ccb62b212f7e0[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:52:51[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/task-types?token=65806bea5e0c1c5a561ea063d9782e1ad6fba08939ea53b6d53ccb62b212f7e0[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:52:52[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/stats/lab-status?token=65806bea5e0c1c5a561ea063d9782e1ad6fba08939ea53b6d53ccb62b212f7e0[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m12:32:39[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/notifications?user_name=admin&channel=site&unread_only=true&token=65806bea5e0c1c5a561ea063d9782e1ad6fba08939ea53b6d53ccb62b212f7e0[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m12:36:51[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/notifications?user_name=admin&channel=site&unread_only=true&token=65806bea5e0c1c5a561ea063d9782e1ad6fba08939ea53b6d53ccb62b212f7e0[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)

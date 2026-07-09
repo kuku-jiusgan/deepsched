@@ -1,4 +1,3 @@
-from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -10,6 +9,14 @@ from app.schemas.schemas import (
     MaintenanceCreate, MaintenanceOut, FaultCreate, FaultOut
 )
 from app.services.instrument_status_service import list_instruments_with_effective_status
+from app.services.instrument_fault_service import (
+    InstrumentFaultConflictError,
+    InstrumentFaultInvalidError,
+    list_faults as list_faults_service,
+    list_open_faults as list_open_faults_service,
+    report_fault as report_fault_service,
+    resolve_fault as resolve_fault_service,
+)
 
 router = APIRouter(prefix="/api/v1/instruments", tags=["instruments"])
 
@@ -39,6 +46,14 @@ def create_instrument(data: InstrumentCreate, db: Session = Depends(get_db)):
 @router.get("", response_model=List[InstrumentOut])
 def list_instruments(db: Session = Depends(get_db)):
     return list_instruments_with_effective_status(db)
+
+@router.get("/faults/open", response_model=List[FaultOut])
+def list_open_faults(db: Session = Depends(get_db)):
+    return list_open_faults_service(db)
+
+@router.get("/faults", response_model=List[FaultOut])
+def list_faults(db: Session = Depends(get_db)):
+    return list_faults_service(db)
 
 @router.get("/{inst_id}", response_model=InstrumentOut)
 def get_instrument(inst_id: int, db: Session = Depends(get_db)):
@@ -99,14 +114,20 @@ def list_maintenance(inst_id: int, db: Session = Depends(get_db)):
 
 @router.post("/{inst_id}/fault", response_model=FaultOut)
 def report_fault(inst_id: int, data: FaultCreate, db: Session = Depends(get_db)):
-    inst = db.query(Instrument).filter(Instrument.id == inst_id).first()
-    if not inst:
+    try:
+        fault = report_fault_service(
+            db,
+            inst_id,
+            data.description,
+            data.estimated_resolved_at,
+            data.resolved_at,
+        )
+    except InstrumentFaultInvalidError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except InstrumentFaultConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    if not fault:
         raise HTTPException(status_code=404, detail="仪器不存在")
-    inst.status = "fault"
-    fault = InstrumentFault(instrument_id=inst_id, description=data.description)
-    db.add(fault)
-    db.commit()
-    db.refresh(fault)
     return fault
 
 @router.delete("/{inst_id}")
@@ -120,14 +141,7 @@ def delete_instrument(inst_id: int, db: Session = Depends(get_db)):
 
 @router.put("/{inst_id}/fault/{fault_id}/resolve", response_model=FaultOut)
 def resolve_fault(inst_id: int, fault_id: int, db: Session = Depends(get_db)):
-    fault = db.query(InstrumentFault).filter(
-        InstrumentFault.id == fault_id, InstrumentFault.instrument_id == inst_id
-    ).first()
+    fault = resolve_fault_service(db, inst_id, fault_id)
     if not fault:
         raise HTTPException(status_code=404, detail="故障记录不存在")
-    fault.resolved_at = datetime.now()
-    fault.status = "resolved"
-    inst = db.query(Instrument).filter(Instrument.id == inst_id).first()
-    inst.status = "active"
-    db.commit()
     return fault

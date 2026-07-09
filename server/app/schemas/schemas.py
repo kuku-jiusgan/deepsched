@@ -121,14 +121,19 @@ class MaintenanceOut(BaseModel):
 
 class FaultCreate(BaseModel):
     description: str
+    estimated_resolved_at: datetime
+    resolved_at: Optional[datetime] = None
 
 class FaultOut(BaseModel):
     id: int
     instrument_id: Optional[int] = None
     reported_at: datetime
+    estimated_resolved_at: Optional[datetime] = None
     resolved_at: Optional[datetime]
     description: str
     status: str
+    schedule_impact: Optional[dict] = None
+    affected_tasks: List[dict] = []
     model_config = ConfigDict(from_attributes=True)
 
 class InstrumentCreate(BaseModel):
@@ -237,9 +242,12 @@ class NightRunRequest(BaseModel):
 class UtilizationStats(BaseModel):
     instrument_id: Optional[int] = None
     instrument_name: str
+    instrument_code: Optional[str] = None
     total_available_hours: float
     scheduled_hours: float
     actual_run_hours: float
+    expected_utilization_rate: float
+    actual_utilization_rate: float
     utilization_rate: float
     buffer_consumed_rate: float
 
@@ -275,6 +283,7 @@ class UserOut(BaseModel):
     role: str
     email: Optional[str]
     phone: Optional[str]
+    wecom_id: Optional[str] = None
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -302,6 +311,9 @@ class NotificationOut(BaseModel):
     id: int
     user_name: str
     n_type: str
+    channel: str = "site"
+    delivery_status: str = "success"
+    error_message: Optional[str] = None
     title: Optional[str]
     content: Optional[str]
     is_read: bool

@@ -51,7 +51,7 @@ class Task(Base):
     allow_transfer = Column(Boolean, default=False)
     milestone_id = Column(Integer, ForeignKey("milestone.id"))
     priority_weight = Column(Float, default=1.0)
-    instrument_ids = Column(JSON, default=[], comment="????ID??")
+    instrument_ids = Column(JSON, default=[], comment="可选仪器ID列表")
     status = Column(String(20), default="pending")
     parent_id = Column(Integer, ForeignKey("task.id"), nullable=True)
     assignee_id = Column(Integer, ForeignKey("user.id"))
@@ -144,6 +144,7 @@ class InstrumentFault(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     instrument_id = Column(Integer, ForeignKey("instrument.id"), nullable=True)
     reported_at = Column(DateTime, default=datetime.now)
+    estimated_resolved_at = Column(DateTime)
     resolved_at = Column(DateTime)
     description = Column(Text)
     status = Column(String(20), default="open")
@@ -211,6 +212,9 @@ class Notification(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_name = Column(String(100), nullable=False)
     n_type = Column(String(30), nullable=False)
+    channel = Column(String(20), default="site")
+    delivery_status = Column(String(20), default="success")
+    error_message = Column(Text)
     title = Column(String(300))
     content = Column(Text)
     related_entity_type = Column(String(50))
@@ -238,10 +242,21 @@ class AlertRule(Base):
     name = Column(String(100), nullable=False)
     rule_type = Column(String(30), nullable=False, comment="task_start_delay/task_end_delay/schedule_changed/hours_exceeded")
     enabled = Column(Boolean, default=True)
+    enable_site = Column(Boolean, default=True)
+    enable_wecom = Column(Boolean, default=False)
     notify_roles = Column(Text, comment="JSON array of roles")
     threshold_minutes = Column(Integer, default=30)
     threshold_percent = Column(Integer, default=120)
     created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+class PushChannelConfig(Base):
+    __tablename__ = "push_channel_config"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    wecom_enabled = Column(Boolean, default=False)
+    wecom_corp_id = Column(String(200))
+    wecom_agent_id = Column(String(50))
+    wecom_secret = Column(String(300))
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 class SysCalendar(Base):

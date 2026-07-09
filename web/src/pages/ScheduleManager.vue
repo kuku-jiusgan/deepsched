@@ -28,7 +28,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from "vue"
-import { message } from "ant-design-vue"
+import { message, Modal } from "ant-design-vue"
 import { ThunderboltOutlined, PlusCircleOutlined, ReloadOutlined, ForwardOutlined } from "@ant-design/icons-vue"
 import { generateSchedule, reschedule, dailyRoll, getTimeslots } from "@/services/api"
 import dayjs from "dayjs"
@@ -65,7 +65,11 @@ const slotColumns = [
 async function handleGenerate() {
   genLoading.value = true
   try {
-    await generateSchedule()
+    const result = await generateSchedule()
+    if (result.status !== "ok") {
+      Modal.error({ title: "排程失败", content: result.message || "请检查任务、仪器和项目时间配置。" })
+      return
+    }
     message.success("排程生成成功")
     // Small delay to ensure DB commit is visible
     await new Promise(r => setTimeout(r, 300))

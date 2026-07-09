@@ -7,6 +7,7 @@ from app.core.config import get_settings
 from app.services.schedule_rule_service import get_solver_constraints
 from app.services.schedule_slot_cleanup_service import clear_reschedulable_slots
 from app.services.scheduler_persistence import persist_slots
+from app.services.scheduler_diagnostics import unavailable_instrument_message
 from app.services.scheduler_helpers import (
     build_compatibility,
     build_dependencies,
@@ -49,6 +50,10 @@ class SchedulerService:
             instruments,
             constraints["capability_matching"].is_enabled,
         )
+        diagnostic_message = unavailable_instrument_message(self.db, tasks, compat)
+        if diagnostic_message:
+            return {"status": "error", "message": diagnostic_message}
+
         task_deps = build_dependencies(tasks)
         maintenance_rule = constraints["maintenance_avoidance"]
         maint_windows = (

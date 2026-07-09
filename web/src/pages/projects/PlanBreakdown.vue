@@ -11,7 +11,7 @@
         <a-descriptions :column="4" size="small" bordered>
           <a-descriptions-item label="项目编号">{{ project.code }}</a-descriptions-item>
           <a-descriptions-item label="客户">{{ project.client_name || '-' }}</a-descriptions-item>
-          <a-descriptions-item label="负责人">{{ project.manager || '-' }}</a-descriptions-item>
+          <a-descriptions-item label="负责人">{{ project.manager_name || '-' }}</a-descriptions-item>
           <a-descriptions-item label="优先级"><a-tag :color="project.priority >= 5 ? '#dc2626' : project.priority >= 3 ? '#ea580c' : '#2563eb'">{{ project.priority }}</a-tag></a-descriptions-item>
           <a-descriptions-item label="开始日期">{{ project.start_date ? dayjs(project.start_date).format('YYYY-MM-DD') : '-' }}</a-descriptions-item>
           <a-descriptions-item label="结题日期">{{ project.end_date ? dayjs(project.end_date).format('YYYY-MM-DD') : '-' }}</a-descriptions-item>
@@ -280,7 +280,7 @@ async function handleStartSchedule() {
   try {
     const r = await generateSchedule()
     if (r.status === 'ok') message.success(r.message || '排程完成')
-    else Modal.error({ title: '时间配置冲突', content: r.message || '请调整【项目开始/结束时间】或修改【项目工时】。' })
+    else Modal.error({ title: '排程失败', content: r.message || '请检查任务、仪器和项目时间配置。' })
   } catch { Modal.error({ title: '排程请求失败', content: '服务器内部错误，请稍后重试。' }) }
   finally { scheduling.value = false }
 }

@@ -20,6 +20,7 @@ const routes = [
       { path: 'kanban/instrument-gantt', component: () => import('@/pages/InstrumentGantt.vue') },
       { path: 'kanban/project-gantt', component: () => import('@/pages/kanban/ProjectGantt.vue') },
       { path: 'tasks/workspace', component: () => import('@/pages/tasks/PersonalWorkspace.vue') },
+      { path: 'tasks/faults', component: () => import('@/pages/tasks/InstrumentFaults.vue') },
       { path: 'projects/ledger', component: () => import('@/pages/ProjectBoard.vue') },
       { path: 'projects/plan-breakdown', component: () => import('@/pages/projects/PlanBreakdown.vue') },
       { path: 'projects/process-dag', component: () => import('@/pages/ProjectDAG.vue') },

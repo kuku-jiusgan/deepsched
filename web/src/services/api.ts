@@ -1,12 +1,12 @@
 ﻿import axios from 'axios';
 import type {
   Project, Instrument, TimeSlot, DashboardData, UtilizationStats,
-  DAGData, InsertCost, Task, CapabilityReq,
+  DAGData, InsertCost, Task, CapabilityReq, InstrumentFault,
 } from '@/types';
 
 export type {
   Project, Instrument, TimeSlot, DashboardData, UtilizationStats,
-  DAGData, InsertCost, Task, CapabilityReq,
+  DAGData, InsertCost, Task, CapabilityReq, InstrumentFault,
 }
 
 
@@ -89,6 +89,24 @@ export const updateInstrument = (id: number, data: Partial<Instrument>): Promise
 export const deleteInstrument = (id: number): Promise<void> =>
   api.delete(`/instruments/${id}`);
 
+export interface InstrumentFaultRequest {
+  description: string
+  estimated_resolved_at: string
+  resolved_at?: string | null
+}
+
+export const reportInstrumentFault = (instId: number, data: InstrumentFaultRequest): Promise<InstrumentFault> =>
+  api.post<InstrumentFault>(`/instruments/${instId}/fault`, data).then(r => r.data)
+
+export const getOpenInstrumentFaults = (): Promise<InstrumentFault[]> =>
+  api.get<InstrumentFault[]>('/instruments/faults/open').then(r => r.data)
+
+export const getInstrumentFaults = (): Promise<InstrumentFault[]> =>
+  api.get<InstrumentFault[]>('/instruments/faults').then(r => r.data)
+
+export const resolveInstrumentFault = (instId: number, faultId: number): Promise<InstrumentFault> =>
+  api.put<InstrumentFault>(`/instruments/${instId}/fault/${faultId}/resolve`).then(r => r.data)
+
 // Schedules
 export const getTimeslots = (params?: Record<string, unknown>): Promise<TimeSlot[]> =>
   api.get<TimeSlot[]>('/schedules/timeslots', { params }).then(r => r.data);
@@ -156,18 +174,30 @@ export interface User {
   role: string
   email: string | null
   phone: string | null
+  wecom_id: string | null
   is_active: boolean
   created_at: string
   updated_at: string
 }
 
+export interface UserPayload {
+  username: string
+  display_name: string
+  password?: string
+  role: string
+  email?: string | null
+  phone?: string | null
+  wecom_id?: string | null
+  is_active: boolean
+}
+
 export const getUsers = (): Promise<User[]> =>
   api.get<User[]>('/users').then(r => r.data)
 
-export const createUser = (data: Partial<User>): Promise<User> =>
+export const createUser = (data: UserPayload): Promise<User> =>
   api.post<User>('/users', data).then(r => r.data)
 
-export const updateUser = (id: number, data: Partial<User>): Promise<User> =>
+export const updateUser = (id: number, data: UserPayload): Promise<User> =>
   api.put<User>(`/users/${id}`, data).then(r => r.data)
 
 export const deleteUser = (id: number): Promise<void> =>
@@ -211,11 +241,16 @@ export const getMyTasks = (): Promise<MyTask[]> =>
   api.get<MyTask[]>('/schedules/my-tasks').then(r => r.data)
 
 // Stats
-export const getDashboard = (): Promise<DashboardData> =>
-  api.get<DashboardData>('/stats/dashboard').then(r => r.data);
+export interface StatsRangeParams {
+  start_date?: string
+  end_date?: string
+}
 
-export const getUtilization = (): Promise<UtilizationStats[]> =>
-  api.get<UtilizationStats[]>('/stats/utilization').then(r => r.data);
+export const getDashboard = (params?: StatsRangeParams): Promise<DashboardData> =>
+  api.get<DashboardData>('/stats/dashboard', { params }).then(r => r.data);
+
+export const getUtilization = (params?: StatsRangeParams): Promise<UtilizationStats[]> =>
+  api.get<UtilizationStats[]>('/stats/utilization', { params }).then(r => r.data);
 
 // Task Types
 export interface TaskTypeConfig {
@@ -243,12 +278,59 @@ export const deleteTaskType = (id: number): Promise<void> =>
 
 export interface AlertRule {
   id: number; name: string; rule_type: string; enabled: boolean;
+  enable_site: boolean; enable_wecom: boolean;
   notify_roles: string | null; threshold_minutes: number; threshold_percent: number;
 }
 export const getAlertRules = (): Promise<AlertRule[]> =>
   api.get<AlertRule[]>('/alert-rules').then(r => r.data)
 export const updateAlertRule = (id: number, data: Partial<AlertRule>): Promise<AlertRule> =>
   api.put<AlertRule>(`/alert-rules/${id}`, data).then(r => r.data)
+
+export interface PushChannelConfig {
+  id: number
+  wecom_enabled: boolean
+  wecom_corp_id: string | null
+  wecom_agent_id: string | null
+  wecom_secret: string | null
+}
+
+export const getPushConfig = (): Promise<PushChannelConfig> =>
+  api.get<PushChannelConfig>('/alert-rules/push-config').then(r => r.data)
+
+export const updatePushConfig = (data: Partial<PushChannelConfig>): Promise<PushChannelConfig> =>
+  api.put<PushChannelConfig>('/alert-rules/push-config', data).then(r => r.data)
+
+export interface NotificationRecord {
+  id: number
+  user_name: string
+  n_type: string
+  channel: string
+  delivery_status: string
+  error_message: string | null
+  title: string | null
+  content: string | null
+  is_read: boolean
+  is_confirmed: boolean | null
+  created_at: string
+}
+
+export const getNotificationHistory = (limit = 200): Promise<NotificationRecord[]> =>
+  api.get<NotificationRecord[]>('/notifications/history', { params: { limit } }).then(r => r.data)
+
+export interface NotificationQuery {
+  user_name: string
+  channel?: string
+  unread_only?: boolean
+}
+
+export const getNotifications = (params: NotificationQuery): Promise<NotificationRecord[]> =>
+  api.get<NotificationRecord[]>('/notifications', { params }).then(r => r.data)
+
+export const markNotificationRead = (id: number): Promise<{ status: string }> =>
+  api.put<{ status: string }>(`/notifications/${id}/read`).then(r => r.data)
+
+export const confirmNotification = (id: number): Promise<{ status: string }> =>
+  api.post<{ status: string }>(`/notifications/${id}/confirm`).then(r => r.data)
 
 export interface CalendarDay {
   id: number; date: string; is_working_day: boolean; holiday_name: string | null; day_type: string;
