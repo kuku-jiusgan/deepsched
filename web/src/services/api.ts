@@ -204,6 +204,7 @@ export interface MyTask {
   instrument_id: number; instrument_name: string | null; instrument_code: string | null
   plan_start: string | null; plan_end: string | null; actual_start: string | null
   status: string; tier: string; est_duration_hours: number | null
+  delay_hours?: number | null; delay_reason?: string | null; delay_reported_at?: string | null
 }
 
 export const getMyTasks = (): Promise<MyTask[]> =>

@@ -72,6 +72,9 @@ export interface TimeSlot {
   instrument_name?: string;
   assignee_name?: string;
   project_id?: number | null;
+  delay_hours?: number | null;
+  delay_reason?: string | null;
+  delay_reported_at?: string | null;
 }
 
 export interface DashboardData {

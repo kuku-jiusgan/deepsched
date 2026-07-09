@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
+import json
 from datetime import datetime, timedelta
 from app.core.database import get_db
 from app.core.config import get_settings
-from app.models import TimeSlot, Task, Instrument, Project
+from app.models import TimeSlot, Task, Instrument, Project, AuditLog
 from app.schemas.schemas import (
     TimeSlotOut, TimeSlotUpdate, TaskStatusUpdate,
     ScheduleGenerateRequest, InsertOrderRequest, InsertOrderCost,
@@ -249,6 +250,7 @@ def my_tasks(token: str, db: Session = Depends(get_db)):
             "status": task.status,
             "tier": slot.tier if slot else "unscheduled",
             "est_duration_hours": task.est_duration_hours,
+            **_latest_delay_fields(task.id, db),
         })
     return result
 
@@ -288,6 +290,7 @@ def _enrich_slot(slot: TimeSlot, db: Session) -> TimeSlotOut:
     task = db.query(Task).filter(Task.id == slot.task_id).first()
     inst = db.query(Instrument).filter(Instrument.id == slot.instrument_id).first()
     proj = db.query(Project).filter(Project.id == task.project_id).first() if task else None
+    delay_fields = _latest_delay_fields(task.id, db) if task else {}
     return TimeSlotOut(
         id=slot.id, task_id=slot.task_id, instrument_id=slot.instrument_id,
         plan_start=slot.plan_start, plan_end=slot.plan_end,
@@ -299,6 +302,42 @@ def _enrich_slot(slot: TimeSlot, db: Session) -> TimeSlotOut:
         project_name=proj.name if proj else None,
         instrument_name=inst.name if inst else None,
         assignee_name=task.assignee.display_name if task and task.assignee else None,
-        project_id=task.project_id if task else None
+        project_id=task.project_id if task else None,
+        **delay_fields,
     )
+
+
+def _latest_delay_fields(task_id: int, db: Session) -> dict:
+    logs = (
+        db.query(AuditLog)
+        .filter(AuditLog.action == "task_delay_reported")
+        .order_by(AuditLog.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    for log in logs:
+        detail = _audit_detail_dict(log.detail)
+        if detail.get("task_id") == task_id:
+            return {
+                "delay_hours": detail.get("delay_hours"),
+                "delay_reason": detail.get("reason"),
+                "delay_reported_at": log.created_at,
+            }
+    return {
+        "delay_hours": None,
+        "delay_reason": None,
+        "delay_reported_at": None,
+    }
+
+
+def _audit_detail_dict(detail) -> dict:
+    if isinstance(detail, dict):
+        return detail
+    if isinstance(detail, str):
+        try:
+            parsed = json.loads(detail)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
 

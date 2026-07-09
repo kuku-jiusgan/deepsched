@@ -56,6 +56,9 @@
               :style="getBarStyle(slot, row.quarter)"
               @mouseenter="e => showTooltip(slot, e)"
               @mouseleave="hideTooltip">
+              <span v-if="hasDelay(slot)" class="bar-delay-segment" :style="getDelaySegmentStyle(slot, row.quarter)">
+                <span class="bar-delay-badge">延</span>
+              </span>
               <span class="bar-tag"><component :is="getTaskIcon(slot.task_type)" /></span>
               <span class="bar-label">
                 <span class="bar-project">{{ getBarProjectText(slot) }}</span>
@@ -75,6 +78,7 @@
       <div class="tooltip-row"><span>开始</span>{{ dayjs(hoveredSlot.plan_start).format('MM-DD HH:mm') }}</div>
       <div class="tooltip-row"><span>结束</span>{{ dayjs(hoveredSlot.plan_end).format('MM-DD HH:mm') }}</div>
       <div class="tooltip-row"><span>状态</span>{{ statusLabel(hoveredSlot.status) }}</div>
+      <div v-if="hasDelay(hoveredSlot)" class="tooltip-row is-delay"><span>延期</span>{{ getDelayText(hoveredSlot) }}</div>
     </div>
   </div>
 </template>
@@ -316,7 +320,60 @@ function getBarProjectText(slot: TimeSlot) {
 function getBarTaskText(slot: TimeSlot) {
   const taskName = slot.task_name || '-'
   const ownerName = slot.assignee_name || '-'
-  return `${taskName} · ${ownerName}`
+  const delayText = hasDelay(slot) ? ` · 延期${slot.delay_hours || ''}h` : ''
+  return `${taskName} · ${ownerName}${delayText}`
+}
+function hasDelay(slot: TimeSlot) { return Boolean(slot.delay_reason) || Boolean(slot.delay_hours) }
+function getDelaySegmentStyle(slot: TimeSlot, quarter?: number): CSSProperties {
+  if (!slot.delay_hours || slot.delay_hours <= 0) return { display: 'none' }
+  const start = dayjs(slot.plan_start)
+  const end = dayjs(slot.plan_end)
+  const delayStart = end.subtract(slot.delay_hours, 'hour')
+  const visibleRange = getVisibleBarRange(start, end, quarter)
+  if (!visibleRange) return { display: 'none' }
+
+  const [visibleStart, visibleEnd] = visibleRange
+  const segmentStart = delayStart.isAfter(visibleStart) ? delayStart : visibleStart
+  const segmentEnd = end.isBefore(visibleEnd) ? end : visibleEnd
+  if (!segmentEnd.isAfter(segmentStart)) return { display: 'none' }
+
+  const visibleSeconds = visibleEnd.diff(visibleStart, 'second', true)
+  const leftPercent = segmentStart.diff(visibleStart, 'second', true) / Math.max(1, visibleSeconds) * 100
+  const widthPercent = segmentEnd.diff(segmentStart, 'second', true) / Math.max(1, visibleSeconds) * 100
+  return {
+    left: `${leftPercent}%`,
+    width: `${widthPercent}%`,
+    minWidth: '8px',
+    maxWidth: `calc(${100 - leftPercent}% - 1px)`,
+  }
+}
+function getVisibleBarRange(start: dayjs.Dayjs, end: dayjs.Dayjs, quarter?: number): [dayjs.Dayjs, dayjs.Dayjs] | null {
+  const cols = timeColumns.value
+  if (!cols.length) return null
+  let visibleStart = start.isAfter(cols[0].start) ? start : cols[0].start
+  let visibleEnd = end.isBefore(cols[cols.length - 1].end) ? end : cols[cols.length - 1].end
+
+  if (viewMode.value === 'week' && quarter !== undefined) {
+    let quarterStart: dayjs.Dayjs | null = null
+    let quarterEnd: dayjs.Dayjs | null = null
+    for (const col of cols) {
+      const qStart = col.start.hour(quarter * 6)
+      const qEnd = col.start.hour(quarter * 6 + 6)
+      if (end.isAfter(qStart) && start.isBefore(qEnd)) {
+        if (!quarterStart) quarterStart = qStart
+        quarterEnd = qEnd
+      }
+    }
+    if (!quarterStart || !quarterEnd) return null
+    visibleStart = visibleStart.isAfter(quarterStart) ? visibleStart : quarterStart
+    visibleEnd = visibleEnd.isBefore(quarterEnd) ? visibleEnd : quarterEnd
+  }
+
+  return visibleEnd.isAfter(visibleStart) ? [visibleStart, visibleEnd] : null
+}
+function getDelayText(slot: TimeSlot) {
+  const hoursText = slot.delay_hours ? `${slot.delay_hours}h` : ''
+  return [hoursText, slot.delay_reason || '未填写原因'].filter(Boolean).join(' · ')
 }
 
 function statusLabel(s: string) {
@@ -538,11 +595,14 @@ onUnmounted(() => {
 
 .gantt-bar { position: absolute; border-radius: 3px; display: flex; align-items: center; padding: 0 5px; cursor: pointer; overflow: hidden; transition: box-shadow 0.15s; z-index: 1; box-sizing: border-box; gap: 3px; min-width: 0; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
 .gantt-bar:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 3; }
-.bar-tag { flex-shrink: 0; width: 18px; height: 18px; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; background: rgba(0,0,0,0.12); color: inherit; }
-.bar-label { display: flex; flex-direction: column; justify-content: center; gap: 1px; overflow: hidden; min-width: 0; color: inherit; line-height: 1.15; }
+.bar-delay-segment { position: absolute; top: 0; bottom: 0; z-index: 1; border: 2px solid #dc2626; border-radius: 3px; box-sizing: border-box; background: rgba(220, 38, 38, 0.08); pointer-events: none; }
+.bar-delay-segment::after { content: ""; position: absolute; right: -2px; top: -2px; border-top: 12px solid #dc2626; border-left: 12px solid transparent; }
+.bar-tag { position: relative; z-index: 2; flex-shrink: 0; width: 18px; height: 18px; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; background: rgba(0,0,0,0.12); color: inherit; }
+.bar-label { position: relative; z-index: 2; display: flex; flex-direction: column; justify-content: center; gap: 1px; overflow: hidden; min-width: 0; color: inherit; line-height: 1.15; }
 .bar-project, .bar-task { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bar-project { font-size: 11px; font-weight: 700; }
 .bar-task { font-size: 10px; font-weight: 500; opacity: 0.92; }
+.bar-delay-badge { position: absolute; right: 0; top: 0; z-index: 2; width: 14px; height: 14px; border-radius: 2px; display: flex; align-items: center; justify-content: center; background: #dc2626; color: #fff; font-size: 10px; font-weight: 700; line-height: 1; pointer-events: none; }
 
 /* Status colors */
 .status-scheduled, .status-pending {
@@ -571,4 +631,5 @@ onUnmounted(() => {
 .tooltip-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
 .tooltip-row { display: flex; justify-content: space-between; padding: 2px 0; }
 .tooltip-row span { color: #94a3b8; }
+.tooltip-row.is-delay { color: #fecaca; }
 </style>

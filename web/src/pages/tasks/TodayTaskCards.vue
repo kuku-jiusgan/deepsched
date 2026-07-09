@@ -25,6 +25,7 @@
               <div><span>仪器：</span>{{ card.instrumentText }}</div>
               <div><span>负责人：</span>{{ card.ownerText }}</div>
               <div><span>当前排程：</span>{{ card.scheduleText }}</div>
+              <div v-if="card.delayText"><span>延期：</span>{{ card.delayText }}</div>
             </div>
 
             <div class="today-card-choice">请选择：</div>
@@ -145,6 +146,7 @@ interface TodayTaskCard {
   earliestStart: string
   latestEnd: string
   nightRunSummary: string
+  delayText: string
 }
 
 interface TodayCardGroup {
@@ -241,7 +243,8 @@ function isTaskClosed(task: MyTask) {
 function isExceptionConfirmTask(task: MyTask) {
   const isProblemStatus = ['blocked', 'interrupted'].includes(task.status)
   const isOverdue = Boolean(task.plan_end) && dayjs(task.plan_end).isBefore(dayjs()) && !isTaskClosed(task)
-  return isProblemStatus || isOverdue
+  const hasDelayReport = Boolean(task.delay_reason) || Boolean(task.delay_hours)
+  return isProblemStatus || isOverdue || hasDelayReport
 }
 
 function formatTaskTime(value: string | null, fallback: string) {
@@ -295,7 +298,14 @@ function buildTodayCard(task: MyTask, category: TodayCardCategory): TodayTaskCar
     earliestStart: nightStart,
     latestEnd: NIGHT_RESERVE_END,
     nightRunSummary: storedNightRun ? formatNightRunSummary(storedNightRun) : '',
+    delayText: getDelayText(task),
   }
+}
+
+function getDelayText(task: MyTask) {
+  if (!task.delay_reason && !task.delay_hours) return ''
+  const hoursText = task.delay_hours ? `${task.delay_hours}h` : ''
+  return [hoursText, task.delay_reason || '未填写原因'].filter(Boolean).join(' · ')
 }
 
 function handleCardAction(card: TodayTaskCard, action: string) {

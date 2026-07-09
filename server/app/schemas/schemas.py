@@ -59,6 +59,9 @@ class TaskOut(BaseModel):
     assignee_id: Optional[int] = None
     assignee_name: Optional[str] = None
     project_id: Optional[int] = None
+    delay_hours: Optional[float] = None
+    delay_reason: Optional[str] = None
+    delay_reported_at: Optional[datetime] = None
     parent_id: Optional[int] = None
     children: List["TaskOut"] = []
     model_config = ConfigDict(from_attributes=True)
@@ -171,6 +174,9 @@ class TimeSlotOut(BaseModel):
     instrument_name: Optional[str] = None
     assignee_name: Optional[str] = None
     project_id: Optional[int] = None
+    delay_hours: Optional[float] = None
+    delay_reason: Optional[str] = None
+    delay_reported_at: Optional[datetime] = None
     parent_id: Optional[int] = None
     children: List["TaskOut"] = []
     model_config = ConfigDict(from_attributes=True)
