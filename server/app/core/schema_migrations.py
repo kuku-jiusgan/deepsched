@@ -11,6 +11,12 @@ def ensure_runtime_schema(engine) -> None:
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE instrument_fault ADD COLUMN estimated_resolved_at DATETIME"))
 
+    if "instrument" in table_names:
+        instrument_columns = {column["name"] for column in inspector.get_columns("instrument")}
+        if "availability_status" not in instrument_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE instrument ADD COLUMN availability_status VARCHAR(20) DEFAULT 'available'"))
+
     if "notification" in table_names:
         notification_columns = {column["name"] for column in inspector.get_columns("notification")}
         with engine.begin() as connection:

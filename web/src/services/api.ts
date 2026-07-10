@@ -15,7 +15,7 @@ const api = axios.create({ baseURL: '/api/v1' });
 api.interceptors.request.use(config => {
   const token = localStorage.getItem('token')
   if (token) {
-    config.params = { ...config.params, token }
+    config.headers.Authorization = `Bearer ${token}`
   }
   return config
 })
@@ -77,13 +77,30 @@ export const updateTask = (taskId: number, data: {
   api.put<Task>(`/projects/tasks/${taskId}`, data).then(r => r.data);
 
 // Instruments
-export const getInstruments = (): Promise<Instrument[]> =>
-  api.get<Instrument[]>('/instruments').then(r => r.data);
+export interface InstrumentQuery {
+  include_unavailable?: boolean
+}
 
-export const createInstrument = (data: Partial<Instrument>): Promise<Instrument> =>
+export const getInstruments = (params?: InstrumentQuery): Promise<Instrument[]> =>
+  api.get<Instrument[]>('/instruments', { params }).then(r => r.data);
+
+export interface InstrumentPayload {
+  code: string
+  name: string
+  instrument_group: string
+  brand?: string
+  model?: string
+  location?: string
+  availability_status: 'available' | 'unavailable'
+  buffer_rate: number
+  switchover_base_hours: number
+  capabilities: { tag_name: string; tag_value: string }[]
+}
+
+export const createInstrument = (data: InstrumentPayload): Promise<Instrument> =>
   api.post<Instrument>('/instruments', data).then(r => r.data);
 
-export const updateInstrument = (id: number, data: Partial<Instrument>): Promise<Instrument> =>
+export const updateInstrument = (id: number, data: InstrumentPayload): Promise<Instrument> =>
   api.put<Instrument>(`/instruments/${id}`, data).then(r => r.data);
 
 export const deleteInstrument = (id: number): Promise<void> =>
@@ -202,6 +219,9 @@ export const updateUser = (id: number, data: UserPayload): Promise<User> =>
 
 export const deleteUser = (id: number): Promise<void> =>
   api.delete(`/users/${id}`)
+
+export const logout = (): Promise<void> =>
+  api.post('/users/logout').then(() => undefined)
 // Schedule Rules
 export type ScheduleRuleParamValue = string | number | boolean | number[] | null
 

@@ -31,7 +31,7 @@ const routes = [
       { path: 'schedule/insert-order', component: () => import('@/pages/schedule/InsertOrder.vue') },
       { path: 'system/alerts', component: () => import('@/pages/system/AlertPush.vue') },
       { path: 'system/external-sync', component: () => import('@/pages/system/ExternalSync.vue') },
-      { path: 'system/users', component: () => import('@/pages/system/UserManagement.vue') },
+      { path: 'system/users', component: () => import('@/pages/system/UserManagement.vue'), meta: { requiresAdmin: true } },
       { path: 'system/basic', component: () => import('@/pages/system/SystemBasic.vue') },
       { path: 'system/calendar', component: () => import('@/pages/system/WorkCalendar.vue') },
     ]
@@ -39,16 +39,43 @@ const routes = [
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000
+
+function clearSession() {
+  localStorage.removeItem('token')
+  localStorage.removeItem('user')
+  localStorage.removeItem('lastActivityAt')
+}
 
 router.beforeEach((to, _from, next) => {
   const token = localStorage.getItem('token')
+  const lastActivityAt = Number(localStorage.getItem('lastActivityAt') || Date.now())
+  const isIdleExpired = token && Date.now() - lastActivityAt >= IDLE_TIMEOUT_MS
+  if (isIdleExpired) {
+    clearSession()
+    next('/login?expired=1')
+    return
+  }
   if (to.meta.requiresAuth && !token) {
     next('/login')
+  } else if (to.meta.requiresAdmin && getStoredUserRole() !== '系统管理员') {
+    next('/dashboard')
   } else if (to.path === '/login' && token) {
     next('/dashboard')
   } else {
     next()
   }
 })
+
+function getStoredUserRole() {
+  const raw = localStorage.getItem('user')
+  if (!raw) return ''
+  try {
+    const parsed = JSON.parse(raw) as { role?: unknown }
+    return typeof parsed.role === 'string' ? parsed.role : ''
+  } catch {
+    return ''
+  }
+}
 
 export default router

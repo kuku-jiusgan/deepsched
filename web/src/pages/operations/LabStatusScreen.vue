@@ -136,7 +136,7 @@ function onImageLoad() {
 async function fetchData() {
   try {
     const token = localStorage.getItem('token')
-    const r = await axios.get('/api/v1/stats/lab-status', { params: { token } })
+    const r = await axios.get('/api/v1/stats/lab-status', { headers: token ? { Authorization: `Bearer ${token}` } : undefined })
     // Auto-assign grid positions if no label_x/y
     const data = r.data as Inst[]
     data.forEach((inst, i) => {

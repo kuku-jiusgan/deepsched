@@ -380,6 +380,7 @@ class SchedulerService:
         tasks = q.order_by(Task.priority_weight.desc()).all()
 
         instruments = self.db.query(Instrument).filter(
+            Instrument.availability_status == "available",
             Instrument.status.in_(["idle", "running"])
         ).options(
             selectinload(Instrument.capabilities),

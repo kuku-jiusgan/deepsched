@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List
@@ -28,7 +28,8 @@ def create_instrument(data: InstrumentCreate, db: Session = Depends(get_db)):
     inst = Instrument(
         code=data.code, name=data.name, instrument_group=data.instrument_group,
         brand=data.brand, model=data.model,
-        location=data.location, buffer_rate=data.buffer_rate,
+        location=data.location, availability_status=data.availability_status,
+        buffer_rate=data.buffer_rate,
         switchover_base_hours=data.switchover_base_hours
     )
     db.add(inst)
@@ -44,8 +45,11 @@ def create_instrument(data: InstrumentCreate, db: Session = Depends(get_db)):
     return inst
 
 @router.get("", response_model=List[InstrumentOut])
-def list_instruments(db: Session = Depends(get_db)):
-    return list_instruments_with_effective_status(db)
+def list_instruments(
+    include_unavailable: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    return list_instruments_with_effective_status(db, include_unavailable=include_unavailable)
 
 @router.get("/faults/open", response_model=List[FaultOut])
 def list_open_faults(db: Session = Depends(get_db)):
@@ -76,6 +80,7 @@ def update_instrument(inst_id: int, data: InstrumentCreate, db: Session = Depend
     inst.brand = data.brand
     inst.model = data.model
     inst.location = data.location
+    inst.availability_status = data.availability_status
     inst.buffer_rate = data.buffer_rate
     inst.switchover_base_hours = data.switchover_base_hours
     db.query(InstrumentCapability).filter(InstrumentCapability.instrument_id == inst_id).delete()

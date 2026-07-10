@@ -1,6 +1,7 @@
 ﻿from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import engine, Base
+from app.core.config import get_settings
 from app.core.schema_migrations import ensure_runtime_schema
 from app.models import models
 from app.api import users, schedule_rules, instruments, projects, schedules, stats, notifications, task_types, alert_rules, calendar_api
@@ -9,10 +10,12 @@ Base.metadata.create_all(bind=engine)
 ensure_runtime_schema(engine)
 
 app = FastAPI(title="DeepSched - 山大淄博生物医药研究院排程管理系统", version="1.0.0")
+settings = get_settings()
+cors_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -24,6 +27,10 @@ async def add_json_utf8_charset(request, call_next):
     content_type = response.headers.get("content-type", "")
     if content_type == "application/json":
         response.headers["content-type"] = "application/json; charset=utf-8"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     return response
 
 from app.core.logging_middleware import LoggingMiddleware
@@ -45,9 +52,15 @@ def health():
     return {"status": "ok", "version": "1.0.0"}
 
 import os, glob
-from fastapi import Query
+from fastapi import Depends, Query
+from app.core.database import get_db
 @app.get("/api/v1/logs")
-def get_logs(hours: int = Query(6, description="最近多少小时的日志")):
+def get_logs(
+    hours: int = Query(6, ge=1, le=24, description="最近多少小时的日志"),
+    token: str = Depends(users.auth_token),
+    db = Depends(get_db),
+):
+    users.require_admin(token, db)
     log_dir = os.path.join(os.path.dirname(__file__), "..", "logs")
     files = sorted(glob.glob(os.path.join(log_dir, "operations_*.log")), reverse=True)
     entries = []

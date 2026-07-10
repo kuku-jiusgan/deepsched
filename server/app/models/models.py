@@ -106,6 +106,7 @@ class Instrument(Base):
     brand = Column(String(50))
     model = Column(String(100))
     location = Column(String(50))
+    availability_status = Column(String(20), default="available")
     status = Column(String(20), default="idle")
     buffer_rate = Column(Float, default=1.1)
     switchover_base_hours = Column(Float, default=0.5)

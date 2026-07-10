@@ -3,9 +3,7 @@
     <div class="login-backdrop" />
     <main class="login-layout">
       <section class="login-brand">
-        <div class="institute-mark">
-          <BankOutlined />
-        </div>
+        <img class="institute-logo" src="/公司logo.png" alt="山东大学淄博生物医药研究院" />
         <p class="institute-name">山东大学淄博生物医药研究院</p>
         <h1>资源智能调度协同平台</h1>
       </section>
@@ -45,7 +43,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { BankOutlined, UserOutlined, LockOutlined } from '@ant-design/icons-vue'
+import { UserOutlined, LockOutlined } from '@ant-design/icons-vue'
 import axios from 'axios'
 
 const router = useRouter()
@@ -75,6 +73,7 @@ async function handleLogin() {
     })
     localStorage.setItem('token', response.data.token)
     localStorage.setItem('user', JSON.stringify(response.data.user))
+    localStorage.setItem('lastActivityAt', String(Date.now()))
     router.replace('/dashboard')
   } catch (error: unknown) {
     const detail = axios.isAxiosError(error) ? error.response?.data?.detail : null
@@ -102,8 +101,10 @@ async function handleLogin() {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(90deg, rgba(146, 22, 32, 0.08) 0 1px, transparent 1px 72px),
-    linear-gradient(0deg, rgba(22, 92, 74, 0.07) 0 1px, transparent 1px 72px),
+    linear-gradient(90deg, rgba(22, 92, 74, 0.075) 0 1px, transparent 1px 72px),
+    linear-gradient(0deg, rgba(22, 92, 74, 0.055) 0 1px, transparent 1px 72px),
+    radial-gradient(circle at 18% 20%, rgba(22, 92, 74, 0.11), transparent 28%),
+    radial-gradient(circle at 78% 76%, rgba(143, 29, 44, 0.08), transparent 30%),
     #f4f7f5;
 }
 
@@ -112,8 +113,8 @@ async function handleLogin() {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(90deg, transparent 0 58%, rgba(146, 22, 32, 0.12) 58% 58.35%, transparent 58.35%),
-    linear-gradient(0deg, transparent 0 70%, rgba(22, 92, 74, 0.14) 70% 70.35%, transparent 70.35%);
+    linear-gradient(90deg, transparent 0 58%, rgba(143, 29, 44, 0.12) 58% 58.28%, transparent 58.28%),
+    linear-gradient(0deg, transparent 0 70%, rgba(22, 92, 74, 0.12) 70% 70.28%, transparent 70.28%);
 }
 
 .login-layout {
@@ -126,7 +127,7 @@ async function handleLogin() {
   background: rgba(255, 255, 255, 0.94);
   border: 1px solid #d8e0dc;
   border-radius: 10px;
-  box-shadow: 0 18px 48px rgba(24, 39, 33, 0.16);
+  box-shadow: 0 16px 36px rgba(24, 39, 33, 0.12);
   overflow: hidden;
 }
 
@@ -139,34 +140,20 @@ async function handleLogin() {
   background: #fbfcfb;
 }
 
-.login-brand::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 7px;
-  background: #8f1d2c;
-}
-
-.institute-mark {
-  width: 48px;
-  height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  background: #8f1d2c;
-  color: #fff;
-  font-size: 24px;
-  margin-bottom: 24px;
+.institute-logo {
+  width: min(420px, 100%);
+  height: auto;
+  display: block;
+  margin-bottom: 30px;
 }
 
 .institute-name {
   margin: 0 0 14px;
-  color: #8f1d2c;
-  font-size: 17px;
+  color: #165c4a;
+  font-size: 18px;
+  line-height: 1.35;
   font-weight: 700;
+  letter-spacing: 0;
 }
 
 .login-brand h1 {
@@ -235,6 +222,11 @@ async function handleLogin() {
 
   .login-brand h1 {
     font-size: 32px;
+  }
+
+  .institute-logo {
+    width: min(360px, 100%);
+    margin-bottom: 24px;
   }
 
   .login-card {

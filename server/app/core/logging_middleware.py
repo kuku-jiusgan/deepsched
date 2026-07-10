@@ -7,7 +7,10 @@ class LoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start = time.time()
         operator = "anonymous"
-        token = request.query_params.get("token") or ""
+        token = ""
+        authorization = request.headers.get("authorization") or ""
+        if authorization.lower().startswith("bearer "):
+            token = authorization.split(" ", 1)[1].strip()
         # Import here to avoid circular imports
         from app.api.users import TOKENS
         if token and token in TOKENS:

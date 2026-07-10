@@ -143,6 +143,7 @@ class InstrumentCreate(BaseModel):
     brand: Optional[str] = None
     model: Optional[str] = None
     location: Optional[str] = None
+    availability_status: str = "available"
     buffer_rate: float = 1.1
     switchover_base_hours: float = 0.5
     capabilities: List[CapabilityCreate] = []
@@ -155,6 +156,7 @@ class InstrumentOut(BaseModel):
     brand: Optional[str]
     model: Optional[str]
     location: Optional[str]
+    availability_status: str = "available"
     status: str
     buffer_rate: float
     switchover_base_hours: float

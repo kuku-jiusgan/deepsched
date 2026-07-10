@@ -5,27 +5,6 @@
       <p>按仪器查看排程负荷、运行状态与延期风险</p>
     </div>
 
-    <div v-if="isFullscreen" class="fullscreen-status-panel">
-      <div class="screen-title">
-        <span class="screen-kicker">DeepSched 实验室排程屏</span>
-        <strong>仪器负荷总览</strong>
-      </div>
-      <div class="screen-metrics">
-        <span>当前 {{ currentClock }}</span>
-        <span>刷新 {{ lastRefreshLabel }}</span>
-        <span>{{ instruments.length }} 台仪器</span>
-        <span>{{ slots.length }} 个时间槽</span>
-        <span class="metric-running">运行中 {{ fullscreenStats.running }}</span>
-        <span class="metric-delay">延期 {{ fullscreenStats.delayed }}</span>
-      </div>
-      <div class="status-legend" aria-label="排程状态图例">
-        <span v-for="item in statusLegend" :key="item.key" class="legend-item">
-          <span class="legend-swatch" :class="'legend-' + item.key"></span>
-          {{ item.label }}
-        </span>
-      </div>
-    </div>
-
     <div class="action-bar" :class="{ 'is-screen-toolbar': isFullscreen }">
       <a-button-group>
         <a-button :type="viewMode === 'day' ? 'primary' : 'default'" @click="switchView('day')">日</a-button>
@@ -42,7 +21,6 @@
         <a-switch v-model:checked="autoScrollEnabled" size="small" />
         <span>全屏自动滚动</span>
       </span>
-      <span class="slot-count">{{ slots.length }} 个时间槽</span>
     </div>
 
     <a-spin v-if="loading" size="large" style="display: block; margin: 80px auto" />
@@ -101,11 +79,11 @@
               <span v-if="hasDelay(slot)" class="bar-delay-segment" :style="getDelaySegmentStyle(slot, row.quarter)">
                 <span class="bar-delay-badge">延</span>
               </span>
-              <span class="bar-tag">
+              <span v-if="shouldShowBarContent(slot, row.quarter)" class="bar-tag">
                 <span class="bar-status-dot"></span>
                 <component v-if="getTaskIcon(slot.task_type)" :is="getTaskIcon(slot.task_type)" />
               </span>
-              <span class="bar-label">
+              <span v-if="shouldShowBarContent(slot, row.quarter)" class="bar-label">
                 <span class="bar-project">{{ getBarProjectText(slot) }}</span>
                 <span class="bar-task">{{ getBarTaskText(slot) }}</span>
               </span>
@@ -148,7 +126,8 @@ const WEEK_SEGMENT_HOURS = 8
 const WEEK_SEGMENT_SECONDS = WEEK_SEGMENT_HOURS * 60 * 60
 const ENTITY_ROW_HEIGHT = 72
 const MIN_COL_WIDTH = 72
-const AUTO_SCROLL_PIXELS_PER_MS = 0.028
+const AUTO_SCROLL_STEP_PX = 1.2
+const AUTO_SCROLL_INTERVAL_MS = 30
 const AUTO_SCROLL_EDGE_PAUSE_MS = 1200
 const AUTO_SCROLL_START_DELAY_MS = 500
 const AUTO_SCROLL_START_RETRY_MS = 220
@@ -184,13 +163,6 @@ const instrumentStatusMetaMap: Record<string, InstrumentStatusMeta> = {
   disabled: { key: 'disabled', label: '停用' },
 }
 
-const statusLegend: StatusMeta[] = [
-  { key: 'scheduled', label: '待执行' },
-  { key: 'running', label: '运行中' },
-  { key: 'completed', label: '已完成' },
-  { key: 'blocked', label: '延期/中断' },
-]
-
 const loading = ref(true)
 const instruments = ref<Instrument[]>([])
 const slots = ref<TimeSlot[]>([])
@@ -199,8 +171,6 @@ const cursorDate = ref(dayjs().startOf('week'))
 const isFullscreen = ref(false)
 const autoScrollEnabled = ref(true)
 const hasVerticalOverflow = ref(false)
-const currentClock = ref(dayjs().format('HH:mm:ss'))
-const lastRefreshAt = ref<dayjs.Dayjs | null>(null)
 const hoveredSlot = ref<TimeSlot | null>(null)
 const tooltipX = ref(0)
 const tooltipY = ref(0)
@@ -235,14 +205,6 @@ const periodLabel = computed(() => {
     return `${start.format('MM/DD')} - ${end.format('MM/DD')}`
   }
   return start.format('YYYY年MM月')
-})
-
-const lastRefreshLabel = computed(() => lastRefreshAt.value ? lastRefreshAt.value.format('HH:mm:ss') : '等待数据')
-
-const fullscreenStats = computed(() => {
-  const delayed = slots.value.filter(slot => hasDelay(slot) || ['blocked', 'interrupted'].includes(slot.status)).length
-  const running = slots.value.filter(slot => slot.status === 'running').length
-  return { delayed, running }
 })
 
 interface TimeCol {
@@ -356,6 +318,7 @@ function getBarClasses(slot: TimeSlot, quarter?: number) {
     'status-' + statusMeta.key,
     {
       'is-compact': isCompactBar(slot, quarter),
+      'is-continuation': !shouldShowBarContent(slot, quarter),
       'has-delay': hasDelay(slot),
     },
   ]
@@ -462,9 +425,7 @@ function getInstrumentStatusMeta(status: string): InstrumentStatusMeta {
   return instrumentStatusMetaMap[status] || { key: 'unknown', label: status || '未知' }
 }
 function getBarProjectText(slot: TimeSlot) {
-  const code = slot.project_code || ''
-  const name = slot.project_name || ''
-  return [code, name].filter(Boolean).join(' / ') || '-'
+  return slot.project_code || '-'
 }
 function getBarTaskText(slot: TimeSlot) {
   const taskName = slot.task_name || '-'
@@ -473,9 +434,46 @@ function getBarTaskText(slot: TimeSlot) {
   return `${taskName} · ${ownerName}${delayText}`
 }
 function isCompactBar(slot: TimeSlot, quarter?: number) {
+  if (!shouldShowBarContent(slot, quarter)) return false
   const style = getBarStyle(slot, quarter)
   const rawWidth = typeof style.width === 'string' ? Number.parseFloat(style.width) : Number(style.width)
-  return Number.isFinite(rawWidth) && rawWidth < 92
+  return Number.isFinite(rawWidth) && rawWidth < 68
+}
+function shouldShowBarContent(slot: TimeSlot, quarter?: number) {
+  if (viewMode.value !== 'week' || quarter === undefined) return true
+  return quarter === getPrimaryContentQuarter(slot)
+}
+function getPrimaryContentQuarter(slot: TimeSlot) {
+  let bestQuarter = 0
+  let bestSeconds = -1
+  let bestTieScore = -1
+  for (let quarter = 0; quarter < WEEK_SEGMENT_COUNT; quarter++) {
+    const visibleSeconds = getVisibleSecondsInQuarter(slot, quarter)
+    const tieScore = quarter === 1 ? 2 : quarter === 0 ? 1 : 0
+    if (visibleSeconds > bestSeconds || (visibleSeconds === bestSeconds && tieScore > bestTieScore)) {
+      bestSeconds = visibleSeconds
+      bestTieScore = tieScore
+      bestQuarter = quarter
+    }
+  }
+  return bestQuarter
+}
+function getVisibleSecondsInQuarter(slot: TimeSlot, quarter: number) {
+  const start = dayjs(slot.plan_start)
+  const end = dayjs(slot.plan_end)
+  const cols = timeColumns.value
+  let totalSeconds = 0
+  for (const col of cols) {
+    const qStart = col.start.hour(getSegmentStartHour(quarter))
+    const qEnd = col.start.hour(getSegmentEndHour(quarter))
+    if (!end.isAfter(qStart) || !start.isBefore(qEnd)) continue
+    const visibleStart = start.isAfter(qStart) ? start : qStart
+    const visibleEnd = end.isBefore(qEnd) ? end : qEnd
+    if (visibleEnd.isAfter(visibleStart)) {
+      totalSeconds += visibleEnd.diff(visibleStart, 'second', true)
+    }
+  }
+  return totalSeconds
 }
 function hasDelay(slot: TimeSlot) { return Boolean(slot.delay_reason) || Boolean(slot.delay_hours) }
 function getDelaySegmentStyle(slot: TimeSlot, quarter?: number): CSSProperties {
@@ -627,7 +625,6 @@ async function fetchData(silent = false) {
   } catch { if (!silent) message.error('加载数据失败') }
   finally {
     if (!silent) loading.value = false
-    lastRefreshAt.value = dayjs()
     await nextTick()
     recalc()
     if (viewMode.value === 'day') scrollToNow()
@@ -638,13 +635,11 @@ async function fetchData(silent = false) {
 let resizeObserver: ResizeObserver | null = null
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null
-let clockTimer: ReturnType<typeof setInterval> | null = null
 
 
-let autoScrollFrame: number | null = null
+let autoScrollTimer: ReturnType<typeof setInterval> | null = null
 let autoScrollRetryTimer: ReturnType<typeof setTimeout> | null = null
 let autoScrollDirection = 1
-let autoScrollLastTs = 0
 let autoScrollHoldUntil = 0
 
 function toggleFullscreen() {
@@ -659,17 +654,16 @@ function toggleFullscreen() {
 }
 
 function scheduleAutoScrollStart(delay = AUTO_SCROLL_START_DELAY_MS, retryCount = 0) {
+  if (autoScrollTimer !== null) return
   if (autoScrollRetryTimer) clearTimeout(autoScrollRetryTimer)
   autoScrollRetryTimer = setTimeout(async () => {
     autoScrollRetryTimer = null
     await nextTick()
     recalc()
-    requestAnimationFrame(() => {
-      const started = startAutoScroll()
-      if (!started && isFullscreen.value && autoScrollEnabled.value && retryCount < AUTO_SCROLL_START_MAX_RETRIES) {
-        scheduleAutoScrollStart(AUTO_SCROLL_START_RETRY_MS, retryCount + 1)
-      }
-    })
+    const started = startAutoScroll()
+    if (!started && isFullscreen.value && autoScrollEnabled.value && retryCount < AUTO_SCROLL_START_MAX_RETRIES) {
+      scheduleAutoScrollStart(AUTO_SCROLL_START_RETRY_MS, retryCount + 1)
+    }
   }, delay)
 }
 
@@ -686,16 +680,15 @@ function startAutoScroll() {
     getMaxVerticalScroll()
     return false
   }
-  stopAutoScroll()
+  if (autoScrollTimer !== null) return true
   if (getMaxVerticalScroll() <= 2) return false
   autoScrollDirection = 1
-  autoScrollLastTs = 0
-  autoScrollHoldUntil = performance.now() + 600
-  autoScrollFrame = requestAnimationFrame(runAutoScrollFrame)
+  autoScrollHoldUntil = performance.now() + 150
+  autoScrollTimer = setInterval(runAutoScrollTick, AUTO_SCROLL_INTERVAL_MS)
   return true
 }
 
-function runAutoScrollFrame(timestamp: number) {
+function runAutoScrollTick() {
   const container = containerRef.value
   if (!container || !autoScrollEnabled.value || !isFullscreen.value) {
     stopAutoScroll()
@@ -708,35 +701,30 @@ function runAutoScrollFrame(timestamp: number) {
     return
   }
 
-  if (timestamp < autoScrollHoldUntil) {
-    autoScrollFrame = requestAnimationFrame(runAutoScrollFrame)
+  const now = performance.now()
+  if (now < autoScrollHoldUntil) {
     return
   }
 
-  if (!autoScrollLastTs) autoScrollLastTs = timestamp
-  const deltaMs = Math.min(64, timestamp - autoScrollLastTs)
-  autoScrollLastTs = timestamp
-  const nextScroll = container.scrollTop + autoScrollDirection * deltaMs * AUTO_SCROLL_PIXELS_PER_MS
+  const nextScroll = container.scrollTop + autoScrollDirection * AUTO_SCROLL_STEP_PX
 
   if (nextScroll >= maxScroll) {
     container.scrollTop = maxScroll
     autoScrollDirection = -1
-    autoScrollHoldUntil = timestamp + AUTO_SCROLL_EDGE_PAUSE_MS
+    autoScrollHoldUntil = now + AUTO_SCROLL_EDGE_PAUSE_MS
   } else if (nextScroll <= 0) {
     container.scrollTop = 0
     autoScrollDirection = 1
-    autoScrollHoldUntil = timestamp + AUTO_SCROLL_EDGE_PAUSE_MS
+    autoScrollHoldUntil = now + AUTO_SCROLL_EDGE_PAUSE_MS
   } else {
     container.scrollTop = nextScroll
   }
-
-  autoScrollFrame = requestAnimationFrame(runAutoScrollFrame)
 }
 
 function stopAutoScroll() {
-  if (autoScrollFrame !== null) {
-    cancelAnimationFrame(autoScrollFrame)
-    autoScrollFrame = null
+  if (autoScrollTimer !== null) {
+    clearInterval(autoScrollTimer)
+    autoScrollTimer = null
   }
   if (autoScrollRetryTimer) {
     clearTimeout(autoScrollRetryTimer)
@@ -757,7 +745,7 @@ function onFullscreenChange() {
 
 function handleResize() {
   recalc()
-  if (isFullscreen.value && autoScrollEnabled.value) {
+  if (isFullscreen.value && autoScrollEnabled.value && autoScrollTimer === null) {
     scheduleAutoScrollStart(300)
   }
 }
@@ -765,7 +753,6 @@ function handleResize() {
 onMounted(() => {
   fetchData()
   refreshTimer = setInterval(() => fetchData(true), 30000)
-  clockTimer = setInterval(() => { currentClock.value = dayjs().format('HH:mm:ss') }, 1000)
   window.addEventListener('resize', handleResize)
   document.addEventListener('fullscreenchange', onFullscreenChange)
   nextTick(() => {
@@ -773,7 +760,7 @@ onMounted(() => {
       resizeObserver = new ResizeObserver(() => {
         if (containerRef.value && containerRef.value.clientHeight > 0) {
           recalc()
-          if (isFullscreen.value && autoScrollEnabled.value) scheduleAutoScrollStart(300)
+          if (isFullscreen.value && autoScrollEnabled.value && autoScrollTimer === null) scheduleAutoScrollStart(300)
         }
       })
       resizeObserver.observe(containerRef.value)
@@ -790,7 +777,6 @@ watch(autoScrollEnabled, (enabled) => {
 })
 onUnmounted(() => {
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
-  if (clockTimer) { clearInterval(clockTimer); clockTimer = null }
   window.removeEventListener('resize', handleResize)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
   stopAutoScroll()
@@ -809,55 +795,11 @@ onUnmounted(() => {
 .gantt-page.is-fullscreen .page-header { display: none; }
 .gantt-page.is-fullscreen .action-bar { padding: 0 0 12px 0; }
 
-.fullscreen-status-panel {
-  display: grid;
-  grid-template-columns: minmax(220px, 1.1fr) minmax(360px, 2fr) auto;
-  gap: 16px;
-  align-items: center;
-  padding: 10px 14px;
-  margin-bottom: 12px;
-  border: 1px solid #dbe3ee;
-  border-radius: 10px;
-  background: #ffffff;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
-}
-.screen-title { display: flex; flex-direction: column; gap: 2px; }
-.screen-kicker { font-size: 11px; color: #64748b; }
-.screen-title strong { font-size: 18px; color: #0f172a; letter-spacing: -0.2px; }
-.screen-metrics {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  color: #475569;
-  font-size: 12px;
-}
-.screen-metrics span {
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-}
-.screen-metrics .metric-running { color: #047857; background: #ecfdf5; border-color: #bbf7d0; }
-.screen-metrics .metric-delay { color: #b91c1c; background: #fef2f2; border-color: #fecaca; }
-.status-legend { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
-.legend-item { display: inline-flex; align-items: center; gap: 6px; color: #475569; font-size: 12px; white-space: nowrap; }
-.legend-swatch { width: 22px; height: 10px; border-radius: 999px; border: 1px solid transparent; }
-.legend-scheduled { background: #dbeafe; border-color: #93c5fd; }
-.legend-running { background: #ccfbf1; border-color: #5eead4; }
-.legend-completed { background: #e2e8f0; border-color: #cbd5e1; }
-.legend-blocked { background: #fee2e2; border-color: #fca5a5; }
-
 .period-label {
   min-width: 160px;
   text-align: center;
   font-weight: 600;
   color: #1e293b;
-}
-.slot-count {
-  margin-left: auto;
-  font-size: 12px;
-  color: #64748b;
 }
 .action-bar.is-screen-toolbar {
   align-items: center;
@@ -1090,6 +1032,20 @@ onUnmounted(() => {
 .gantt-bar.is-compact { padding: 0 4px; justify-content: center; }
 .gantt-bar.is-compact .bar-label { display: none; }
 .gantt-bar.is-compact .bar-tag { width: 16px; height: 16px; font-size: 9px; }
+.gantt-bar.is-continuation {
+  padding: 0;
+  opacity: 0.78;
+  border-left-width: 1px;
+  cursor: pointer;
+}
+.gantt-bar.is-continuation::before {
+  content: "";
+  position: absolute;
+  inset: 5px 8px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.16;
+}
 .bar-delay-badge { position: absolute; right: 0; top: 0; z-index: 2; width: 14px; height: 14px; border-radius: 2px; display: flex; align-items: center; justify-content: center; background: #dc2626; color: #fff; font-size: 10px; font-weight: 700; line-height: 1; pointer-events: none; }
 
 /* Status colors */

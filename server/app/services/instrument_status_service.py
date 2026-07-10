@@ -6,8 +6,11 @@ from app.models import Instrument, TimeSlot
 PROTECTED_STATUSES = {"fault", "maintenance"}
 
 
-def list_instruments_with_effective_status(db):
-    instruments = db.query(Instrument).all()
+def list_instruments_with_effective_status(db, include_unavailable: bool = False):
+    query = db.query(Instrument)
+    if not include_unavailable:
+        query = query.filter(Instrument.availability_status == "available")
+    instruments = query.all()
     for instrument in instruments:
         instrument.status = effective_instrument_status(db, instrument)
     return instruments

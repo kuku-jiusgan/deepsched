@@ -22,8 +22,14 @@ def dashboard(
     settings = get_settings()
     window_start, window_end = _stats_window(start_date, end_date, settings)
 
-    total_inst = db.query(Instrument).count()
-    active_inst = db.query(Instrument).filter(Instrument.status == "active").count()
+    available_instruments = (
+        db.query(Instrument)
+        .filter(Instrument.availability_status == "available")
+        .all()
+    )
+    available_instrument_ids = [instrument.id for instrument in available_instruments]
+    total_inst = len(available_instruments)
+    active_inst = db.query(Instrument).filter(Instrument.availability_status == "available").count()
     project_window_filter = (
         or_(Project.start_date.is_(None), Project.start_date < window_end),
         or_(Project.end_date.is_(None), Project.end_date > window_start),
@@ -47,10 +53,14 @@ def dashboard(
         TimeSlot.plan_start < window_end,
         TimeSlot.status.in_(["completed", "running"]),
     ).all()
+    if available_instrument_ids:
+        slots = [slot for slot in slots if slot.instrument_id in available_instrument_ids]
+    else:
+        slots = []
     total_hours = sum(_actual_run_hours(slot, window_start, window_end) for slot in slots)
     total_available = sum(
         _available_hours(db, instrument.id, window_start, window_end)
-        for instrument in db.query(Instrument).all()
+        for instrument in available_instruments
     )
     avg_util = round(total_hours / total_available * settings.PERCENT_SCALE, 1) if total_available > 0 else 0
 
@@ -73,7 +83,7 @@ def utilization(
     db: Session = Depends(get_db),
 ):
     settings = get_settings()
-    instruments = db.query(Instrument).all()
+    instruments = db.query(Instrument).filter(Instrument.availability_status == "available").all()
     window_start, window_end = _stats_window(start_date, end_date, settings)
     window_hours = (window_end - window_start).total_seconds() / 3600
     result = []
@@ -150,7 +160,7 @@ def _overlap_hours(start_time: datetime, end_time: datetime, window_start: datet
 
 @router.get("/lab-status")
 def lab_status(db: Session = Depends(get_db)):
-    instruments = db.query(Instrument).all()
+    instruments = db.query(Instrument).filter(Instrument.availability_status == "available").all()
     now = datetime.now()
     result = []
     for inst in instruments:

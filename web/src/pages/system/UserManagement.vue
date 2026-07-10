@@ -2,6 +2,7 @@
   <div>
     <div class="page-header">
       <h2>用户管理</h2>
+      <p>仅系统管理员可维护账号、角色与启停状态。新增或重置密码需至少 8 位并包含字母和数字。</p>
     </div>
     <div class="action-bar">
       <a-button type="primary" @click="openCreate"><PlusOutlined /> 添加用户</a-button>
@@ -24,8 +25,8 @@
           <a-space :size="4">
             <a-button type="link" size="small" @click="openEdit(record)"><EditOutlined /> 编辑</a-button>
             <a-button type="link" size="small" @click="openChangePwd(record)"><KeyOutlined /> 密码</a-button>
-            <a-popconfirm title="确定删除该用户？" @confirm="handleDelete(record.id)" okText="确定" cancelText="取消">
-              <a-button type="link" size="small" danger><DeleteOutlined /> 删除</a-button>
+            <a-popconfirm title="确定删除该用户？" @confirm="handleDelete(record.id)" okText="确定" cancelText="取消" :disabled="record.id === currentUserId">
+              <a-button type="link" size="small" danger :disabled="record.id === currentUserId"><DeleteOutlined /> 删除</a-button>
             </a-popconfirm>
           </a-space>
         </template>
@@ -37,12 +38,12 @@
       <a-form layout="vertical" style="margin-top: 16px">
         <a-form-item label="用户名" required><a-input v-model:value="form.username" placeholder="登录账号" :disabled="!!editingId" /></a-form-item>
         <a-form-item label="显示名称" required><a-input v-model:value="form.display_name" placeholder="如：张三" /></a-form-item>
-        <a-form-item v-if="!editingId" label="登录密码" required><a-input-password v-model:value="form.password" placeholder="设置登录密码" /></a-form-item>
+        <a-form-item v-if="!editingId" label="登录密码" required :help="passwordHelp"><a-input-password v-model:value="form.password" placeholder="至少8位，包含字母和数字" /></a-form-item>
         <a-form-item label="角色" required><a-select v-model:value="form.role" :options="roleOptions" /></a-form-item>
         <a-form-item label="邮箱"><a-input v-model:value="form.email" placeholder="如：zhangsan@example.com" /></a-form-item>
         <a-form-item label="手机号"><a-input v-model:value="form.phone" placeholder="如：13800138000" /></a-form-item>
           <a-form-item label="企业微信"><a-input v-model:value="form.wecom_id" placeholder="企业微信号" /></a-form-item>
-        <a-form-item label="状态"><a-switch v-model:checked="form.is_active" checked-children="启用" un-checked-children="停用" /></a-form-item>
+        <a-form-item label="状态"><a-switch v-model:checked="form.is_active" checked-children="启用" un-checked-children="停用" :disabled="editingId === currentUserId" /></a-form-item>
       </a-form>
     </a-modal>
 
@@ -51,7 +52,7 @@
       <a-form layout="vertical" style="margin-top: 16px">
         <a-form-item label="用户">{{ pwdTarget?.display_name }}（{{ pwdTarget?.username }}）</a-form-item>
         <a-form-item label="新密码" required>
-          <a-input-password v-model:value="newPassword" placeholder="输入新密码" autocomplete="new-password" />
+          <a-input-password v-model:value="newPassword" placeholder="至少8位，包含字母和数字" autocomplete="new-password" />
         </a-form-item>
         <a-form-item label="确认新密码" required>
           <a-input-password v-model:value="confirmPassword" placeholder="再次输入新密码" autocomplete="new-password" />
@@ -62,7 +63,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, ReloadOutlined, EditOutlined, DeleteOutlined, KeyOutlined } from '@ant-design/icons-vue'
 import { getUsers, createUser, updateUser, deleteUser, type User, type UserPayload } from '@/services/api'
@@ -130,9 +131,14 @@ function openEdit(r: User) {
   modalOpen.value = true
 }
 
+const currentUser = getCurrentUser()
+const currentUserId = currentUser?.id ?? null
+const passwordHelp = computed(() => form.password && !isStrongPassword(form.password) ? '密码至少8位，且必须包含字母和数字' : undefined)
+
 async function handleSubmit() {
   if (!form.username || !form.display_name) { message.error('请填写用户名和显示名称'); return }
   if (!editingId.value && !form.password) { message.error('请设置登录密码'); return }
+  if (form.password && !isStrongPassword(form.password)) { message.error('密码至少8位，且必须包含字母和数字'); return }
   try {
     const data: UserPayload = {
       username: form.username,
@@ -147,10 +153,9 @@ async function handleSubmit() {
     editingId.value ? await updateUser(editingId.value, data) : await createUser(data)
     message.success(editingId.value ? '更新成功' : '添加成功')
     modalOpen.value = false
-    fetchData()
-  } catch (e: any) {
-    if (e?.response?.status === 409) message.error(e.response.data?.detail || '用户名重复')
-    else message.error('操作失败')
+    await fetchData()
+  } catch (error: unknown) {
+    message.error(getErrorDetail(error, '操作失败'))
   }
 }
 
@@ -164,7 +169,7 @@ function openChangePwd(r: User) {
 async function handleChangePwd() {
   if (!newPassword.value) { message.error('请输入新密码'); return }
   if (newPassword.value !== confirmPassword.value) { message.error('两次输入的密码不一致'); return }
-  if (newPassword.value.length < 4) { message.error('密码至少4位'); return }
+  if (!isStrongPassword(newPassword.value)) { message.error('密码至少8位，且必须包含字母和数字'); return }
   try {
     await updateUser(pwdTarget.value!.id, {
       username: pwdTarget.value!.username,
@@ -178,13 +183,33 @@ async function handleChangePwd() {
     })
     message.success('密码修改成功')
     pwdOpen.value = false
-  } catch {
-    message.error('修改失败')
+  } catch (error: unknown) {
+    message.error(getErrorDetail(error, '修改失败'))
   }
 }
 
 async function handleDelete(id: number) {
-  try { await deleteUser(id); message.success('已删除'); fetchData() } catch { message.error('删除失败') }
+  if (id === currentUserId) { message.error('不能删除当前登录账号'); return }
+  try { await deleteUser(id); message.success('已删除'); await fetchData() } catch (error: unknown) { message.error(getErrorDetail(error, '删除失败')) }
+}
+
+function isStrongPassword(value: string) {
+  return value.length >= 8 && /[A-Za-z]/.test(value) && /\d/.test(value)
+}
+
+function getCurrentUser(): { id?: number; role?: string } | null {
+  const raw = localStorage.getItem('user')
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as { id?: number; role?: string }
+  } catch {
+    return null
+  }
+}
+
+function getErrorDetail(error: unknown, fallback: string) {
+  const response = (error as { response?: { data?: { detail?: string } } }).response
+  return response?.data?.detail || fallback
 }
 
 onMounted(fetchData)

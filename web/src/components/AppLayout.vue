@@ -1,9 +1,12 @@
 ﻿<template>
   <a-layout style="min-height: 100vh; background: #f7f8fa">
-    <a-layout-sider width="220" style="background: #1a1a2e; border-right: none; display: flex; flex-direction: column; overflow: hidden">
-      <div style="height: 130px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.06)">
-        <img src="/公司logo.png" style="height: 48px; margin-bottom: 10px" />
-        <span style="color: #fff; font-size: 15px; font-weight: 700; letter-spacing: 1.5px">仪器与项目智能调度管理平台</span>
+    <a-layout-sider width="220" class="app-sider">
+      <div class="brand-panel" aria-label="山东大学淄博生物医药研究院 资源智能调度协同平台">
+        <div class="brand-mark" aria-hidden="true" />
+        <div class="brand-copy">
+          <div class="brand-institute">山东大学淄博生物医药研究院</div>
+          <div class="brand-platform">资源智能调度协同平台</div>
+        </div>
       </div>
       <a-menu
         theme="dark"
@@ -11,7 +14,7 @@
         :selected-keys="[route.path]"
         :default-open-keys="openKeys"
         :items="menuItems"
-        style="background: transparent; border-right: none; margin-top: 20px; flex: 1; overflow-y: auto; overflow-x: hidden"
+        class="app-menu"
         @click="navigate"
       />
 
@@ -88,6 +91,7 @@ import {
 import {
   confirmNotification,
   getNotifications,
+  logout,
   markNotificationRead,
   type NotificationRecord,
 } from '@/services/api'
@@ -97,6 +101,11 @@ const route = useRoute()
 const notificationOpen = ref(false)
 const notifications = ref<NotificationRecord[]>([])
 let notificationTimer: number | undefined
+let idleLogoutTimer: number | undefined
+let lastActivityWriteAt = 0
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000
+const ACTIVITY_THROTTLE_MS = 1000
+const ACTIVITY_EVENTS = ['click', 'keydown', 'mousemove', 'scroll', 'touchstart'] as const
 
 const iconMap: Record<string, any> = {
   FundOutlined, AppstoreOutlined, CheckSquareOutlined,
@@ -163,10 +172,21 @@ const currentUserLabel = computed(() => {
   return user?.display_name || user?.username || '未登录'
 })
 
-function handleLogout() {
+function clearSession() {
   if (notificationTimer) window.clearInterval(notificationTimer)
+  if (idleLogoutTimer) window.clearTimeout(idleLogoutTimer)
   localStorage.removeItem('token')
   localStorage.removeItem('user')
+  localStorage.removeItem('lastActivityAt')
+}
+
+async function handleLogout() {
+  try {
+    await logout()
+  } catch {
+    // Session may already be expired; local cleanup still needs to run.
+  }
+  clearSession()
   router.replace('/login')
 }
 
@@ -185,6 +205,40 @@ async function fetchNotifications() {
     })
   } catch {
     message.error('站内通知加载失败')
+  }
+}
+
+function markActivity() {
+  const now = Date.now()
+  if (now - lastActivityWriteAt < ACTIVITY_THROTTLE_MS) return
+  lastActivityWriteAt = now
+  localStorage.setItem('lastActivityAt', String(now))
+  resetIdleTimer()
+}
+
+function resetIdleTimer() {
+  if (idleLogoutTimer) window.clearTimeout(idleLogoutTimer)
+  idleLogoutTimer = window.setTimeout(handleIdleTimeout, IDLE_TIMEOUT_MS)
+}
+
+async function handleIdleTimeout() {
+  try {
+    await logout()
+  } catch {
+    // Expired tokens are expected here; keep the UX deterministic.
+  }
+  clearSession()
+  message.warning('长时间未操作，已自动退出')
+  router.replace('/login?expired=1')
+}
+
+function checkIdleOnVisibilityChange() {
+  if (document.visibilityState !== 'visible') return
+  const lastActivityAt = Number(localStorage.getItem('lastActivityAt') || Date.now())
+  if (Date.now() - lastActivityAt >= IDLE_TIMEOUT_MS) {
+    handleIdleTimeout()
+  } else {
+    resetIdleTimer()
   }
 }
 
@@ -245,16 +299,87 @@ function notificationTypeColor(type: string) {
 }
 
 onMounted(() => {
+  markActivity()
+  ACTIVITY_EVENTS.forEach(eventName => window.addEventListener(eventName, markActivity, { passive: true }))
+  document.addEventListener('visibilitychange', checkIdleOnVisibilityChange)
   fetchNotifications()
   notificationTimer = window.setInterval(fetchNotifications, 15000)
 })
 
 onBeforeUnmount(() => {
   if (notificationTimer) window.clearInterval(notificationTimer)
+  if (idleLogoutTimer) window.clearTimeout(idleLogoutTimer)
+  ACTIVITY_EVENTS.forEach(eventName => window.removeEventListener(eventName, markActivity))
+  document.removeEventListener('visibilitychange', checkIdleOnVisibilityChange)
 })
 </script>
 
 <style scoped>
+.app-sider {
+  background: #17223a !important;
+  border-right: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.brand-panel {
+  min-height: 142px;
+  padding: 18px 18px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 12px;
+}
+
+.brand-mark {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 9px;
+  background-color: #ffffff;
+  background-image: url('/公司logo.png');
+  background-repeat: no-repeat;
+  background-position: left center;
+  background-size: 176px auto;
+  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.9);
+}
+
+.brand-copy {
+  min-width: 0;
+  color: #ffffff;
+}
+
+.brand-institute {
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 600;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.brand-platform {
+  margin-top: 5px;
+  color: #ffffff;
+  font-size: 17px;
+  line-height: 1.2;
+  font-weight: 750;
+  letter-spacing: 0;
+}
+
+.app-menu {
+  background: transparent;
+  border-right: none;
+  margin-top: 12px;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 .app-content {
   position: relative;
   margin: 20px;

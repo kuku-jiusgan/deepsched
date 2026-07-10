@@ -22,6 +22,7 @@ from app.services.schedule_completion_service import complete_task_and_shift
 from app.services.instrument_status_service import mark_instrument_running, refresh_instrument_status
 from app.services.schedule_insert_service import calculate_insert_cost as calculate_insert_cost_service
 from app.services.schedule_reschedule_service import reschedule as reschedule_service
+from app.api.users import auth_token
 
 router = APIRouter(prefix="/api/v1/schedules", tags=["schedules"])
 
@@ -195,7 +196,7 @@ def daily_roll(db: Session = Depends(get_db)):
 
 
 @router.get("/my-tasks")
-def my_tasks(token: str, db: Session = Depends(get_db)):
+def my_tasks(token: str = Depends(auth_token), db: Session = Depends(get_db)):
     """Return tasks assigned to the current user, with time slot info if scheduled."""
     from app.api.users import get_current_user
     user = get_current_user(token, db)

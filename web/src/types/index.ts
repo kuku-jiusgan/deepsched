@@ -49,6 +49,7 @@ export interface Instrument {
   brand?: string;
   model?: string;
   location?: string;
+  availability_status: 'available' | 'unavailable';
   status: string;
   buffer_rate: number;
   switchover_base_hours: number;
