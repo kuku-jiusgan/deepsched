@@ -23,6 +23,8 @@ def complete_task_and_shift(
     db: Session,
     task_id: int,
     actual_end_time: datetime | None = None,
+    completed_slot_id: int | None = None,
+    release_instrument: bool = True,
 ) -> dict:
     end_time = actual_end_time or datetime.now()
     task = db.query(Task).filter(Task.id == task_id).first()
@@ -37,8 +39,12 @@ def complete_task_and_shift(
         .all()
     )
     affected_instrument_ids = {slot.instrument_id for slot in task_slots if slot.instrument_id}
+    completed_slot = _select_completed_slot(task_slots, completed_slot_id, end_time)
 
     for slot in task_slots:
+        if slot.id == completed_slot.id:
+            _mark_completed_slot(slot, end_time)
+            continue
         if slot.plan_start > end_time:
             db.delete(slot)
             continue
@@ -49,11 +55,89 @@ def complete_task_and_shift(
         slot.actual_end = end_time
         slot.status = "completed"
 
+    db.flush()
+    completed_record = (
+        db.query(TimeSlot)
+        .filter(TimeSlot.task_id == task_id, TimeSlot.status == "completed")
+        .order_by(TimeSlot.actual_end.desc(), TimeSlot.plan_end.desc())
+        .first()
+    )
+    if completed_record is None:
+        completed_record = _restore_completed_record(db, completed_slot, end_time)
+
     for instrument_id in affected_instrument_ids:
         refresh_instrument_status(db, instrument_id)
 
     db.commit()
-    return _forward_shift_same_project_work(db, task)
+    if not release_instrument:
+        return {
+            "status": "ok",
+            "message": "任务已完成，未释放仪器，后续排程保持不变",
+            "moved_tasks": 0,
+            "released_instrument": False,
+        }
+    result = _forward_shift_same_project_work(db, task)
+    result["released_instrument"] = True
+    return result
+
+
+def _select_completed_slot(
+    slots: list[TimeSlot],
+    completed_slot_id: int | None,
+    end_time: datetime,
+) -> TimeSlot:
+    if completed_slot_id is not None:
+        matched = next((slot for slot in slots if slot.id == completed_slot_id), None)
+        if matched:
+            return matched
+    running_slot = next((slot for slot in slots if slot.status == "running"), None)
+    if running_slot:
+        return running_slot
+    active_slot = next(
+        (
+            slot for slot in slots
+            if slot.plan_start <= end_time <= slot.plan_end
+        ),
+        None,
+    )
+    if active_slot:
+        return active_slot
+    return slots[0]
+
+
+def _mark_completed_slot(slot: TimeSlot, end_time: datetime) -> None:
+    start_time = slot.actual_start or min(slot.plan_start, end_time)
+    if start_time >= end_time:
+        start_time = end_time - timedelta(minutes=SCHEDULE_UNIT_MINUTES)
+    slot.plan_start = start_time
+    slot.plan_end = end_time
+    slot.actual_start = start_time
+    slot.actual_end = end_time
+    slot.status = "completed"
+
+
+def _restore_completed_record(
+    db: Session,
+    source_slot: TimeSlot,
+    end_time: datetime,
+) -> TimeSlot:
+    start_time = source_slot.actual_start or min(source_slot.plan_start, end_time)
+    if start_time >= end_time:
+        start_time = end_time - timedelta(minutes=SCHEDULE_UNIT_MINUTES)
+    completed_slot = TimeSlot(
+        task_id=source_slot.task_id,
+        schedule_run_id=source_slot.schedule_run_id,
+        instrument_id=source_slot.instrument_id,
+        plan_start=start_time,
+        plan_end=end_time,
+        actual_start=start_time,
+        actual_end=end_time,
+        tier=_tier_for_start(start_time),
+        status="completed",
+    )
+    db.add(completed_slot)
+    db.flush()
+    return completed_slot
 
 
 def _forward_shift_same_project_work(db: Session, completed_task: Task) -> dict:
@@ -132,6 +216,7 @@ def _forward_shift_same_project_work(db: Session, completed_task: Task) -> dict:
             db.add(
                 TimeSlot(
                     task_id=task.id,
+                    schedule_run_id=snapshots[0].get("schedule_run_id", "legacy"),
                     instrument_id=slot_instrument_id,
                     plan_start=start,
                     plan_end=end,
@@ -300,6 +385,7 @@ def _ceil_to_schedule_unit(value: datetime) -> datetime:
 def _snapshot_slot(slot: TimeSlot) -> dict:
     return {
         "task_id": slot.task_id,
+        "schedule_run_id": slot.schedule_run_id,
         "instrument_id": slot.instrument_id,
         "plan_start": slot.plan_start,
         "plan_end": slot.plan_end,

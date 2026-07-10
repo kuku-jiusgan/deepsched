@@ -10,7 +10,7 @@ from app.schemas.schemas import (
     TimeSlotOut, TimeSlotUpdate, TaskStatusUpdate,
     ScheduleGenerateRequest, InsertOrderRequest, InsertOrderCost,
     RescheduleRequest, TaskDelayRequest, TaskDelayResponse,
-    NightRunRequest
+    NightRunRequest, TaskCompleteRequest, TaskCompleteResponse
 )
 from app.services.scheduler import SchedulerService
 from app.services.schedule_delay_service import (
@@ -21,6 +21,11 @@ from app.services.schedule_delay_service import (
 from app.services.schedule_completion_service import complete_task_and_shift
 from app.services.instrument_status_service import mark_instrument_running, refresh_instrument_status
 from app.services.schedule_insert_service import calculate_insert_cost as calculate_insert_cost_service
+from app.services.schedule_night_run_service import (
+    ScheduleNightRunInvalidError,
+    ScheduleNightRunNotFoundError,
+    record_night_run,
+)
 from app.services.schedule_reschedule_service import reschedule as reschedule_service
 from app.api.users import auth_token
 
@@ -75,21 +80,30 @@ def start_task(slot_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="时间槽不存在")
     task = db.query(Task).filter(Task.id == slot.task_id).first()
     task.status = "running"
-    # Update ALL time slots for this task (handles night-window chunking)
-    for s in db.query(TimeSlot).filter(TimeSlot.task_id == slot.task_id, TimeSlot.status == "scheduled").all():
-        s.status = "running"
-        if s.id == slot_id:
-            s.actual_start = datetime.now()
-        mark_instrument_running(db, s.instrument_id)
+    started_at = datetime.now()
+    for running_slot in _continuous_running_slots(db, slot):
+        running_slot.status = "running"
+        if running_slot.id == slot.id:
+            running_slot.actual_start = started_at
+        mark_instrument_running(db, running_slot.instrument_id)
     db.commit()
     return {"status": "ok"}
 
-@router.post("/timeslots/{slot_id}/complete")
-def complete_task(slot_id: int, db: Session = Depends(get_db)):
+@router.post("/timeslots/{slot_id}/complete", response_model=TaskCompleteResponse)
+def complete_task(
+    slot_id: int,
+    data: TaskCompleteRequest = TaskCompleteRequest(),
+    db: Session = Depends(get_db),
+):
     slot = db.query(TimeSlot).filter(TimeSlot.id == slot_id).first()
     if not slot:
         raise HTTPException(status_code=404, detail="时间槽不存在")
-    return complete_task_and_shift(db, slot.task_id)
+    return complete_task_and_shift(
+        db,
+        slot.task_id,
+        completed_slot_id=slot.id,
+        release_instrument=data.release_instrument,
+    )
 
 @router.post("/timeslots/{slot_id}/interrupt")
 def interrupt_task(slot_id: int, db: Session = Depends(get_db)):
@@ -115,45 +129,13 @@ def delay_task(slot_id: int, data: TaskDelayRequest, db: Session = Depends(get_d
 
 @router.post("/timeslots/{slot_id}/night-run", response_model=TimeSlotOut)
 def night_run(slot_id: int, data: NightRunRequest, db: Session = Depends(get_db)):
-    slot = db.query(TimeSlot).filter(TimeSlot.id == slot_id).first()
-    if not slot:
-        raise HTTPException(status_code=404, detail="时间槽不存在")
-    if not slot.instrument_id:
-        raise HTTPException(status_code=400, detail="该任务未绑定仪器，不能记录夜间运行")
-
-    start_time = _resolve_night_start(slot, data.earliest_start)
-    end_time = start_time + timedelta(hours=data.duration_hours)
-    latest_end = _resolve_night_latest_end(start_time, data.latest_end)
-    if latest_end and end_time > latest_end:
-        raise HTTPException(status_code=400, detail="自动序列预计时长超过最晚结束时间")
-
-    night_slot = db.query(TimeSlot).filter(
-        TimeSlot.task_id == slot.task_id,
-        TimeSlot.instrument_id == slot.instrument_id,
-        TimeSlot.plan_start == start_time,
-        TimeSlot.status.in_(["scheduled", "running"]),
-    ).first()
-    if night_slot:
-        night_slot.plan_end = end_time
-        night_slot.tier = slot.tier
-        night_slot.status = slot.status
-    else:
-        night_slot = TimeSlot(
-            task_id=slot.task_id,
-            instrument_id=slot.instrument_id,
-            plan_start=start_time,
-            plan_end=end_time,
-            tier=slot.tier,
-            status=slot.status,
-        )
-        db.add(night_slot)
-        db.flush()
-    if night_slot.status == "running":
-        mark_instrument_running(db, night_slot.instrument_id)
-
-    db.commit()
-    db.refresh(night_slot)
-    return _enrich_slot(night_slot, db)
+    try:
+        slot = record_night_run(db, slot_id, data.duration_hours, data.earliest_start, data.latest_end)
+        return _enrich_slot(slot, db)
+    except ScheduleNightRunNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ScheduleNightRunInvalidError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 @router.post("/generate")
 def generate_schedule(data: ScheduleGenerateRequest, db: Session = Depends(get_db)):
@@ -231,11 +213,15 @@ def my_tasks(token: str = Depends(auth_token), db: Session = Depends(get_db)):
     result = []
     for task in tasks:
         proj = db.query(Project).filter(Project.id == task.project_id).first()
-        # Find a time slot if this task has been scheduled
-        slot = db.query(TimeSlot).filter(
+        # Find all scheduled segments for the task. The workspace table shows
+        # the full task window, while actions still use the current segment.
+        task_slots = db.query(TimeSlot).filter(
             TimeSlot.task_id == task.id,
             TimeSlot.status.in_(["scheduled", "running", "interrupted", "blocked", "completed"])
-        ).first()
+        ).order_by(TimeSlot.plan_start, TimeSlot.id).all()
+        slot = _select_workspace_slot(task_slots, now)
+        task_plan_start = min((s.plan_start for s in task_slots if s.plan_start), default=None)
+        task_plan_end = max((s.plan_end for s in task_slots if s.plan_end), default=None)
         
         inst = db.query(Instrument).filter(Instrument.id == slot.instrument_id).first() if slot else None
         
@@ -252,53 +238,87 @@ def my_tasks(token: str = Depends(auth_token), db: Session = Depends(get_db)):
             "instrument_code": inst.code if inst else None,
             "plan_start": slot.plan_start.isoformat() if slot and slot.plan_start else None,
             "plan_end": slot.plan_end.isoformat() if slot and slot.plan_end else None,
+            "task_plan_start": task_plan_start.isoformat() if task_plan_start else None,
+            "task_plan_end": task_plan_end.isoformat() if task_plan_end else None,
             "actual_start": slot.actual_start.isoformat() if slot and slot.actual_start else None,
+            "actual_end": slot.actual_end.isoformat() if slot and slot.actual_end else None,
             "status": task.status,
             "tier": slot.tier if slot else "unscheduled",
             "est_duration_hours": task.est_duration_hours,
-            **_latest_delay_fields(task.id, db),
+            **(
+                _latest_delay_fields(task.id, db, slot)
+                if slot and _should_include_delay_fields(slot)
+                else _empty_delay_fields()
+            ),
         })
     return result
 
-def _resolve_night_start(slot: TimeSlot, value: Optional[str]) -> datetime:
-    fallback = slot.plan_end
-    parsed = _parse_clock_time(fallback, value)
-    if parsed is None or parsed < fallback:
-        return fallback
-    return parsed
+RUNNING_CONTINUATION_STATUSES = {"scheduled", "running"}
 
-def _resolve_night_latest_end(start_time: datetime, value: Optional[str]) -> Optional[datetime]:
-    if not value:
-        return None
-    return _parse_clock_time(start_time, value)
 
-def _parse_clock_time(base_time: datetime, value: Optional[str]) -> Optional[datetime]:
-    if not value:
-        return None
-    clean_value = value.strip()
-    next_day = clean_value.startswith("次日")
-    clean_value = clean_value.replace("次日", "").strip()
-    try:
-        hour_text, minute_text = clean_value.split(":", 1)
-        parsed = base_time.replace(
-            hour=int(hour_text),
-            minute=int(minute_text),
-            second=0,
-            microsecond=0,
+def _continuous_running_slots(db: Session, start_slot: TimeSlot) -> list[TimeSlot]:
+    return (
+        db.query(TimeSlot)
+        .filter(
+            TimeSlot.task_id == start_slot.task_id,
+            TimeSlot.plan_end >= start_slot.plan_start,
+            TimeSlot.status.in_(RUNNING_CONTINUATION_STATUSES),
         )
-    except (TypeError, ValueError):
-        return None
-    if next_day or parsed < base_time:
-        parsed = parsed + timedelta(days=1)
-    return parsed
+        .order_by(TimeSlot.plan_start, TimeSlot.id)
+        .all()
+    )
+
+
+def _select_workspace_slot(slots: list[TimeSlot], now: datetime) -> Optional[TimeSlot]:
+    running_slot = next((slot for slot in slots if slot.status == "running"), None)
+    if running_slot:
+        return running_slot
+
+    active_slot = next(
+        (
+            slot for slot in slots
+            if slot.status in {"scheduled", "blocked", "interrupted"}
+            and slot.plan_end
+            and slot.plan_end >= now
+        ),
+        None,
+    )
+    if active_slot:
+        return active_slot
+
+    open_slot = next((slot for slot in slots if slot.status != "completed"), None)
+    if open_slot:
+        return open_slot
+
+    return slots[-1] if slots else None
+
+
+def _empty_delay_fields() -> dict:
+    return {
+        "delay_hours": None,
+        "delay_reason": None,
+        "delay_reported_at": None,
+    }
+
+
+def _should_include_delay_fields(slot: TimeSlot) -> bool:
+    if slot.status in {"blocked", "interrupted"}:
+        return True
+    return slot.status == "running" and slot.actual_start is not None
+
 
 def _enrich_slot(slot: TimeSlot, db: Session) -> TimeSlotOut:
     task = db.query(Task).filter(Task.id == slot.task_id).first()
     inst = db.query(Instrument).filter(Instrument.id == slot.instrument_id).first()
     proj = db.query(Project).filter(Project.id == task.project_id).first() if task else None
-    delay_fields = _latest_delay_fields(task.id, db, slot.id) if task else {}
+    delay_fields = (
+        _latest_delay_fields(task.id, db, slot)
+        if task and _should_include_delay_fields(slot)
+        else _empty_delay_fields()
+    )
     return TimeSlotOut(
-        id=slot.id, task_id=slot.task_id, instrument_id=slot.instrument_id,
+        id=slot.id, schedule_run_id=slot.schedule_run_id,
+        task_id=slot.task_id, instrument_id=slot.instrument_id,
         plan_start=slot.plan_start, plan_end=slot.plan_end,
         actual_start=slot.actual_start, actual_end=slot.actual_end,
         tier=slot.tier, status=slot.status,
@@ -313,7 +333,7 @@ def _enrich_slot(slot: TimeSlot, db: Session) -> TimeSlotOut:
     )
 
 
-def _latest_delay_fields(task_id: int, db: Session, slot_id: Optional[int] = None) -> dict:
+def _latest_delay_fields(task_id: int, db: Session, slot: TimeSlot) -> dict:
     logs = (
         db.query(AuditLog)
         .filter(AuditLog.action == "task_delay_reported")
@@ -322,20 +342,18 @@ def _latest_delay_fields(task_id: int, db: Session, slot_id: Optional[int] = Non
         .all()
     )
     for log in logs:
-        if slot_id is not None and log.target_id != slot_id:
+        if log.target_id != slot.id:
             continue
         detail = _audit_detail_dict(log.detail)
+        if detail.get("schedule_run_id") != slot.schedule_run_id:
+            continue
         if detail.get("task_id") == task_id:
             return {
                 "delay_hours": detail.get("delay_hours"),
                 "delay_reason": detail.get("reason"),
                 "delay_reported_at": log.created_at,
             }
-    return {
-        "delay_hours": None,
-        "delay_reason": None,
-        "delay_reported_at": None,
-    }
+    return _empty_delay_fields()
 
 
 def _audit_detail_dict(detail) -> dict:

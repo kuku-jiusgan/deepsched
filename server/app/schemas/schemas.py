@@ -166,6 +166,7 @@ class InstrumentOut(BaseModel):
 # ---- TimeSlot ----
 class TimeSlotOut(BaseModel):
     id: int
+    schedule_run_id: Optional[str] = None
     task_id: int
     instrument_id: Optional[int] = None
     plan_start: datetime
@@ -233,8 +234,17 @@ class TaskDelayResponse(BaseModel):
     affected_tasks: int
     reason: str
 
+class TaskCompleteRequest(BaseModel):
+    release_instrument: bool = True
+
+class TaskCompleteResponse(BaseModel):
+    status: str
+    message: Optional[str] = None
+    moved_tasks: int = 0
+    released_instrument: bool = True
+
 class NightRunRequest(BaseModel):
-    duration_hours: float = Field(gt=0)
+    duration_hours: float = Field(gt=0, multiple_of=0.5)
     earliest_start: Optional[str] = None
     latest_end: Optional[str] = None
     requires_operator: bool = False

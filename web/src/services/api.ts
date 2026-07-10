@@ -134,8 +134,22 @@ export const generateSchedule = (projectIds?: number[]): Promise<{ status: strin
 export const startTask = (slotId: number): Promise<{ status: string }> =>
   api.post(`/schedules/timeslots/${slotId}/start`).then(r => r.data);
 
-export const completeTask = (slotId: number): Promise<{ status: string }> =>
-  api.post(`/schedules/timeslots/${slotId}/complete`).then(r => r.data);
+export interface CompleteTaskRequest {
+  release_instrument?: boolean
+}
+
+export interface CompleteTaskResponse {
+  status: string
+  message?: string
+  moved_tasks?: number
+  released_instrument?: boolean
+}
+
+export const completeTask = (
+  slotId: number,
+  data: CompleteTaskRequest = {},
+): Promise<CompleteTaskResponse> =>
+  api.post<CompleteTaskResponse>(`/schedules/timeslots/${slotId}/complete`, data).then(r => r.data);
 
 export const interruptTask = (slotId: number): Promise<{ status: string }> =>
   api.post(`/schedules/timeslots/${slotId}/interrupt`).then(r => r.data);
@@ -253,6 +267,7 @@ export interface MyTask {
   project_id: number | null; project_name: string | null; project_code: string | null
   instrument_id: number; instrument_name: string | null; instrument_code: string | null
   plan_start: string | null; plan_end: string | null; actual_start: string | null; actual_end: string | null
+  task_plan_start?: string | null; task_plan_end?: string | null
   status: string; tier: string; est_duration_hours: number | null
   delay_hours?: number | null; delay_reason?: string | null; delay_reported_at?: string | null
 }

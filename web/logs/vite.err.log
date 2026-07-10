@@ -118,3 +118,31 @@ AggregateError [ECONNREFUSED]:
 AggregateError [ECONNREFUSED]: 
     at internalConnectMultiple (node:net:1142:49)
     at afterConnectMultiple (node:net:1723:7)
+[2m09:50:31[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/schedules/my-tasks[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m09:50:31[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/notifications?user_name=admin&channel=site&unread_only=true[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m09:50:32[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/schedule-rules[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m09:50:47[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/notifications?user_name=admin&channel=site&unread_only=true[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m09:51:02[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/notifications?user_name=admin&channel=site&unread_only=true[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:05:48[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/notifications?user_name=admin&channel=site&unread_only=true[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:08:48[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/notifications?user_name=admin&channel=site&unread_only=true[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)

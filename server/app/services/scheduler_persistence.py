@@ -22,6 +22,7 @@ def persist_slots(
     calendar_days=None,
     include_weekends: bool = False,
     include_holidays: bool = False,
+    schedule_run_id: str = "legacy",
 ) -> int:
     now = datetime.now()
     frozen_boundary = now + timedelta(days=freeze_days)
@@ -68,6 +69,7 @@ def persist_slots(
                     current,
                     frozen_boundary,
                     confirmed_boundary,
+                    schedule_run_id,
                 )
                 created += 1
                 chunk_start = None
@@ -84,6 +86,7 @@ def persist_slots(
                 final_end,
                 frozen_boundary,
                 confirmed_boundary,
+                schedule_run_id,
             )
             created += 1
         task.status = "scheduled"
@@ -110,6 +113,7 @@ def _create_slot(
     end,
     frozen_boundary,
     confirmed_boundary,
+    schedule_run_id,
 ) -> None:
     if start <= frozen_boundary:
         tier = "frozen"
@@ -120,6 +124,7 @@ def _create_slot(
     db.add(
         TimeSlot(
             task_id=task.id,
+            schedule_run_id=schedule_run_id,
             instrument_id=instrument.id if instrument else None,
             plan_start=start,
             plan_end=end,

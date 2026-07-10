@@ -43,7 +43,7 @@ def report_task_delay(db, slot_id: int, delay_hours: float, reason: str) -> dict
         task.status = "blocked"
 
     shifted_count = _shift_slots(db, affected_slot_ids - {slot.id}, delay)
-    _write_audit_log(db, task.id, slot.id, delay_hours, clean_reason, shifted_count)
+    _write_audit_log(db, task.id, slot, delay_hours, clean_reason, shifted_count)
 
     db.commit()
     return {
@@ -104,7 +104,7 @@ def _affected_task_count(db, slot_ids: Set[int]) -> int:
 def _write_audit_log(
     db,
     task_id: int,
-    slot_id: int,
+    slot: TimeSlot,
     delay_hours: float,
     reason: str,
     shifted_count: int,
@@ -113,9 +113,10 @@ def _write_audit_log(
         user_name="system",
         action="task_delay_reported",
         target_type="time_slot",
-        target_id=slot_id,
+        target_id=slot.id,
         detail={
             "task_id": task_id,
+            "schedule_run_id": slot.schedule_run_id,
             "delay_hours": delay_hours,
             "reason": reason,
             "shifted_slots": shifted_count,

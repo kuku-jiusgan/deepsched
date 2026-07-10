@@ -9,7 +9,7 @@ from app.api import users, schedule_rules, instruments, projects, schedules, sta
 Base.metadata.create_all(bind=engine)
 ensure_runtime_schema(engine)
 
-app = FastAPI(title="DeepSched - 山大淄博生物医药研究院排程管理系统", version="1.0.0")
+app = FastAPI(title="资源智能调度平台", version="1.0.0")
 settings = get_settings()
 cors_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
 

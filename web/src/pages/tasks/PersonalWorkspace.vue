@@ -40,10 +40,10 @@
             {{ record.instrument_name || record.instrument_code || '-' }}
           </template>
           <template v-else-if="column.key === 'plan_start'">
-            {{ record.plan_start ? dayjs(record.plan_start).format('MM-DD HH:mm') : '-' }}
+            {{ formatTaskPlanStart(record) }}
           </template>
           <template v-else-if="column.key === 'plan_end'">
-            {{ record.plan_end ? dayjs(record.plan_end).format('MM-DD HH:mm') : '-' }}
+            {{ formatTaskPlanEnd(record) }}
           </template>
           <template v-else-if="column.key === 'actions'">
             <template v-if="!record.slot_id">
@@ -60,22 +60,15 @@
               >
                 <PlayCircleOutlined /> 开始
               </a-button>
-              <a-popconfirm
+              <a-button
                 v-if="record.status === 'running'"
-                title="确认将该任务标记为已完成？"
-                ok-text="确认完成"
-                cancel-text="再检查一下"
-                placement="topRight"
-                @confirm="handleComplete(record)"
+                size="small"
+                class="task-action-button task-action-button-complete"
+                :loading="actingId === record.slot_id"
+                @click="handleComplete(record)"
               >
-                <a-button
-                  size="small"
-                  class="task-action-button task-action-button-complete"
-                  :loading="actingId === record.slot_id"
-                >
-                  <CheckCircleOutlined /> 完成
-                </a-button>
-              </a-popconfirm>
+                <CheckCircleOutlined /> 完成
+              </a-button>
 
             </a-space>
           </template>
@@ -87,7 +80,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { message } from 'ant-design-vue'
+import { Modal, message } from 'ant-design-vue'
 import { CheckCircleOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import {
   getMyTasks, startTask, completeTask, getTaskTypes, type MyTask,
@@ -100,6 +93,7 @@ const loading = ref(true)
 const activeTab = ref<string>('all')
 const actingId = ref<number | null>(null)
 
+const EARLY_RELEASE_THRESHOLD_MINUTES = 30
 
 
 const filtered = computed(() => {
@@ -138,6 +132,18 @@ function statusLabel(s: string) {
   return m[s] || s
 }
 
+function formatDateTime(value: string | null | undefined) {
+  return value ? dayjs(value).format('MM-DD HH:mm') : '-'
+}
+
+function formatTaskPlanStart(record: MyTask) {
+  return formatDateTime(record.task_plan_start || record.plan_start)
+}
+
+function formatTaskPlanEnd(record: MyTask) {
+  return formatDateTime(record.task_plan_end || record.plan_end)
+}
+
 const columns = [
   { title: '任务名称', dataIndex: 'task_name', key: 'task_name', width: 200, ellipsis: true },
   { title: '任务类型', key: 'task_type', width: 110 },
@@ -172,13 +178,42 @@ async function handleStart(record: MyTask) {
 }
 
 async function handleComplete(record: MyTask) {
+  const earlyMinutes = getEarlyCompletionMinutes(record)
+  if (earlyMinutes > EARLY_RELEASE_THRESHOLD_MINUTES) {
+    Modal.confirm({
+      title: '是否释放仪器？',
+      content: `当前完成时间比计划完成时间 ${formatTaskPlanEnd(record)} 提前约 ${earlyMinutes} 分钟。释放仪器后，同项目同仪器的后续任务可按约束前移；选择仅标记完成则后续排程保持不变。`,
+      okText: '释放仪器并前移后续任务',
+      cancelText: '仅标记完成',
+      onOk: () => submitComplete(record, true),
+      onCancel: () => submitComplete(record, false),
+    })
+    return
+  }
+  await submitComplete(record, true)
+}
+
+function getEarlyCompletionMinutes(record: MyTask) {
+  const plannedEnd = record.task_plan_end || record.plan_end
+  if (!plannedEnd) return 0
+  return dayjs(plannedEnd).diff(dayjs(), 'minute')
+}
+
+async function submitComplete(record: MyTask, releaseInstrument: boolean) {
   actingId.value = record.slot_id
   try {
-    await completeTask(record.slot_id)
-    message.success('任务已完成')
+    const result = await completeTask(record.slot_id, { release_instrument: releaseInstrument })
+    message.success(completionMessage(result, releaseInstrument))
     fetchData()
   } catch { message.error('操作失败') }
   finally { actingId.value = null }
+}
+
+function completionMessage(result: { message?: string; moved_tasks?: number }, releaseInstrument: boolean) {
+  if (result.message) return result.message
+  if (!releaseInstrument) return '任务已完成，后续排程保持不变'
+  if (result.moved_tasks && result.moved_tasks > 0) return `任务已完成，已前移 ${result.moved_tasks} 个后续任务`
+  return '任务已完成'
 }
 
 onMounted(fetchData)

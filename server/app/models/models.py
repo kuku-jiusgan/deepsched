@@ -155,6 +155,7 @@ class InstrumentFault(Base):
 class TimeSlot(Base):
     __tablename__ = "time_slot"
     id = Column(Integer, primary_key=True, autoincrement=True)
+    schedule_run_id = Column(String(64), nullable=False, default="legacy")
     task_id = Column(Integer, ForeignKey("task.id"), nullable=False)
     instrument_id = Column(Integer, ForeignKey("instrument.id"), nullable=True)
     plan_start = Column(DateTime, nullable=False)

@@ -32,6 +32,7 @@
     <div
       v-else
       class="gantt-container"
+      :class="{ 'is-week-view': viewMode === 'week' }"
       ref="containerRef"
     >
       <div class="gantt-left">
@@ -79,13 +80,13 @@
               <span v-if="hasDelay(slot)" class="bar-delay-segment" :style="getDelaySegmentStyle(slot, row.quarter)">
                 <span class="bar-delay-badge">延</span>
               </span>
-              <span v-if="shouldShowBarContent(slot, row.quarter)" class="bar-tag">
+              <span v-if="getWeekBarDisplay(slot, row.quarter).showIcon" class="bar-tag">
                 <span class="bar-status-dot"></span>
                 <component v-if="getTaskIcon(slot.task_type)" :is="getTaskIcon(slot.task_type)" />
               </span>
-              <span v-if="shouldShowBarContent(slot, row.quarter)" class="bar-label">
-                <span class="bar-project">{{ getBarProjectText(slot) }}</span>
-                <span class="bar-task">{{ getBarTaskText(slot) }}</span>
+              <span v-if="getWeekBarDisplay(slot, row.quarter).showLabel" class="bar-label">
+                <span v-if="getWeekBarDisplay(slot, row.quarter).projectText" class="bar-project">{{ getWeekBarDisplay(slot, row.quarter).projectText }}</span>
+                <span v-if="getWeekBarDisplay(slot, row.quarter).taskText" class="bar-task">{{ getWeekBarDisplay(slot, row.quarter).taskText }}</span>
               </span>
             </div>
           </div>
@@ -132,6 +133,10 @@ const AUTO_SCROLL_EDGE_PAUSE_MS = 1200
 const AUTO_SCROLL_START_DELAY_MS = 500
 const AUTO_SCROLL_START_RETRY_MS = 220
 const AUTO_SCROLL_START_MAX_RETRIES = 10
+const WEEK_BAR_TINY_WIDTH = 32
+const WEEK_BAR_ICON_WIDTH = 52
+const WEEK_BAR_FULL_WIDTH = 74
+const DELAY_PROBLEM_STATUSES = new Set(['blocked', 'interrupted'])
 
 type SlotStatusKey = 'scheduled' | 'running' | 'completed' | 'blocked'
 type InstrumentStatusKey = 'idle' | 'running' | 'maintenance' | 'fault' | 'disabled' | 'unknown'
@@ -144,6 +149,19 @@ interface StatusMeta {
 interface InstrumentStatusMeta {
   key: InstrumentStatusKey
   label: string
+}
+
+interface WeekBarSegment {
+  quarter: number
+  width: number
+  visibleSeconds: number
+}
+
+interface WeekBarDisplay {
+  showIcon: boolean
+  showLabel: boolean
+  projectText: string
+  taskText: string
 }
 
 const slotStatusMetaMap: Record<string, StatusMeta> = {
@@ -318,7 +336,6 @@ function getBarClasses(slot: TimeSlot, quarter?: number) {
     'status-' + statusMeta.key,
     {
       'is-compact': isCompactBar(slot, quarter),
-      'is-continuation': !shouldShowBarContent(slot, quarter),
       'has-delay': hasDelay(slot),
     },
   ]
@@ -434,29 +451,99 @@ function getBarTaskText(slot: TimeSlot) {
   return `${taskName} · ${ownerName}${delayText}`
 }
 function isCompactBar(slot: TimeSlot, quarter?: number) {
-  if (!shouldShowBarContent(slot, quarter)) return false
+  if (viewMode.value === 'week') return false
   const style = getBarStyle(slot, quarter)
   const rawWidth = typeof style.width === 'string' ? Number.parseFloat(style.width) : Number(style.width)
   return Number.isFinite(rawWidth) && rawWidth < 68
 }
-function shouldShowBarContent(slot: TimeSlot, quarter?: number) {
-  if (viewMode.value !== 'week' || quarter === undefined) return true
-  return quarter === getPrimaryContentQuarter(slot)
-}
-function getPrimaryContentQuarter(slot: TimeSlot) {
-  let bestQuarter = 0
-  let bestSeconds = -1
-  let bestTieScore = -1
-  for (let quarter = 0; quarter < WEEK_SEGMENT_COUNT; quarter++) {
-    const visibleSeconds = getVisibleSecondsInQuarter(slot, quarter)
-    const tieScore = quarter === 1 ? 2 : quarter === 0 ? 1 : 0
-    if (visibleSeconds > bestSeconds || (visibleSeconds === bestSeconds && tieScore > bestTieScore)) {
-      bestSeconds = visibleSeconds
-      bestTieScore = tieScore
-      bestQuarter = quarter
+function getWeekBarDisplay(slot: TimeSlot, quarter?: number): WeekBarDisplay {
+  const fullDisplay = {
+    showIcon: true,
+    showLabel: true,
+    projectText: getBarProjectText(slot),
+    taskText: getBarTaskText(slot),
+  }
+  if (viewMode.value !== 'week' || quarter === undefined) return fullDisplay
+
+  const current = getVisibleWeekSegments(slot).find(segment => segment.quarter === quarter)
+  if (!current || current.width < WEEK_BAR_TINY_WIDTH) {
+    return { showIcon: false, showLabel: false, projectText: '', taskText: '' }
+  }
+
+  const segments = getVisibleWeekSegments(slot).filter(segment => segment.width >= WEEK_BAR_TINY_WIDTH)
+  if (!segments.length) return { showIcon: false, showLabel: false, projectText: '', taskText: '' }
+
+  const roles = assignWeekBarRoles(segments)
+  const role = roles[quarter]
+  const projectCode = getBarProjectText(slot)
+  const taskName = slot.task_name || ''
+  const ownerName = slot.assignee_name || ''
+  const delayText = hasDelay(slot) ? `延期${slot.delay_hours || ''}h` : ''
+  const projectAndOwner = [projectCode, ownerName].filter(Boolean).join(' · ')
+  const taskOrDelay = [taskName, delayText].filter(Boolean).join(' · ')
+  const showIcon = current.width >= WEEK_BAR_ICON_WIDTH && role !== 'none'
+
+  if (role === 'project') {
+    return {
+      showIcon,
+      showLabel: true,
+      projectText: projectAndOwner || projectCode,
+      taskText: current.width >= WEEK_BAR_FULL_WIDTH ? taskOrDelay : '',
     }
   }
-  return bestQuarter
+  if (role === 'task') {
+    return {
+      showIcon,
+      showLabel: Boolean(projectAndOwner || taskName || projectCode),
+      projectText: projectAndOwner || projectCode,
+      taskText: taskName || delayText,
+    }
+  }
+  if (role === 'owner') {
+    return {
+      showIcon,
+      showLabel: Boolean(projectAndOwner || taskOrDelay || projectCode),
+      projectText: projectAndOwner || projectCode,
+      taskText: taskOrDelay,
+    }
+  }
+
+  return { showIcon: false, showLabel: false, projectText: '', taskText: '' }
+}
+function assignWeekBarRoles(segments: WeekBarSegment[]) {
+  const roles: Record<number, 'project' | 'task' | 'owner' | 'none'> = {}
+  segments.forEach(segment => { roles[segment.quarter] = 'none' })
+  const roleTargets = [...segments].sort((a, b) => a.quarter - b.quarter)
+  if (roleTargets.length === 1) {
+    roles[roleTargets[0].quarter] = 'project'
+    return roles
+  }
+  if (roleTargets.length === 2) {
+    roles[roleTargets[0].quarter] = 'project'
+    roles[roleTargets[1].quarter] = 'task'
+    return roles
+  }
+  roles[roleTargets[0].quarter] = 'project'
+  roles[roleTargets[1].quarter] = 'task'
+  roles[roleTargets[2].quarter] = 'owner'
+  return roles
+}
+function getVisibleWeekSegments(slot: TimeSlot): WeekBarSegment[] {
+  const result: WeekBarSegment[] = []
+  for (let quarter = 0; quarter < WEEK_SEGMENT_COUNT; quarter++) {
+    const visibleSeconds = getVisibleSecondsInQuarter(slot, quarter)
+    if (visibleSeconds <= 0) continue
+    const style = getBarStyle(slot, quarter)
+    const width = parseStyleWidth(style.width)
+    if (!Number.isFinite(width) || width <= 0) continue
+    result.push({ quarter, width, visibleSeconds })
+  }
+  return result
+}
+function parseStyleWidth(width: CSSProperties['width']) {
+  if (typeof width === 'number') return width
+  if (typeof width === 'string') return Number.parseFloat(width)
+  return 0
 }
 function getVisibleSecondsInQuarter(slot: TimeSlot, quarter: number) {
   const start = dayjs(slot.plan_start)
@@ -475,7 +562,13 @@ function getVisibleSecondsInQuarter(slot: TimeSlot, quarter: number) {
   }
   return totalSeconds
 }
-function hasDelay(slot: TimeSlot) { return Boolean(slot.delay_reason) || Boolean(slot.delay_hours) }
+function hasDelay(slot: TimeSlot) {
+  const delayHours = Number(slot.delay_hours || 0)
+  const hasDelayReport = Boolean(slot.delay_reason) || delayHours > 0
+  if (!hasDelayReport) return false
+  if (DELAY_PROBLEM_STATUSES.has(slot.status)) return true
+  return slot.status === 'running' && Boolean(slot.actual_start)
+}
 function getDelaySegmentStyle(slot: TimeSlot, quarter?: number): CSSProperties {
   if (!slot.delay_hours || slot.delay_hours <= 0) return { display: 'none' }
   const start = dayjs(slot.plan_start)
@@ -967,13 +1060,13 @@ onUnmounted(() => {
   border-radius: 5px;
   display: flex;
   align-items: center;
-  padding: 0 7px;
+  padding: 0 4px;
   cursor: pointer;
   overflow: hidden;
   transition: box-shadow 0.15s, transform 0.15s;
   z-index: 1;
   box-sizing: border-box;
-  gap: 5px;
+  gap: 2px;
   min-width: 0;
   border-left-width: 4px;
   border-left-style: solid;
@@ -1005,13 +1098,13 @@ onUnmounted(() => {
   position: relative;
   z-index: 2;
   flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  border-radius: 5px;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 8px;
   font-weight: 700;
   background: rgba(255, 255, 255, 0.68);
   color: inherit;
@@ -1020,32 +1113,34 @@ onUnmounted(() => {
   position: absolute;
   right: 2px;
   top: 2px;
-  width: 5px;
-  height: 5px;
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
   background: currentColor;
 }
-.bar-label { position: relative; z-index: 2; display: flex; flex-direction: column; justify-content: center; gap: 2px; overflow: hidden; min-width: 0; color: inherit; line-height: 1.15; }
+.bar-label { position: relative; z-index: 2; display: flex; flex-direction: column; justify-content: center; gap: 1px; overflow: hidden; min-width: 0; color: inherit; line-height: 1.05; }
 .bar-project, .bar-task { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bar-project { font-size: 11px; font-weight: 700; }
-.bar-task { font-size: 10px; font-weight: 500; opacity: 0.92; }
+.bar-project { font-size: 9px; font-weight: 700; }
+.bar-task { font-size: 8px; font-weight: 500; opacity: 0.94; }
+.gantt-container.is-week-view .gantt-bar { padding: 0 3px; gap: 1px; }
+.gantt-container.is-week-view .bar-tag {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  font-size: 7px;
+}
+.gantt-container.is-week-view .bar-status-dot {
+  right: 1px;
+  top: 1px;
+  width: 3px;
+  height: 3px;
+}
+.gantt-container.is-week-view .bar-label { gap: 0; line-height: 1; }
+.gantt-container.is-week-view .bar-project { font-size: 8px; }
+.gantt-container.is-week-view .bar-task { font-size: 7px; opacity: 0.96; }
 .gantt-bar.is-compact { padding: 0 4px; justify-content: center; }
 .gantt-bar.is-compact .bar-label { display: none; }
 .gantt-bar.is-compact .bar-tag { width: 16px; height: 16px; font-size: 9px; }
-.gantt-bar.is-continuation {
-  padding: 0;
-  opacity: 0.78;
-  border-left-width: 1px;
-  cursor: pointer;
-}
-.gantt-bar.is-continuation::before {
-  content: "";
-  position: absolute;
-  inset: 5px 8px;
-  border-radius: 999px;
-  background: currentColor;
-  opacity: 0.16;
-}
 .bar-delay-badge { position: absolute; right: 0; top: 0; z-index: 2; width: 14px; height: 14px; border-radius: 2px; display: flex; align-items: center; justify-content: center; background: #dc2626; color: #fff; font-size: 10px; font-weight: 700; line-height: 1; pointer-events: none; }
 
 /* Status colors */

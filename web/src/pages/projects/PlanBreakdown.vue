@@ -37,6 +37,24 @@
             <a-tag v-if="!record.children?.length" :color="getTaskTypeColor(record.task_type)" style="font-size: 11px">{{ getTaskTypeName(record.task_type) }}</a-tag>
           </template>
         </a-table-column>
+        <a-table-column title="对应仪器" key="instruments" width="180">
+          <template #default="{ record }">
+            <div v-if="getTaskInstrumentIds(record).length" class="instrument-tag-list">
+              <a-tooltip
+                v-for="instId in getTaskInstrumentIds(record).slice(0, 2)"
+                :key="instId"
+                :title="getInstrumentCode(instId)"
+              >
+                <a-tag color="blue" class="instrument-tag">{{ getInstrumentCode(instId) }}</a-tag>
+              </a-tooltip>
+              <a-tooltip v-if="getTaskInstrumentIds(record).length > 2" :title="getInstrumentSummary(record)">
+                <a-tag class="instrument-tag">+{{ getTaskInstrumentIds(record).length - 2 }}</a-tag>
+              </a-tooltip>
+            </div>
+            <span v-else-if="!record.children?.length && record.requires_instrument" style="color: #dc2626">未指定</span>
+            <span v-else style="color: #ccc">-</span>
+          </template>
+        </a-table-column>
         <a-table-column title="负责人" key="assignee" width="100">
           <template #default="{ record }">{{ !record.children?.length ? (record.assignee_name || getAssigneeName(record.assignee_id) || '-') : '' }}</template>
         </a-table-column>
@@ -130,6 +148,11 @@ const taskTypeOptions = ref<{ label: string; value: string; resource_type: strin
 const taskTypeMap = ref<Record<string, TaskTypeConfig>>({})
 const userOptions = ref<{ label: string; value: number }[]>([])
 const instrumentOptions = ref<{ label: string; value: number }[]>([])
+const instrumentCodeMap = computed(() => {
+  const map: Record<number, string> = {}
+  instrumentOptions.value.forEach(instrument => { map[instrument.value] = instrument.label })
+  return map
+})
 
 const tf = reactive({ name: '', task_type: '', est_duration_hours: 8, switchover_hours: 0.5, predecessor_ids: [] as number[], instrument_ids: [] as number[], assignee_id: null as number | null, parent_id: null as number | null })
 
@@ -162,6 +185,20 @@ function getTaskNameById(id: number) {
 function getAssigneeName(id: number | null | undefined) {
   if (!id) return null
   return userOptions.value.find(u => u.value === id)?.label || null
+}
+
+function getInstrumentCode(id: number) {
+  return instrumentCodeMap.value[id] || `ID ${id}`
+}
+
+function getTaskInstrumentIds(task: Task): number[] {
+  if (!task.children || task.children.length === 0) return task.instrument_ids || []
+  const ids = task.children.flatMap(child => getTaskInstrumentIds(child))
+  return Array.from(new Set(ids))
+}
+
+function getInstrumentSummary(task: Task) {
+  return getTaskInstrumentIds(task).map(getInstrumentCode).join('、')
 }
 
 function buildTree(tasks: Task[]): Task[] {
@@ -255,8 +292,8 @@ async function handleDeleteTask(taskId: number) {
 
 async function loadInstruments() {
   try {
-    const insts = await getInstruments()
-    instrumentOptions.value = insts.map(i => ({ label: i.name + ' (' + i.code + ')', value: i.id }))
+    const insts = await getInstruments({ include_unavailable: true })
+    instrumentOptions.value = insts.map(i => ({ label: i.code, value: i.id }))
   } catch (e) { console.error("loadInstruments failed:", e) }
 }
 
@@ -293,4 +330,14 @@ onMounted(async () => {
 
 <style scoped>
 .project-info { margin-bottom: 16px; }
+.instrument-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.instrument-tag {
+  margin: 0;
+  white-space: nowrap;
+}
 </style>

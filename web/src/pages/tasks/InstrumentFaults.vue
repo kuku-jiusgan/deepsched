@@ -203,16 +203,16 @@ const historyColumns = [
   { title: '仪器', key: 'instrument', width: 220 },
   { title: '状态', key: 'status', width: 90 },
   { title: '故障情况', dataIndex: 'description', key: 'description', ellipsis: true },
-  { title: '提报时间', key: 'reported_at', width: 130 },
-  { title: '预计完成', key: 'estimated_resolved_at', width: 130 },
-  { title: '实际完成', key: 'resolved_at', width: 130 },
+  { title: '提报时间', key: 'reported_at', width: 160 },
+  { title: '预计完成', key: 'estimated_resolved_at', width: 160 },
+  { title: '实际完成', key: 'resolved_at', width: 160 },
 ]
 
 async function fetchData() {
   loading.value = true
   try {
     const [instrumentData, openFaultData, faultHistoryData] = await Promise.all([
-      getInstruments(),
+      getInstruments({ include_unavailable: true }),
       getOpenInstrumentFaults(),
       getInstrumentFaults(),
     ])
@@ -241,23 +241,23 @@ function toApiDateTime(value: string) {
 }
 
 function formatDateTime(value: string) {
-  return dayjs(value).format('MM-DD HH:mm')
+  return dayjs(value).format('YYYY-MM-DD HH:mm')
 }
 
 function instrumentLabel(instrumentId: number | null) {
   if (!instrumentId) return '未知仪器'
   const instrument = instrumentMap.value[instrumentId]
-  return instrument ? `${instrument.code} · ${instrument.name}` : `仪器 ${instrumentId}`
+  return instrument ? `${instrument.code} · ${instrument.name}` : `仪器 ID ${instrumentId}（未找到基础信息）`
 }
 
 function instrumentCode(instrumentId: number | null) {
   if (!instrumentId) return '-'
-  return instrumentMap.value[instrumentId]?.code || `ID-${instrumentId}`
+  return instrumentMap.value[instrumentId]?.code || `ID ${instrumentId}`
 }
 
 function instrumentName(instrumentId: number | null) {
   if (!instrumentId) return '未知仪器'
-  return instrumentMap.value[instrumentId]?.name || `仪器 ${instrumentId}`
+  return instrumentMap.value[instrumentId]?.name || '未找到仪器基础信息'
 }
 
 function filterInstrumentOption(input: string, option?: { value: number; children?: string }) {
@@ -400,7 +400,7 @@ onMounted(fetchData)
 
 .fault-summary-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 8px;
 }
 
@@ -429,9 +429,7 @@ onMounted(fetchData)
   color: #0f172a;
   font-size: 13px;
   line-height: 1.25;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .fault-card-desc {

@@ -1,6 +1,8 @@
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
+from datetime import datetime
 from typing import List, Optional, Dict, Tuple
+from uuid import uuid4
 from ortools.sat.python import cp_model
 from app.models import Instrument, Task, TimeSlot
 from app.core.config import get_settings
@@ -29,7 +31,7 @@ class SchedulerService:
 
     def generate(self, project_ids: Optional[List[int]] = None) -> dict:
         # Clear old slots and reset task statuses BEFORE loading
-        clear_reschedulable_slots(self.db)
+        clear_reschedulable_slots(self.db, project_ids)
         tasks, instruments = self._load_data(project_ids)
         if not tasks:
             return {"status": "ok", "message": "没有待排仪器任务", "timeslots_created": 0}
@@ -333,6 +335,7 @@ class SchedulerService:
             return {"status": "error", "message": f"时间配置冲突：当前待排总工时约 {total_req_hours} 小时，请调整【项目开始/结束时间】或修改【项目工时】。"}
 
         # Persist results
+        schedule_run_id = _new_schedule_run_id()
         created = persist_slots(
             self.db,
             tasks,
@@ -348,12 +351,14 @@ class SchedulerService:
             calendar_days,
             include_weekends,
             include_holidays,
+            schedule_run_id,
         )
 
         return {
             "status": "ok",
             "message": f"排程完成，创建 {created} 个时间槽",
             "timeslots_created": created,
+            "schedule_run_id": schedule_run_id,
             "solver_status": "OPTIMAL" if status == cp_model.OPTIMAL else "FEASIBLE",
             "objective_value": int(solver.ObjectiveValue()),
         }
@@ -388,4 +393,6 @@ class SchedulerService:
         ).all()
         return tasks, instruments
 
-                # 不工作时间配置大于8点小于20点
+
+def _new_schedule_run_id() -> str:
+    return f"{datetime.now():%Y%m%d%H%M%S}-{uuid4().hex[:8]}"

@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 from functools import lru_cache
 
 class Settings(BaseSettings):
-    APP_NAME: str = "CRO仪器排程系统"
+    APP_NAME: str = "资源智能调度平台"
     DATABASE_URL: str = "sqlite:///./cro_scheduler.db"
     SECRET_KEY: str = "change-me-in-production"
     ALGORITHM: str = "HS256"
