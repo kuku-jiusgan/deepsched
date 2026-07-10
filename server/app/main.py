@@ -1,10 +1,10 @@
-﻿from fastapi import FastAPI
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import engine, Base
 from app.core.config import get_settings
 from app.core.schema_migrations import ensure_runtime_schema
 from app.models import models
-from app.api import users, schedule_rules, instruments, projects, schedules, stats, notifications, task_types, alert_rules, calendar_api
+from app.api import users, schedule_rules, instruments, projects, schedules, stats, notifications, task_types, alert_rules, calendar_api, project_plan_schedules
 
 Base.metadata.create_all(bind=engine)
 ensure_runtime_schema(engine)
@@ -39,6 +39,7 @@ app.add_middleware(LoggingMiddleware)
 app.include_router(instruments.router)
 app.include_router(projects.router)
 app.include_router(schedules.router)
+app.include_router(project_plan_schedules.router)
 app.include_router(schedule_rules.router)
 app.include_router(users.router)
 app.include_router(stats.router)

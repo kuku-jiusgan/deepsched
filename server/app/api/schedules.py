@@ -8,7 +8,7 @@ from app.core.config import get_settings
 from app.models import TimeSlot, Task, Instrument, Project, AuditLog
 from app.schemas.schemas import (
     TimeSlotOut, TimeSlotUpdate, TaskStatusUpdate,
-    ScheduleGenerateRequest, InsertOrderRequest, InsertOrderCost,
+    ScheduleGenerateRequest, InsertOrderRequest, InsertOrderPreview, InsertOrderResult,
     RescheduleRequest, TaskDelayRequest, TaskDelayResponse,
     NightRunRequest, TaskCompleteRequest, TaskCompleteResponse
 )
@@ -20,7 +20,12 @@ from app.services.schedule_delay_service import (
 )
 from app.services.schedule_completion_service import complete_task_and_shift
 from app.services.instrument_status_service import mark_instrument_running, refresh_instrument_status
-from app.services.schedule_insert_service import calculate_insert_cost as calculate_insert_cost_service
+from app.services.schedule_insert_service import (
+    ScheduleInsertInvalidError,
+    ScheduleInsertNotFoundError,
+    confirm_insert as confirm_insert_service,
+    preview_insert,
+)
 from app.services.schedule_night_run_service import (
     ScheduleNightRunInvalidError,
     ScheduleNightRunNotFoundError,
@@ -140,21 +145,30 @@ def night_run(slot_id: int, data: NightRunRequest, db: Session = Depends(get_db)
 @router.post("/generate")
 def generate_schedule(data: ScheduleGenerateRequest, db: Session = Depends(get_db)):
     scheduler = SchedulerService(db)
-    result = scheduler.generate(data.project_ids)
+    result = scheduler.generate(data.project_ids, mode=data.mode)
     return result
 
 @router.post("/reschedule")
 def reschedule(data: RescheduleRequest, db: Session = Depends(get_db)):
     return reschedule_service(db, data)
 
-@router.post("/insert-order", response_model=InsertOrderCost)
+@router.post("/insert-order", response_model=InsertOrderPreview)
 def calculate_insert_cost(data: InsertOrderRequest, db: Session = Depends(get_db)):
-    return calculate_insert_cost_service(db, data)
+    try:
+        return preview_insert(db, data)
+    except ScheduleInsertNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ScheduleInsertInvalidError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
-@router.post("/insert-order/confirm")
+@router.post("/insert-order/confirm", response_model=InsertOrderResult)
 def confirm_insert(data: InsertOrderRequest, db: Session = Depends(get_db)):
-    scheduler = SchedulerService(db)
-    return scheduler.execute_insert(data)
+    try:
+        return confirm_insert_service(db, data)
+    except ScheduleInsertNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ScheduleInsertInvalidError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 @router.post("/daily-roll")
 def daily_roll(db: Session = Depends(get_db)):
@@ -175,7 +189,6 @@ def daily_roll(db: Session = Depends(get_db)):
 
     db.commit()
     return {"status": "ok", "rolled_at": now.isoformat()}
-
 
 @router.get("/my-tasks")
 def my_tasks(token: str = Depends(auth_token), db: Session = Depends(get_db)):
@@ -255,7 +268,6 @@ def my_tasks(token: str = Depends(auth_token), db: Session = Depends(get_db)):
 
 RUNNING_CONTINUATION_STATUSES = {"scheduled", "running"}
 
-
 def _continuous_running_slots(db: Session, start_slot: TimeSlot) -> list[TimeSlot]:
     return (
         db.query(TimeSlot)
@@ -267,7 +279,6 @@ def _continuous_running_slots(db: Session, start_slot: TimeSlot) -> list[TimeSlo
         .order_by(TimeSlot.plan_start, TimeSlot.id)
         .all()
     )
-
 
 def _select_workspace_slot(slots: list[TimeSlot], now: datetime) -> Optional[TimeSlot]:
     running_slot = next((slot for slot in slots if slot.status == "running"), None)
@@ -292,7 +303,6 @@ def _select_workspace_slot(slots: list[TimeSlot], now: datetime) -> Optional[Tim
 
     return slots[-1] if slots else None
 
-
 def _empty_delay_fields() -> dict:
     return {
         "delay_hours": None,
@@ -300,12 +310,10 @@ def _empty_delay_fields() -> dict:
         "delay_reported_at": None,
     }
 
-
 def _should_include_delay_fields(slot: TimeSlot) -> bool:
     if slot.status in {"blocked", "interrupted"}:
         return True
     return slot.status == "running" and slot.actual_start is not None
-
 
 def _enrich_slot(slot: TimeSlot, db: Session) -> TimeSlotOut:
     task = db.query(Task).filter(Task.id == slot.task_id).first()
@@ -327,11 +335,11 @@ def _enrich_slot(slot: TimeSlot, db: Session) -> TimeSlotOut:
         project_code=proj.code if proj else None,
         project_name=proj.name if proj else None,
         instrument_name=inst.name if inst else None,
+        instrument_code=inst.code if inst else None,
         assignee_name=task.assignee.display_name if task and task.assignee else None,
         project_id=task.project_id if task else None,
         **delay_fields,
     )
-
 
 def _latest_delay_fields(task_id: int, db: Session, slot: TimeSlot) -> dict:
     logs = (
@@ -354,7 +362,6 @@ def _latest_delay_fields(task_id: int, db: Session, slot: TimeSlot) -> dict:
                 "delay_reported_at": log.created_at,
             }
     return _empty_delay_fields()
-
 
 def _audit_detail_dict(detail) -> dict:
     if isinstance(detail, dict):

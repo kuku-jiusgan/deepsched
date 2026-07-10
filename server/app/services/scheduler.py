@@ -1,15 +1,19 @@
 from sqlalchemy import func
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import List, Optional, Dict, Tuple
 from uuid import uuid4
 from ortools.sat.python import cp_model
-from app.models import Instrument, Task, TimeSlot
+from app.models import Task, TimeSlot
 from app.core.config import get_settings
 from app.services.schedule_rule_service import get_solver_constraints
-from app.services.schedule_slot_cleanup_service import clear_reschedulable_slots
+from app.services.schedule_conflict_service import ScheduleConflictError, ensure_no_instrument_conflicts
+from app.services.scheduler_fixed_slots import add_instrument_capacity_constraints, load_fixed_slots
 from app.services.scheduler_persistence import persist_slots
+from app.services.scheduler_objective import add_scheduler_objective
+from app.services.scheduler_split_tasks import add_split_task_variables
 from app.services.scheduler_diagnostics import unavailable_instrument_message
+from app.services.scheduler_data import load_scheduler_data
 from app.services.scheduler_helpers import (
     build_compatibility,
     build_dependencies,
@@ -27,12 +31,14 @@ class SchedulerService:
     def __init__(self, db: Session):
         self.db = db
 
-    # ── Public API ──────────────────────────────────────────────
-
-    def generate(self, project_ids: Optional[List[int]] = None) -> dict:
-        # Clear old slots and reset task statuses BEFORE loading
-        clear_reschedulable_slots(self.db, project_ids)
-        tasks, instruments = self._load_data(project_ids)
+    def generate(
+        self,
+        project_ids: Optional[List[int]] = None,
+        mode: str = "normal",
+        task_ids: Optional[List[int]] = None,
+        commit: bool = True,
+    ) -> dict:
+        tasks, instruments = load_scheduler_data(self.db, project_ids, task_ids)
         if not tasks:
             return {"status": "ok", "message": "没有待排仪器任务", "timeslots_created": 0}
         if not instruments:
@@ -86,16 +92,21 @@ class SchedulerService:
         model = cp_model.CpModel()
 
         # Decision variables
-        intervals: Dict[Tuple[int, int], cp_model.IntervalVar] = {}
+        capacity_intervals: Dict[int, list[cp_model.IntervalVar]] = {}
         presences: Dict[Tuple[int, int], cp_model.IntVar] = {}
         inst_starts: Dict[Tuple[int, int], cp_model.IntVar] = {}
         inst_ends: Dict[Tuple[int, int], cp_model.IntVar] = {}
         task_starts: Dict[int, cp_model.IntVar] = {}
         task_ends: Dict[int, cp_model.IntVar] = {}
         task_tardiness: Dict[int, cp_model.IntVar] = {}
+        split_unit_presences: Dict[Tuple[int, int, int], cp_model.IntVar] = {}
+        for instrument in instruments:
+            capacity_intervals[instrument.id] = []
 
         for t in tasks:
-            dur = to_units(t.est_duration_hours or 4) + to_units(t.switchover_hours or 0)
+            dur = to_units(t.est_duration_hours or 4)
+            if t.switchover_hours and t.switchover_hours > 0:
+                dur += to_units(t.switchover_hours)
 
             # Compute project-level hard constraint window
             p_start_unit = 0
@@ -135,6 +146,28 @@ class SchedulerService:
                 model.Add(end_work_acc - start_work_acc == dur)
                 continue
 
+            if t.allow_split:
+                is_valid_split = add_split_task_variables(
+                    model,
+                    t,
+                    candidates,
+                    dur,
+                    p_start_unit,
+                    p_end_unit,
+                    total_units,
+                    global_prefix_sum,
+                    task_starts[t.id],
+                    task_ends[t.id],
+                    presences,
+                    inst_starts,
+                    inst_ends,
+                    capacity_intervals,
+                    split_unit_presences,
+                )
+                if not is_valid_split:
+                    return {"status": "error", "message": f"排程失败：任务【{t.name}】没有足够的可拆分工作时段。"}
+                continue
+
             alt_starts = []
             alt_ends = []
             alt_presences = []
@@ -149,7 +182,7 @@ class SchedulerService:
                 inst_iv = model.NewOptionalIntervalVar(
                     inst_start, inst_span, inst_end, presences[key], f"iv_t{t.id}_i{inst.id}"
                 )
-                intervals[key] = inst_iv
+                capacity_intervals[inst.id].append(inst_iv)
                 alt_starts.append(inst_start)
                 alt_ends.append(inst_end)
                 alt_presences.append(presences[key])
@@ -174,24 +207,6 @@ class SchedulerService:
 
             # Exactly one instrument assigned
             model.AddExactlyOne(alt_presences)
-        # No-overlap per instrument
-        # Bug 3 fix: frozen slots as immovable interval bricks (NOT via prefix-sum)
-        frozen_slots = self.db.query(TimeSlot).filter(TimeSlot.tier == "frozen").all()
-
-        for inst in instruments:
-            inst_ivs = [intervals[k] for k in intervals if k[1] == inst.id]
-
-            for slot in frozen_slots:
-                if slot.instrument_id == inst.id:
-                    f_start = max(0, datetime_to_units(slot.plan_start, horizon_start))
-                    f_end = datetime_to_units(slot.plan_end, horizon_start)
-                    if f_end > f_start:
-                        fixed_iv = model.NewIntervalVar(f_start, f_end - f_start, f_end, f"froz_{slot.id}")
-                        inst_ivs.append(fixed_iv)
-
-            if inst_ivs and constraints["non_overlap"].is_enabled:
-                model.AddNoOverlap(inst_ivs)
-        # === Cross-project switching: setup time + penalty === (DISABLED FOR DEBUG)
         # === Cross-project switching: setup time + penalty ===
         setup_rule = constraints["cross_project_setup"]
         setup_hours = (
@@ -200,11 +215,27 @@ class SchedulerService:
             else 0
         )
         CROSS_PROJECT_SETUP_UNITS = to_units(setup_hours) if setup_hours else 0
+        fixed_slots = load_fixed_slots(self.db, {task.id for task in tasks})
+        add_instrument_capacity_constraints(
+            model,
+            instruments,
+            tasks,
+            capacity_intervals,
+            presences,
+            inst_starts,
+            inst_ends,
+            split_unit_presences,
+            fixed_slots,
+            horizon_start,
+            total_units,
+            constraints["non_overlap"].is_enabled,
+            CROSS_PROJECT_SETUP_UNITS,
+        )
         switch_penalties = []
         tasks_by_id = {t.id: t for t in tasks}
 
         for inst in instruments:
-            inst_task_ids = [k[0] for k in intervals if k[1] == inst.id]
+            inst_task_ids = [key[0] for key in presences if key[1] == inst.id]
             for i in range(len(inst_task_ids)):
                 for j in range(i + 1, len(inst_task_ids)):
                     tA_id = inst_task_ids[i]
@@ -304,27 +335,17 @@ class SchedulerService:
                 if 0 <= deadline <= total_units:
                     model.Add(task_tardiness[t.id] >= task_ends[t.id] - deadline)
 
-        # Objective: minimize weighted tardiness + makespan + span + switch + split penalties
-        weighted_tardy = []
-        for t in tasks:
-            w = int(t.priority_weight * 10)
-            weighted_tardy.append(task_tardiness[t.id] * w)
-        makespan = model.NewIntVar(0, total_units, "makespan")
-        model.AddMaxEquality(makespan, [task_ends[t.id] for t in tasks])
-
-        spans = [task_ends[t.id] - task_starts[t.id] for t in tasks]
-        weight_main = 1000
-        weight_span = 1
-        weight_switch = 500
-        weight_split = 30   #这是同一台仪器跑用一个项目的惩罚系数  越高越不会切换
-        model.Minimize(
-            (sum(weighted_tardy) + makespan) * weight_main
-            + sum(spans) * weight_span
-            + sum(switch_penalties) * weight_switch
-            + sum(project_inst_used_vars) * weight_split
+        add_scheduler_objective(
+            model,
+            tasks,
+            task_starts,
+            task_ends,
+            task_tardiness,
+            switch_penalties,
+            project_inst_used_vars,
+            total_units,
         )
 
-        # Solve
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = 30.0
         solver.parameters.num_search_workers = 4
@@ -352,7 +373,17 @@ class SchedulerService:
             include_weekends,
             include_holidays,
             schedule_run_id,
+            commit=False,
+            split_unit_presences=split_unit_presences,
         )
+
+        try:
+            ensure_no_instrument_conflicts(self.db)
+        except ScheduleConflictError as exc:
+            self.db.rollback()
+            return {"status": "error", "message": str(exc), "timeslots_created": 0}
+        if commit:
+            self.db.commit()
 
         return {
             "status": "ok",
@@ -362,37 +393,6 @@ class SchedulerService:
             "solver_status": "OPTIMAL" if status == cp_model.OPTIMAL else "FEASIBLE",
             "objective_value": int(solver.ObjectiveValue()),
         }
-
-    # ── Private helpers ─────────────────────────────────────────
-
-    def _load_data(self, project_ids):
-        # Load leaf tasks only: tasks that have NO children (actual execution nodes)
-        from sqlalchemy import not_
-
-        sub_query = self.db.query(Task.parent_id).filter(Task.parent_id != None).subquery()
-
-        q = self.db.query(Task).filter(
-            Task.status.in_(["pending", "ready"]),
-            not_(Task.id.in_(sub_query)),
-        ).options(
-            selectinload(Task.project),
-            selectinload(Task.milestone),
-            selectinload(Task.predecessors),
-            selectinload(Task.capability_requirements),
-        )
-        if project_ids:
-            q = q.filter(Task.project_id.in_(project_ids))
-        tasks = q.order_by(Task.priority_weight.desc()).all()
-
-        instruments = self.db.query(Instrument).filter(
-            Instrument.availability_status == "available",
-            Instrument.status.in_(["idle", "running"])
-        ).options(
-            selectinload(Instrument.capabilities),
-            selectinload(Instrument.maintenance_windows),
-        ).all()
-        return tasks, instruments
-
 
 def _new_schedule_run_id() -> str:
     return f"{datetime.now():%Y%m%d%H%M%S}-{uuid4().hex[:8]}"

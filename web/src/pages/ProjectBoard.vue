@@ -28,7 +28,7 @@
 
         <template v-if="column.key === 'priority'">
 
-          <a-tag :color="record.priority >= 5 ? '#dc2626' : record.priority >= 3 ? '#ea580c' : '#2563eb'">{{ record.priority }}</a-tag>
+          <a-tag :color="priorityColor(record.priority)">{{ priorityLabel(record.priority) }}</a-tag>
 
         </template>
 
@@ -88,15 +88,9 @@
           <a-select v-model:value="cf.manager_id" placeholder="选择项目负责人" allowClear :options="userOptions" />
         </a-form-item>
 
-        <a-space :size="16">
-
-          <a-form-item label="优先级"><a-input-number v-model:value="cf.priority" :min="1" :max="10" /></a-form-item>
-
-          <a-form-item label="SLA等级"><a-select v-model:value="cf.sla_level" style="width: 120px" :options="slaOptions" /></a-form-item>
-
-          <a-form-item label="利润权重"><a-input-number v-model:value="cf.profit_weight" :min="0.5" :max="3" :step="0.1" /></a-form-item>
-
-        </a-space>
+        <a-form-item label="项目优先级">
+          <a-select v-model:value="cf.priority" :options="priorityOptions" />
+        </a-form-item>
 
         <a-space :size="16" style="width: 100%">
 
@@ -124,15 +118,9 @@
           <a-select v-model:value="ef.manager_id" placeholder="选择项目负责人" allowClear :options="userOptions" />
         </a-form-item>
 
-        <a-space :size="16">
-
-          <a-form-item label="优先级"><a-input-number v-model:value="ef.priority" :min="1" :max="10" /></a-form-item>
-
-          <a-form-item label="SLA等级"><a-select v-model:value="ef.sla_level" style="width: 120px" :options="slaOptions" /></a-form-item>
-
-          <a-form-item label="利润权重"><a-input-number v-model:value="ef.profit_weight" :min="0.5" :max="3" :step="0.1" /></a-form-item>
-
-        </a-space>
+        <a-form-item label="项目优先级">
+          <a-select v-model:value="ef.priority" :options="priorityOptions" />
+        </a-form-item>
 
         <a-space :size="16" style="width: 100%">
 
@@ -271,6 +259,8 @@ import { useRouter } from 'vue-router'
 
 import { message } from 'ant-design-vue'
 
+import { isAxiosError } from 'axios'
+
 import { PlusOutlined, EditOutlined, SearchOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 
 import { getProjects, createProject, updateProject, deleteProject, getProject, getProjectDAG, addTask, updateTask, deleteTask, getUsers, getTaskTypes, getInstruments, generateSchedule, type Project, type Task, type DAGData, type TaskTypeConfig } from '@/services/api'
@@ -327,17 +317,31 @@ const filterDateRange = ref<any>(null)
 
 const router = useRouter()
 
-const cf = reactive({ name: '', code: '', client_name: '', manager_id: null as number | null, priority: 3, sla_level: 'standard', profit_weight: 1.0, start_date: null as any, end_date: null as any })
+const cf = reactive({ name: '', code: '', client_name: '', manager_id: null as number | null, priority: 3, start_date: null as any, end_date: null as any })
 
-const ef = reactive({ name: '', code: '', client_name: '', manager_id: null as number | null, priority: 3, sla_level: 'standard', profit_weight: 1.0, start_date: null as any, end_date: null as any })
+const ef = reactive({ name: '', code: '', client_name: '', manager_id: null as number | null, priority: 3, start_date: null as any, end_date: null as any })
 
 const tf = reactive({ name: '', task_type: '', est_duration_hours: 8, switchover_hours: 0.5, predecessor_ids: [] as number[], instrument_ids: [] as number[], assignee_id: null as number | null })
 
 
 
-const slaOptions = [{ label: '标准', value: 'standard' }, { label: '加急', value: 'expedited' }, { label: '特急', value: 'rush' }]
 
 const statusLabels: Record<string, string> = { active: '进行中', completed: '已完成', pending: '待启动', suspended: '已暂停', cancelled: '已取消', draft: '草稿' }
+const priorityOptions = [
+  { label: '一级（最高）', value: 1 },
+  { label: '二级', value: 2 },
+  { label: '三级', value: 3 },
+]
+
+function priorityLabel(priority: number) {
+  return priorityOptions.find(option => option.value === priority)?.label || `${priority}级`
+}
+
+function priorityColor(priority: number) {
+  if (priority === 1) return '#dc2626'
+  if (priority === 2) return '#ea580c'
+  return '#2563eb'
+}
 
 
 
@@ -405,7 +409,7 @@ async function fetchProjects() { loading.value = true; try { projects.value = aw
 
 
 
-function openCreate() { Object.assign(cf, { name: '', code: '', client_name: '', manager_id: null, priority: 3, sla_level: 'standard', profit_weight: 1.0, start_date: null, end_date: null }); createOpen.value = true }
+function openCreate() { Object.assign(cf, { name: '', code: '', client_name: '', manager_id: null, priority: 3, start_date: null, end_date: null }); createOpen.value = true }
 
 
 
@@ -433,11 +437,16 @@ async function handleUpdateProject() {
 
     message.success('项目更新成功'); editOpen.value = false; fetchProjects()
 
-  } catch { message.error('更新失败') }
+  } catch (error: unknown) { message.error(errorDetail(error, '更新失败')) }
 
 }
 
 
+
+function errorDetail(error: unknown, fallback: string) {
+  if (isAxiosError<{ detail?: string }>(error)) return error.response?.data?.detail || fallback
+  return fallback
+}
 
 function handleViewDetail(id: number) {
 
@@ -457,7 +466,7 @@ function openEditProject() {
 
   const p = selectedProject.value
 
-  Object.assign(ef, { name: p.name, code: p.code, client_name: p.client_name || '', manager_id: p.manager_id || null, priority: p.priority, sla_level: p.sla_level || 'standard', profit_weight: p.profit_weight, start_date: p.start_date ? dayjs(p.start_date) : null, end_date: p.end_date ? dayjs(p.end_date) : null })
+  Object.assign(ef, { name: p.name, code: p.code, client_name: p.client_name || '', manager_id: p.manager_id || null, priority: p.priority, start_date: p.start_date ? dayjs(p.start_date) : null, end_date: p.end_date ? dayjs(p.end_date) : null })
 
   editOpen.value = true
 

@@ -17,10 +17,11 @@ def reschedule(db: Session, data: RescheduleRequest) -> dict:
 def _local_repair(db: Session, data: RescheduleRequest) -> dict:
     if data.affected_task_id:
         task = db.query(Task).filter(Task.id == data.affected_task_id).first()
-        if task:
+        if task and task.status not in {"running", "done", "completed"}:
             db.query(TimeSlot).filter(
                 TimeSlot.task_id == data.affected_task_id,
                 TimeSlot.tier.in_(["confirmed", "forecast"]),
+                TimeSlot.status.in_(["scheduled", "blocked"]),
             ).delete()
             task.status = "pending"
             db.commit()
@@ -30,12 +31,13 @@ def _local_repair(db: Session, data: RescheduleRequest) -> dict:
 def _project_reschedule(db: Session, data: RescheduleRequest) -> dict:
     if data.affected_task_id:
         task = db.query(Task).filter(Task.id == data.affected_task_id).first()
-        if task:
+        if task and task.status not in {"running", "done", "completed"}:
             db.query(TimeSlot).filter(
                 TimeSlot.task_id.in_(
                     db.query(Task.id).filter(Task.project_id == task.project_id)
                 ),
                 TimeSlot.tier.in_(["confirmed", "forecast"]),
+                TimeSlot.status.in_(["scheduled", "blocked"]),
             ).delete()
             db.query(Task).filter(
                 Task.project_id == task.project_id,
@@ -48,7 +50,8 @@ def _project_reschedule(db: Session, data: RescheduleRequest) -> dict:
 
 def _global_reschedule(db: Session) -> dict:
     db.query(TimeSlot).filter(
-        TimeSlot.tier.in_(["confirmed", "forecast"])
+        TimeSlot.tier.in_(["confirmed", "forecast"]),
+        TimeSlot.status.in_(["scheduled", "blocked"]),
     ).delete()
     db.query(Task).filter(Task.status == "scheduled").update({"status": "pending"})
     db.commit()

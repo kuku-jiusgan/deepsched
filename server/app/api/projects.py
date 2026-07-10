@@ -1,11 +1,17 @@
-﻿from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from app.core.database import get_db
 from app.models import Project, Milestone, Task, TaskDependency, TaskCapabilityRequirement, TimeSlot
 from app.schemas.schemas import (
-    ProjectCreate, ProjectOut, TaskCreate, TaskOut,
+    ProjectCreate, ProjectOut, TaskCreate, TaskUpdate, TaskOut,
     MilestoneCreate, MilestoneOut, TaskCapabilityReqOut
+)
+from app.services.project_plan_change_service import (
+    PlanChangeInvalidError,
+    PlanChangeNotFoundError,
+    update_project_plan,
+    update_task_plan,
 )
 
 router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
@@ -14,7 +20,7 @@ router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
     proj = Project(
         name=data.name, code=data.code, client_name=data.client_name,
-        priority=data.priority, sla_level=data.sla_level, profit_weight=data.profit_weight, manager_id=data.manager_id,
+        priority=data.priority, manager_id=data.manager_id,
         start_date=data.start_date, end_date=data.end_date
     )
     db.add(proj)
@@ -35,22 +41,12 @@ def get_project(proj_id: int, db: Session = Depends(get_db)):
 
 @router.put("/{proj_id}", response_model=ProjectOut)
 def update_project(proj_id: int, data: ProjectCreate, db: Session = Depends(get_db)):
-    proj = db.query(Project).filter(Project.id == proj_id).first()
-    if not proj:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    proj.name = data.name
-    proj.code = data.code
-    proj.client_name = data.client_name
-    proj.priority = data.priority
-    proj.sla_level = data.sla_level
-    proj.profit_weight = data.profit_weight
-    proj.manager_id = data.manager_id
-    proj.start_date = data.start_date
-    proj.end_date = data.end_date
-    db.commit()
-    db.refresh(proj)
-    return proj
-
+    try:
+        return update_project_plan(db, proj_id, data)
+    except PlanChangeNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PlanChangeInvalidError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 @router.delete("/{proj_id}")
 def delete_project(proj_id: int, db: Session = Depends(get_db)):
     proj = db.query(Project).filter(Project.id == proj_id).first()
@@ -114,29 +110,13 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
     return {"detail": "已删除"}
 
 @router.put("/tasks/{task_id}", response_model=TaskOut)
-def update_task(task_id: int, data: TaskCreate, db: Session = Depends(get_db)):
-    task = db.query(Task).filter(Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
-    task.name = data.name
-    task.task_type = data.task_type
-    task.requires_instrument = data.requires_instrument
-    task.requires_human = data.requires_human
-    task.est_duration_hours = data.est_duration_hours
-    task.switchover_hours = data.switchover_hours
-    task.assignee_id = data.assignee_id
-    task.parent_id = data.parent_id
-    task.allow_split = data.allow_split
-    task.allow_transfer = data.allow_transfer
-    task.milestone_id = data.milestone_id
-    task.priority_weight = data.priority_weight
-    task.instrument_ids = data.instrument_ids
-    db.query(TaskDependency).filter(TaskDependency.task_id == task_id).delete()
-    for pred_id in data.predecessor_ids:
-        db.add(TaskDependency(task_id=task_id, predecessor_id=pred_id))
-    db.commit()
-    db.refresh(task)
-    return _task_to_out(task, db)
+def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db)):
+    try:
+        return _task_to_out(update_task_plan(db, task_id, data), db)
+    except PlanChangeNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PlanChangeInvalidError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 @router.get("/{proj_id}/dag")
 def get_project_dag(proj_id: int, db: Session = Depends(get_db)):
     tasks = db.query(Task).filter(Task.project_id == proj_id).all()
@@ -156,7 +136,9 @@ def _task_to_out(task: Task, db: Session) -> TaskOut:
         id=task.id, project_id=task.project_id, name=task.name,
         task_type=task.task_type, requires_instrument=task.requires_instrument,
         requires_human=task.requires_human, est_duration_hours=task.est_duration_hours,
-        switchover_hours=task.switchover_hours, status=task.status,
+        switchover_hours=task.switchover_hours, allow_split=task.allow_split, status=task.status,
+        schedule_dirty=bool(task.schedule_dirty), schedule_lock_status=task.schedule_lock_status,
+        can_edit_schedule_fields=task.can_edit_schedule_fields,
         earliest_start=task.earliest_start, latest_due=task.latest_due,
         priority_weight=task.priority_weight,
         instrument_ids=task.instrument_ids or [], predecessor_ids=preds,

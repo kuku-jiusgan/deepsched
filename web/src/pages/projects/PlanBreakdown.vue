@@ -12,13 +12,19 @@
           <a-descriptions-item label="项目编号">{{ project.code }}</a-descriptions-item>
           <a-descriptions-item label="客户">{{ project.client_name || '-' }}</a-descriptions-item>
           <a-descriptions-item label="负责人">{{ project.manager_name || '-' }}</a-descriptions-item>
-          <a-descriptions-item label="优先级"><a-tag :color="project.priority >= 5 ? '#dc2626' : project.priority >= 3 ? '#ea580c' : '#2563eb'">{{ project.priority }}</a-tag></a-descriptions-item>
+          <a-descriptions-item label="项目优先级"><a-tag :color="priorityColor(project.priority)">{{ priorityLabel(project.priority) }}</a-tag></a-descriptions-item>
           <a-descriptions-item label="开始日期">{{ project.start_date ? dayjs(project.start_date).format('YYYY-MM-DD') : '-' }}</a-descriptions-item>
           <a-descriptions-item label="结题日期">{{ project.end_date ? dayjs(project.end_date).format('YYYY-MM-DD') : '-' }}</a-descriptions-item>
-          <a-descriptions-item label="SLA">{{ slaLabels[project.sla_level || 'standard'] }}</a-descriptions-item>
-          <a-descriptions-item label="利润权重">{{ project.profit_weight }}</a-descriptions-item>
         </a-descriptions>
       </div>
+      <a-alert
+        v-if="hasPendingPlanChanges"
+        type="warning"
+        showIcon
+        message="计划已修改，待重新排程"
+        description="当前甘特图仍保留原排程；只有点击“保存并开始排程”后才会应用新计划。"
+        style="margin-bottom: 16px"
+      />
       <div class="action-bar">
         <a-button type="primary" @click="openAddTask(null)"><PlusOutlined /> 添加顶级任务</a-button>
         <span style="margin-left: 8px; font-size: 12px; color: #94a3b8">点击左侧 &gt; 展开/收起子任务</span>
@@ -29,7 +35,7 @@
         <a-table-column title="任务名称" dataIndex="name" key="name">
           <template #default="{ record }">
             <span :style="{ fontWeight: record.children?.length ? 600 : 400 }">{{ record.name }}</span>
-            
+              <a-tag v-if="record.schedule_dirty" color="orange" style="margin-left: 8px">待重新排程</a-tag>
           </template>
         </a-table-column>
         <a-table-column title="类型" key="task_type" width="120">
@@ -91,7 +97,7 @@
       <a-form layout="vertical" :labelCol="{ style: { paddingBottom: 0 } }">
         <a-row :gutter="12">
           <a-col :span="12">
-            <a-form-item label="父任务"><a-select v-model:value="tf.parent_id" :options="parentTaskOptions" placeholder="顶级任务" allowClear :disabled="!!parentTaskId" size="small" /></a-form-item>
+            <a-form-item label="父任务"><a-select v-model:value="tf.parent_id" :options="parentTaskOptions" placeholder="顶级任务" allowClear :disabled="!!parentTaskId || !canEditScheduleFields" size="small" /></a-form-item>
           </a-col>
           <a-col :span="12">
             <a-form-item label="任务名称" required><a-input v-model:value="tf.name" placeholder="输入名称" size="small" /></a-form-item>
@@ -99,41 +105,49 @@
         </a-row>
         <a-row v-if="!isEditingParent" :gutter="12">
           <a-col :span="6">
-            <a-form-item label="任务类型" required><a-select v-model:value="tf.task_type" :options="taskTypeOptions" placeholder="选择" size="small" /></a-form-item>
+            <a-form-item label="任务类型" required><a-select v-model:value="tf.task_type" :options="taskTypeOptions" placeholder="选择" :disabled="!canEditScheduleFields" size="small" /></a-form-item>
           </a-col>
           <a-col :span="6">
             <a-form-item label="负责人" required><a-select v-model:value="tf.assignee_id" :options="userOptions" placeholder="选择" allowClear size="small" /></a-form-item>
           </a-col>
           <a-col :span="6">
-            <a-form-item label="耗时(h)" required><a-input-number v-model:value="tf.est_duration_hours" :min="0.5" :step="0.5" :max="999" size="small" style="width: 100%" /></a-form-item>
+            <a-form-item label="耗时(h)" required><a-input-number v-model:value="tf.est_duration_hours" :min="0.5" :step="0.5" :max="999" :disabled="!canEditScheduleFields" size="small" style="width: 100%" /></a-form-item>
           </a-col>
           <a-col :span="6">
-            <a-form-item label="切换(h)"><a-input-number v-model:value="tf.switchover_hours" :min="0" :step="0.5" :max="99" size="small" style="width: 100%" /></a-form-item>
+            <a-form-item label="切换(h)"><a-input-number v-model:value="tf.switchover_hours" :min="0" :step="0.5" :max="99" :disabled="!canEditScheduleFields" size="small" style="width: 100%" /></a-form-item>
           </a-col>
         </a-row>
         <a-row v-if="!isEditingParent" :gutter="12">
           <a-col :span="12">
-            <a-form-item label="前置任务"><a-select v-model:value="tf.predecessor_ids" mode="multiple" :options="leafTaskOptions" placeholder="可多选" allowClear size="small" /></a-form-item>
+            <a-form-item label="前置任务"><a-select v-model:value="tf.predecessor_ids" mode="multiple" :options="leafTaskOptions" placeholder="可多选" allowClear :disabled="!canEditScheduleFields" size="small" /></a-form-item>
           </a-col>
           <a-col :span="12">
             <a-form-item label="指定仪器">
-              <a-select v-model:value="tf.instrument_ids" mode="multiple" :options="instrumentOptions" placeholder="选择仪器" allowClear size="small" style="width: 100%" />
+              <a-select v-model:value="tf.instrument_ids" mode="multiple" :options="instrumentOptions" placeholder="选择仪器" allowClear :disabled="!canEditScheduleFields" size="small" style="width: 100%" />
             </a-form-item>
           </a-col>
         </a-row>
       </a-form>
     </a-modal>
+    <PlanInsertPreviewModal
+      :open="insertPreviewOpen"
+      :confirming="confirmingInsert"
+      :result="insertPreview"
+      @confirm="handleConfirmInsert"
+      @cancel="handleCancelInsert"
+    />
   </div>
 </template>
-
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
+import { isAxiosError } from 'axios'
 import { PlusOutlined, EditOutlined, LeftOutlined, DeleteOutlined, PlayCircleOutlined } from '@ant-design/icons-vue'
-import { getProject, getProjectDAG, addTask, updateTask, deleteTask, getUsers, getTaskTypes, getInstruments, generateSchedule, type Project, type Task, type DAGData, type TaskTypeConfig } from '@/services/api'
+import { getProject, getProjectDAG, addTask, updateTask, deleteTask, getUsers, getTaskTypes, getInstruments, applyProjectPlan, confirmProjectPlanInsert, type Project, type Task, type DAGData, type TaskTypeConfig } from '@/services/api'
+import type { ProjectPlanApplyResult } from '@/types'
+import PlanInsertPreviewModal from './components/PlanInsertPreviewModal.vue'
 import dayjs from 'dayjs'
-
 const router = useRouter()
 const route = useRoute()
 const projectId = Number(route.query.id)
@@ -143,6 +157,9 @@ const allTasks = ref<Task[]>([])
 const loading = ref(true)
 const taskOpen = ref(false)
 const editingTask = ref<Task | null>(null)
+const insertPreview = ref<ProjectPlanApplyResult | null>(null)
+const insertPreviewOpen = ref(false)
+const confirmingInsert = ref(false)
 const parentTaskId = ref<number | null>(null)
 const taskTypeOptions = ref<{ label: string; value: string; resource_type: string }[]>([])
 const taskTypeMap = ref<Record<string, TaskTypeConfig>>({})
@@ -153,12 +170,16 @@ const instrumentCodeMap = computed(() => {
   instrumentOptions.value.forEach(instrument => { map[instrument.value] = instrument.label })
   return map
 })
-
 const tf = reactive({ name: '', task_type: '', est_duration_hours: 8, switchover_hours: 0.5, predecessor_ids: [] as number[], instrument_ids: [] as number[], assignee_id: null as number | null, parent_id: null as number | null })
-
 const statusLabels: Record<string, string> = { active: '进行中', completed: '已完成', pending: '待启动', suspended: '已暂停', cancelled: '已取消', draft: '草稿' }
-const slaLabels: Record<string, string> = { standard: '标准', expedited: '加急', rush: '特急' }
-
+function priorityLabel(priority: number) {
+  return priority === 1 ? '一级（最高）' : priority === 2 ? '二级' : '三级'
+}
+function priorityColor(priority: number) {
+  if (priority === 1) return '#dc2626'
+  if (priority === 2) return '#ea580c'
+  return '#2563eb'
+}
 const capTagOptions = [
   { label: '离子源', value: '离子源' }, { label: '质量分析器', value: '质量分析器' },
   { label: '方法类型', value: '方法类型' }, { label: '灵敏度等级', value: '灵敏度等级' },
@@ -169,10 +190,8 @@ const capValOpts: Record<string, { label: string; value: string }[]> = {
   '方法类型': [{ label: '基因毒杂质', value: '基因毒杂质' }, { label: '有关物质', value: '有关物质' }, { label: '含量测定', value: '含量测定' }],
   '灵敏度等级': [{ label: '痕量', value: '痕量' }, { label: '常量', value: '常量' }],
 }
-
 function getCapValueOpts(tagName: string) { return capValOpts[tagName] || [] }
 function goBack() { router.push('/projects/ledger') }
-
 function getTaskTypeName(code: string) { return taskTypeMap.value[code]?.name || code }
 function getTaskTypeColor(code: string) {
       const m: Record<string, string> = { FFKF_001: '#8b5cf6', QCFA_001: '#f59e0b', FFYZ_001: '#10b981', SJCL_001: '#3b82f6', ZXBG_001: '#ef4444' }
@@ -186,21 +205,17 @@ function getAssigneeName(id: number | null | undefined) {
   if (!id) return null
   return userOptions.value.find(u => u.value === id)?.label || null
 }
-
 function getInstrumentCode(id: number) {
   return instrumentCodeMap.value[id] || `ID ${id}`
 }
-
 function getTaskInstrumentIds(task: Task): number[] {
   if (!task.children || task.children.length === 0) return task.instrument_ids || []
   const ids = task.children.flatMap(child => getTaskInstrumentIds(child))
   return Array.from(new Set(ids))
 }
-
 function getInstrumentSummary(task: Task) {
   return getTaskInstrumentIds(task).map(getInstrumentCode).join('、')
 }
-
 function buildTree(tasks: Task[]): Task[] {
   const map = new Map<number, Task>()
   const roots: Task[] = []
@@ -215,10 +230,8 @@ function buildTree(tasks: Task[]): Task[] {
   })
   return roots
 }
-
 const treeTasks = computed(() => buildTree(allTasks.value))
 const flatTaskCount = computed(() => allTasks.value.length)
-
 function countLeaves(nodes: Task[]): number {
   let count = 0
   for (const n of nodes) {
@@ -228,18 +241,18 @@ function countLeaves(nodes: Task[]): number {
   return count
 }
 const leafTaskCount = computed(() => countLeaves(treeTasks.value))
-
 function sumChildrenHours(task: Task): number {
   if (!task.children || task.children.length === 0) return task.est_duration_hours || 0
   return task.children.reduce((s, c) => s + sumChildrenHours(c), 0)
 }
-
 function isParentTask(id: number): boolean { return allTasks.value.some(t => t.parent_id === id) }
 const isEditingParent = computed(() => editingTask.value ? isParentTask(editingTask.value.id) : false)
-
+const canEditScheduleFields = computed(() => editingTask.value?.can_edit_schedule_fields !== false)
+const hasPendingPlanChanges = computed(() => allTasks.value.some(task =>
+  task.schedule_dirty || ['pending', 'ready'].includes(task.status),
+))
 const parentTaskOptions = computed(() => allTasks.value.filter(t => !editingTask.value || t.id !== editingTask.value.id).map(t => ({ label: t.name, value: t.id })))
 const leafTaskOptions = computed(() => allTasks.value.filter(t => !t.children || t.children.length === 0).map(t => ({ label: t.name, value: t.id })))
-
 async function fetchProject() {
   loading.value = true
   try {
@@ -248,19 +261,16 @@ async function fetchProject() {
   } catch { message.error('加载项目失败') }
   finally { loading.value = false }
 }
-
 function openAddTask(parentId: number | null) {
   editingTask.value = null; parentTaskId.value = parentId
   Object.assign(tf, { name: '', task_type: taskTypeOptions.value[0]?.value || '', est_duration_hours: 8, switchover_hours: 0.5, predecessor_ids: [], instrument_ids: [], assignee_id: null, parent_id: parentId })
   taskOpen.value = true
 }
-
 function openEditTask(t: Task) {
   editingTask.value = t; parentTaskId.value = null
   Object.assign(tf, { name: t.name, task_type: t.task_type, est_duration_hours: t.est_duration_hours || 8, switchover_hours: t.switchover_hours, predecessor_ids: t.predecessor_ids || [], instrument_ids: t.instrument_ids || [], assignee_id: t.assignee_id || null, parent_id: t.parent_id || null })
   taskOpen.value = true
 }
-
 async function handleTaskSubmit() {
   if (!project.value) return
   if (!tf.name) { message.error('请输入任务名称'); return }
@@ -278,30 +288,26 @@ async function handleTaskSubmit() {
     parent_id: tf.parent_id, instrument_ids: isParent ? [] : tf.instrument_ids,
   }
   try {
-    if (editingTask.value) { await updateTask(editingTask.value.id, payload as any); message.success('任务更新成功') }
-    else { await addTask(project.value.id, payload as any); message.success('任务添加成功') }
+    if (editingTask.value) { await updateTask(editingTask.value.id, payload); message.success('任务更新成功') }
+    else { await addTask(project.value.id, payload); message.success('任务添加成功') }
     taskOpen.value = false; editingTask.value = null
     await fetchProject()
-  } catch { message.error('操作失败') }
+  } catch (error: unknown) { message.error(errorDetail(error, '操作失败')) }
 }
-
 async function handleDeleteTask(taskId: number) {
   try { await deleteTask(taskId); message.success('任务已删除'); await fetchProject() }
   catch { message.error('删除失败') }
 }
-
 async function loadInstruments() {
   try {
     const insts = await getInstruments({ include_unavailable: true })
     instrumentOptions.value = insts.map(i => ({ label: i.code, value: i.id }))
   } catch (e) { console.error("loadInstruments failed:", e) }
 }
-
 async function loadUsers() {
   try { const users = await getUsers(); userOptions.value = users.filter(u => u.is_active).map(u => ({ label: u.display_name, value: u.id })) }
   catch { console.error('loadUsers failed') }
 }
-
 async function loadTaskTypes() {
   try {
     const types = await getTaskTypes(); const active = types.filter(t => t.is_active)
@@ -309,25 +315,53 @@ async function loadTaskTypes() {
     taskTypeMap.value = {}; active.forEach(t => { taskTypeMap.value[t.code] = t })
   } catch { console.error('loadTaskTypes failed') }
 }
-
 const scheduling = ref(false)
-
 async function handleStartSchedule() {
   scheduling.value = true
   try {
-    const r = await generateSchedule()
-    if (r.status === 'ok') message.success(r.message || '排程完成')
-    else Modal.error({ title: '排程失败', content: r.message || '请检查任务、仪器和项目时间配置。' })
-  } catch { Modal.error({ title: '排程请求失败', content: '服务器内部错误，请稍后重试。' }) }
-  finally { scheduling.value = false }
+    const result = await applyProjectPlan(projectId)
+    if (result.status === 'applied') {
+      message.success(result.message || '排程完成')
+      await fetchProject()
+    } else if (result.status === 'no_changes') {
+      message.info(result.message || '当前没有需要重新排程的任务')
+    } else if (result.status === 'insert_confirmation_required') {
+      insertPreview.value = result
+      insertPreviewOpen.value = true
+    } else {
+      Modal.error({ title: '排程失败', content: result.message || '当前计划无法在已有排程中安排。' })
+    }
+  } catch (error: unknown) {
+    Modal.error({ title: '排程请求失败', content: errorDetail(error, '服务器内部错误，请稍后重试。') })
+  } finally { scheduling.value = false }
 }
-
+async function handleConfirmInsert() {
+  const previewToken = insertPreview.value?.preview_token
+  if (!previewToken) return
+  confirmingInsert.value = true
+  try {
+    const result = await confirmProjectPlanInsert(projectId, previewToken)
+    message.success(result.message || '插单排程完成')
+    insertPreviewOpen.value = false
+    insertPreview.value = null
+    await fetchProject()
+  } catch (error: unknown) {
+    message.error(errorDetail(error, '插单确认失败，请重新计算影响'))
+  } finally { confirmingInsert.value = false }
+}
+function handleCancelInsert() {
+  insertPreviewOpen.value = false
+  insertPreview.value = null
+}
+function errorDetail(error: unknown, fallback: string) {
+  if (isAxiosError<{ detail?: string }>(error)) return error.response?.data?.detail || fallback
+  return fallback
+}
 onMounted(async () => {
   if (!projectId) { message.error('缺少项目ID'); router.push('/projects/ledger'); return }
   await loadTaskTypes(); await Promise.all([fetchProject(), loadUsers(), loadInstruments()])
 })
 </script>
-
 <style scoped>
 .project-info { margin-bottom: 16px; }
 .instrument-tag-list {
@@ -335,7 +369,6 @@ onMounted(async () => {
   flex-wrap: wrap;
   gap: 4px;
 }
-
 .instrument-tag {
   margin: 0;
   white-space: nowrap;

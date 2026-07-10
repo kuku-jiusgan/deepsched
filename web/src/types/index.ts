@@ -4,9 +4,7 @@ export interface Project {
   code: string;
   client_name?: string;
   priority: number;
-  sla_level?: string;
   status: string;
-  profit_weight: number;
   manager_id?: number | null;
   manager_name?: string;
   start_date?: string;
@@ -24,9 +22,13 @@ export interface Task {
   est_duration_hours?: number;
   switchover_hours: number;
   status: string;
+  schedule_dirty: boolean;
+  schedule_lock_status: 'none' | 'frozen' | 'running' | 'completed';
+  can_edit_schedule_fields: boolean;
   earliest_start?: string;
   latest_due?: string;
   priority_weight: number;
+  allow_split?: boolean;
   instrument_ids: number[];
   predecessor_ids: number[];
   assignee_id: number | null;
@@ -102,6 +104,7 @@ export interface TimeSlot {
   project_code?: string | null;
   project_name?: string;
   instrument_name?: string;
+  instrument_code?: string;
   assignee_name?: string;
   project_id?: number | null;
   delay_hours?: number | null;
@@ -138,9 +141,42 @@ export interface DAGData {
   edges: { from: number; to: number }[];
 }
 
+export interface InsertOrderImpact {
+  task_id: number;
+  task_name: string;
+  project_id: number;
+  project_name: string;
+  is_insert_task: boolean;
+  original_start: string | null;
+  original_end: string | null;
+  new_start: string;
+  new_end: string;
+  delay_hours: number;
+}
+
+export type ProjectPlanApplyStatus = 'applied' | 'no_changes' | 'insert_confirmation_required' | 'error';
+
+export interface ProjectPlanApplyResult {
+  status: ProjectPlanApplyStatus;
+  message?: string;
+  project_id: number;
+  schedule_run_id?: string | null;
+  timeslots_created: number;
+  moved_tasks: number;
+  conflicts_checked: boolean;
+  preview_token?: string | null;
+  impacts: InsertOrderImpact[];
+}
+
 export interface InsertCost {
-  displaced_tasks: { task_id: number; task_name: string; project_name: string; original_start: string; delay_hours: number }[];
-  affected_projects: { name: string }[];
-  milestone_violations: { project: string; milestone: string; days_late: number }[];
+  status: string;
+  schedule_run_id: string;
+  timeslots_created: number;
   total_delay_hours: number;
+  impacts: InsertOrderImpact[];
+}
+
+export interface InsertOrderResult extends InsertCost {
+  moved_tasks: number;
+  conflicts_checked: boolean;
 }

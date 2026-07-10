@@ -5,6 +5,21 @@ def ensure_runtime_schema(engine) -> None:
     inspector = inspect(engine)
     table_names = inspector.get_table_names()
 
+    if "project" in table_names:
+        project_columns = {column["name"] for column in inspector.get_columns("project")}
+        obsolete_columns = project_columns & {"sla_level", "profit_weight"}
+        with engine.begin() as connection:
+            for column_name in sorted(obsolete_columns):
+                connection.execute(text(f"ALTER TABLE project DROP COLUMN {column_name}"))
+            connection.execute(text("UPDATE project SET priority = 1 WHERE priority IS NULL OR priority < 1"))
+            connection.execute(text("UPDATE project SET priority = 3 WHERE priority > 3"))
+    if "task" in table_names:
+        task_columns = {column["name"] for column in inspector.get_columns("task")}
+        if "schedule_dirty" not in task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE task ADD COLUMN schedule_dirty BOOLEAN DEFAULT 0"))
+                connection.execute(text("UPDATE task SET schedule_dirty = 0 WHERE schedule_dirty IS NULL"))
+
     if "instrument_fault" in table_names:
         fault_columns = {column["name"] for column in inspector.get_columns("instrument_fault")}
         if "estimated_resolved_at" not in fault_columns:

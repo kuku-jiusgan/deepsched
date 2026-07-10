@@ -1,7 +1,7 @@
-﻿import axios from 'axios';
+import axios from 'axios';
 import type {
-  Project, Instrument, TimeSlot, DashboardData, UtilizationStats,
-  DAGData, InsertCost, Task, CapabilityReq, InstrumentFault,
+  Project, Instrument, TimeSlot, DashboardData, UtilizationStats, ProjectPlanApplyResult,
+  DAGData, InsertCost, InsertOrderResult, Task, CapabilityReq, InstrumentFault,
 } from '@/types';
 
 export type {
@@ -60,7 +60,7 @@ export const getProjectDAG = (id: number): Promise<DAGData> =>
 
 export const addTask = (projId: number, data: {
   name: string; task_type: string; requires_instrument: boolean;
-  est_duration_hours: number; switchover_hours: number;
+  est_duration_hours: number | null; switchover_hours: number;
   predecessor_ids: number[]; instrument_ids: number[];
 }): Promise<Task> =>
   api.post<Task>(`/projects/${projId}/tasks`, data).then(r => r.data);
@@ -69,11 +69,24 @@ export const addTask = (projId: number, data: {
 export const deleteTask = (id: number): Promise<void> =>
   api.delete(`/projects/tasks/${id}`)
 
-export const updateTask = (taskId: number, data: {
-  name: string; task_type: string; requires_instrument: boolean;
-  est_duration_hours: number; switchover_hours: number;
-  predecessor_ids: number[]; instrument_ids: number[];
-}): Promise<Task> =>
+export interface TaskUpdatePayload {
+  name?: string
+  task_type?: string
+  requires_instrument?: boolean
+  requires_human?: boolean
+  est_duration_hours?: number | null
+  switchover_hours?: number
+  allow_split?: boolean
+  allow_transfer?: boolean
+  milestone_id?: number | null
+  priority_weight?: number
+  predecessor_ids?: number[]
+  instrument_ids?: number[]
+  assignee_id?: number | null
+  parent_id?: number | null
+}
+
+export const updateTask = (taskId: number, data: TaskUpdatePayload): Promise<Task> =>
   api.put<Task>(`/projects/tasks/${taskId}`, data).then(r => r.data);
 
 // Instruments
@@ -129,7 +142,16 @@ export const getTimeslots = (params?: Record<string, unknown>): Promise<TimeSlot
   api.get<TimeSlot[]>('/schedules/timeslots', { params }).then(r => r.data);
 
 export const generateSchedule = (projectIds?: number[]): Promise<{ status: string; message?: string }> =>
-  api.post('/schedules/generate', { project_ids: projectIds }).then(r => r.data);
+  api.post('/schedules/generate', { project_ids: projectIds, mode: 'normal' }).then(r => r.data);
+
+export const applyProjectPlan = (projectId: number): Promise<ProjectPlanApplyResult> =>
+  api.post<ProjectPlanApplyResult>('/schedules/apply-project-plan', { project_id: projectId }).then(r => r.data)
+
+export const confirmProjectPlanInsert = (projectId: number, previewToken: string): Promise<ProjectPlanApplyResult> =>
+  api.post<ProjectPlanApplyResult>('/schedules/apply-project-plan/confirm-insert', {
+    project_id: projectId,
+    preview_token: previewToken,
+  }).then(r => r.data)
 
 export const startTask = (slotId: number): Promise<{ status: string }> =>
   api.post(`/schedules/timeslots/${slotId}/start`).then(r => r.data);
@@ -183,11 +205,17 @@ export interface TaskDelayResponse {
 export const reportTaskDelay = (slotId: number, data: TaskDelayRequest): Promise<TaskDelayResponse> =>
   api.post<TaskDelayResponse>(`/schedules/timeslots/${slotId}/delay`, data).then(r => r.data)
 
-export const calculateInsertCost = (data: { project_id: number; task_ids: number[] }): Promise<InsertCost> =>
+export interface InsertOrderRequest {
+  project_id: number
+  task_ids: number[]
+  priority_override?: number
+}
+
+export const calculateInsertCost = (data: InsertOrderRequest): Promise<InsertCost> =>
   api.post<InsertCost>('/schedules/insert-order', data).then(r => r.data);
 
-export const confirmInsert = (data: { project_id: number; task_ids: number[] }): Promise<{ status: string }> =>
-  api.post('/schedules/insert-order/confirm', data).then(r => r.data);
+export const confirmInsert = (data: InsertOrderRequest): Promise<InsertOrderResult> =>
+  api.post<InsertOrderResult>('/schedules/insert-order/confirm', data).then(r => r.data);
 
 export const reschedule = (data: { trigger_type: string; strategy: string }): Promise<{ status: string }> =>
   api.post('/schedules/reschedule', data).then(r => r.data);

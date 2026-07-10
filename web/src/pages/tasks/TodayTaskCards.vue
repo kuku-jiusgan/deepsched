@@ -75,11 +75,26 @@
             style="width: 100%"
           />
         </a-form-item>
-        <a-form-item label="最早开始时间">
-          <a-input v-model:value="autoSequenceForm.earliestStart" />
+        <a-form-item label="开始时间">
+          <a-time-picker
+            v-model:value="selectedStartTime"
+            format="HH:mm"
+            value-format="HH:mm"
+            :minute-step="30"
+            style="width: 100%"
+          />
         </a-form-item>
-        <a-form-item label="最晚结束时间">
-          <a-input v-model:value="autoSequenceForm.latestEnd" />
+        <a-form-item label="结束时间" extra="根据开始时间和夜间运行时长自动推断，可调整">
+          <a-time-picker
+            v-model:value="selectedEndTime"
+            format="HH:mm"
+            value-format="HH:mm"
+            :minute-step="30"
+            style="width: 100%"
+          />
+          <div v-if="endTimeDisplayLabel" class="night-run-time-hint">
+            实际结束：{{ endTimeDisplayLabel }}
+          </div>
         </a-form-item>
         <a-form-item label="是否需要人在场启动">
           <a-radio-group v-model:value="autoSequenceForm.requiresOperator">
@@ -120,7 +135,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { getScheduleRules, recordNightRun, reportTaskDelay, type MyTask } from '@/services/api'
 import dayjs from 'dayjs'
@@ -166,8 +181,8 @@ interface TodayCardGroup {
 
 interface AutoSequenceForm {
   durationHours: number
-  earliestStart: string
-  latestEnd: string
+  startTime: string
+  endTime: string
   requiresOperator: boolean
   remark: string
 }
@@ -203,8 +218,8 @@ const delaySubmitting = ref(false)
 const selectedCard = ref<TodayTaskCard | null>(null)
 const autoSequenceForm = reactive<AutoSequenceForm>({
   durationHours: DEFAULT_SEQUENCE_DURATION_HOURS,
-  earliestStart: DEFAULT_NIGHT_START,
-  latestEnd: NIGHT_RESERVE_END,
+  startTime: DEFAULT_NIGHT_START,
+  endTime: NIGHT_RESERVE_END,
   requiresOperator: false,
   remark: '',
 })
@@ -232,13 +247,41 @@ const todayCardGroups = computed<TodayCardGroup[]>(() => {
 })
 
 const nightRunMaxHours = computed(() => {
-  return maxNightRunHours(autoSequenceForm.earliestStart, autoSequenceForm.latestEnd)
+  return maxNightRunHours(autoSequenceForm.startTime, NIGHT_RESERVE_END)
+})
+
+const selectedNightRunHours = computed(() => {
+  return maxNightRunHours(autoSequenceForm.startTime, autoSequenceForm.endTime)
 })
 
 const nightRunDurationHint = computed(() => {
-  if (!nightRunMaxHours.value) return '请填写有效的最早开始时间和最晚结束时间'
-  return `最多 ${formatHours(nightRunMaxHours.value)} 小时`
+  if (!nightRunMaxHours.value) return '请选择有效的开始时间'
+  return `结束时间将自动推断，最晚可运行至 ${NIGHT_RESERVE_END}`
 })
+
+const selectedStartTime = computed<string | null>({
+  get: () => autoSequenceForm.startTime || null,
+  set: value => {
+    autoSequenceForm.startTime = value || ''
+    syncEndTimeWithDuration()
+  },
+})
+
+const selectedEndTime = computed<string | null>({
+  get: () => formatPickerTime(autoSequenceForm.endTime),
+  set: value => {
+    autoSequenceForm.endTime = formatStoredEndTime(value || '')
+  },
+})
+
+const endTimeDisplayLabel = computed(() => formatNightDisplayLabel(autoSequenceForm.endTime))
+
+watch(
+  () => autoSequenceForm.durationHours,
+  () => {
+    if (autoSequenceOpen.value) syncEndTimeWithDuration()
+  },
+)
 
 onMounted(() => {
   fetchWorkingHours()
@@ -441,11 +484,12 @@ function openAutoSequence(card: TodayTaskCard) {
   const savedForm = readNightRunForm(card.task)
   setAutoSequenceForm(savedForm || {
     durationHours: DEFAULT_SEQUENCE_DURATION_HOURS,
-    earliestStart: card.earliestStart,
-    latestEnd: card.latestEnd,
+    startTime: card.earliestStart,
+    endTime: card.latestEnd,
     requiresOperator: false,
     remark: '',
   })
+  syncEndTimeWithDuration()
   autoSequenceOpen.value = true
 }
 
@@ -475,15 +519,19 @@ async function submitAutoSequence() {
     message.warning(`夜间运行时长不能超过 ${formatHours(nightRunMaxHours.value)} 小时`)
     return
   }
+  if (autoSequenceForm.durationHours > selectedNightRunHours.value) {
+    message.warning('结束时间不能早于按夜间运行时长推断的时间')
+    return
+  }
   autoSequenceSubmitting.value = true
   try {
-    await recordNightRun(selectedCard.value.task.slot_id, {
-      duration_hours: autoSequenceForm.durationHours,
-      earliest_start: autoSequenceForm.earliestStart,
-      latest_end: autoSequenceForm.latestEnd,
-      requires_operator: autoSequenceForm.requiresOperator,
-      remark: autoSequenceForm.remark.trim() || undefined,
-    })
+      await recordNightRun(selectedCard.value.task.slot_id, {
+        duration_hours: autoSequenceForm.durationHours,
+        earliest_start: autoSequenceForm.startTime,
+        latest_end: autoSequenceForm.endTime,
+        requires_operator: autoSequenceForm.requiresOperator,
+        remark: autoSequenceForm.remark.trim() || undefined,
+      })
     message.success(`${selectedCard.value.taskText} 已记录为夜间运行`)
     saveNightRunForm(selectedCard.value.task)
     autoSequenceOpen.value = false
@@ -497,8 +545,8 @@ async function submitAutoSequence() {
 
 function setAutoSequenceForm(form: AutoSequenceForm) {
   autoSequenceForm.durationHours = form.durationHours
-  autoSequenceForm.earliestStart = form.earliestStart
-  autoSequenceForm.latestEnd = form.latestEnd
+  autoSequenceForm.startTime = form.startTime
+  autoSequenceForm.endTime = form.endTime
   autoSequenceForm.requiresOperator = form.requiresOperator
   autoSequenceForm.remark = form.remark
 }
@@ -506,8 +554,8 @@ function setAutoSequenceForm(form: AutoSequenceForm) {
 function resetAutoSequenceDraft() {
   setAutoSequenceForm({
     durationHours: DEFAULT_SEQUENCE_DURATION_HOURS,
-    earliestStart: DEFAULT_NIGHT_START,
-    latestEnd: NIGHT_RESERVE_END,
+    startTime: DEFAULT_NIGHT_START,
+    endTime: NIGHT_RESERVE_END,
     requiresOperator: false,
     remark: '',
   })
@@ -524,14 +572,19 @@ function readNightRunForm(task: MyTask): StoredAutoSequenceForm | null {
   try {
     const rawValue = localStorage.getItem(nightRunStorageKey(task))
     if (!rawValue) return null
-    const parsedValue = JSON.parse(rawValue) as Partial<StoredAutoSequenceForm>
+    const parsedValue = JSON.parse(rawValue) as Partial<StoredAutoSequenceForm> & {
+      earliestStart?: string
+      latestEnd?: string
+    }
     if (parsedValue.committed !== true) return null
-    if (!parsedValue.durationHours || !parsedValue.earliestStart || !parsedValue.latestEnd) return null
+    const startTime = parsedValue.startTime || parsedValue.earliestStart
+    const endTime = parsedValue.endTime || parsedValue.latestEnd
+    if (!parsedValue.durationHours || !startTime || !endTime) return null
     return {
       committed: true,
       durationHours: parsedValue.durationHours,
-      earliestStart: parsedValue.earliestStart,
-      latestEnd: parsedValue.latestEnd,
+      startTime,
+      endTime,
       requiresOperator: Boolean(parsedValue.requiresOperator),
       remark: parsedValue.remark || '',
       savedAt: parsedValue.savedAt || dayjs().toISOString(),
@@ -545,8 +598,8 @@ function saveNightRunForm(task: MyTask) {
   const storedForm: StoredAutoSequenceForm = {
     committed: true,
     durationHours: autoSequenceForm.durationHours,
-    earliestStart: autoSequenceForm.earliestStart,
-    latestEnd: autoSequenceForm.latestEnd,
+    startTime: autoSequenceForm.startTime,
+    endTime: autoSequenceForm.endTime,
     requiresOperator: autoSequenceForm.requiresOperator,
     remark: autoSequenceForm.remark,
     savedAt: dayjs().toISOString(),
@@ -557,7 +610,34 @@ function saveNightRunForm(task: MyTask) {
 
 function formatNightRunSummary(form: StoredAutoSequenceForm) {
   const operatorText = form.requiresOperator ? '需人在场启动' : '无需人在场'
-  return `今日夜间运行已填写：${form.earliestStart} - ${form.latestEnd}，${form.durationHours}h，${operatorText}`
+  return `今日夜间运行已填写：${form.startTime} - ${form.endTime}，${form.durationHours}h，${operatorText}`
+}
+
+function syncEndTimeWithDuration() {
+  const start = parseNightClock(dayjs(), autoSequenceForm.startTime)
+  if (!start || !isHalfHourDuration(autoSequenceForm.durationHours)) return
+  autoSequenceForm.endTime = formatStoredEndTime(start.add(autoSequenceForm.durationHours, 'hour').format('HH:mm'), start)
+}
+
+function formatPickerTime(value: string) {
+  return value.replace('次日', '').trim() || null
+}
+
+function formatNightDisplayLabel(value: string) {
+  if (!value) return ''
+  if (value.startsWith('次日')) return value
+  return value
+}
+
+function formatStoredEndTime(value: string, startTime?: dayjs.Dayjs) {
+  if (!value) return ''
+  const start = startTime || parseNightClock(dayjs(), autoSequenceForm.startTime)
+  const end = parseNightClock(start || dayjs(), value)
+  if (!end) return value
+  if (start && end.isAfter(start) && !end.isSame(start, 'day')) {
+    return `次日 ${end.format('HH:mm')}`
+  }
+  return end.format('HH:mm')
 }
 
 async function submitDelayReport() {
@@ -719,6 +799,13 @@ async function submitDelayReport() {
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-sm);
   font-size: 0.84rem;
+}
+
+.night-run-time-hint {
+  margin-top: 6px;
+  color: var(--color-accent);
+  font-size: 0.82rem;
+  font-weight: 600;
 }
 
 .delay-hint {

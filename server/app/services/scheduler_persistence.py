@@ -23,6 +23,8 @@ def persist_slots(
     include_weekends: bool = False,
     include_holidays: bool = False,
     schedule_run_id: str = "legacy",
+    commit: bool = True,
+    split_unit_presences=None,
 ) -> int:
     now = datetime.now()
     frozen_boundary = now + timedelta(days=freeze_days)
@@ -30,6 +32,7 @@ def persist_slots(
         days=get_settings().CONFIRMED_DAYS
     )
     created = 0
+    split_unit_presences = split_unit_presences or {}
 
     for task in tasks:
         assigned_instrument = _assigned_instrument(
@@ -39,6 +42,21 @@ def persist_slots(
             presences,
         )
         if task.requires_instrument and assigned_instrument is None:
+            continue
+
+        if task.allow_split:
+            created += _persist_split_task_slots(
+                db,
+                task,
+                assigned_instrument,
+                solver,
+                split_unit_presences,
+                horizon_start,
+                frozen_boundary,
+                confirmed_boundary,
+                schedule_run_id,
+            )
+            task.status = "scheduled"
             continue
 
         start_unit = solver.Value(task_starts[task.id])
@@ -91,8 +109,65 @@ def persist_slots(
             created += 1
         task.status = "scheduled"
 
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return created
+
+
+def _persist_split_task_slots(
+    db,
+    task,
+    instrument,
+    solver,
+    split_unit_presences,
+    horizon_start,
+    frozen_boundary,
+    confirmed_boundary,
+    schedule_run_id,
+) -> int:
+    selected_units = sorted(
+        unit for (task_id, instrument_id, unit), presence in split_unit_presences.items()
+        if task_id == task.id
+        and instrument_id == instrument.id
+        and solver.Value(presence) == 1
+    )
+    if not selected_units:
+        return 0
+
+    created = 0
+    chunk_start = selected_units[0]
+    previous_unit = selected_units[0]
+    for unit in selected_units[1:]:
+        if unit == previous_unit + 1:
+            previous_unit = unit
+            continue
+        _create_slot(
+            db,
+            task,
+            instrument,
+            horizon_start + timedelta(minutes=chunk_start * TIME_UNIT_MINUTES),
+            horizon_start + timedelta(minutes=(previous_unit + 1) * TIME_UNIT_MINUTES),
+            frozen_boundary,
+            confirmed_boundary,
+            schedule_run_id,
+        )
+        created += 1
+        chunk_start = unit
+        previous_unit = unit
+
+    _create_slot(
+        db,
+        task,
+        instrument,
+        horizon_start + timedelta(minutes=chunk_start * TIME_UNIT_MINUTES),
+        horizon_start + timedelta(minutes=(previous_unit + 1) * TIME_UNIT_MINUTES),
+        frozen_boundary,
+        confirmed_boundary,
+        schedule_run_id,
+    )
+    return created + 1
 
 
 def _assigned_instrument(task, instruments, solver, presences):

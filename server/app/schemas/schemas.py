@@ -1,5 +1,5 @@
-﻿from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, List
+from pydantic import BaseModel, Field, ConfigDict
+from typing import Literal, Optional, List
 from datetime import datetime
 
 # ---- Project ----
@@ -41,6 +41,22 @@ class TaskCreate(BaseModel):
     assignee_id: Optional[int] = None
     parent_id: Optional[int] = None
 
+class TaskUpdate(BaseModel):
+    name: Optional[str] = None
+    task_type: Optional[str] = None
+    requires_instrument: Optional[bool] = None
+    requires_human: Optional[bool] = None
+    est_duration_hours: Optional[float] = None
+    switchover_hours: Optional[float] = None
+    allow_split: Optional[bool] = None
+    allow_transfer: Optional[bool] = None
+    milestone_id: Optional[int] = None
+    priority_weight: Optional[float] = None
+    predecessor_ids: Optional[List[int]] = None
+    instrument_ids: Optional[List[int]] = None
+    assignee_id: Optional[int] = None
+    parent_id: Optional[int] = None
+
 class TaskOut(BaseModel):
     id: int
     project_id: int
@@ -50,7 +66,11 @@ class TaskOut(BaseModel):
     requires_human: bool
     est_duration_hours: Optional[float]
     switchover_hours: float
+    allow_split: bool = False
     status: str
+    schedule_dirty: bool = False
+    schedule_lock_status: Literal["none", "frozen", "running", "completed"] = "none"
+    can_edit_schedule_fields: bool = True
     earliest_start: Optional[datetime]
     latest_due: Optional[datetime]
     priority_weight: float
@@ -70,9 +90,7 @@ class ProjectCreate(BaseModel):
     name: str
     code: str
     client_name: Optional[str] = None
-    priority: int = 0
-    sla_level: Optional[str] = None
-    profit_weight: float = 1.0
+    priority: int = Field(default=3, ge=1, le=3)
     manager_id: Optional[int] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
@@ -83,9 +101,7 @@ class ProjectOut(BaseModel):
     code: str
     client_name: Optional[str]
     priority: int
-    sla_level: Optional[str]
     status: str
-    profit_weight: float
     manager_id: Optional[int] = None
     manager_name: Optional[str] = None
     start_date: Optional[datetime] = None
@@ -180,6 +196,7 @@ class TimeSlotOut(BaseModel):
     project_code: Optional[str] = None
     project_name: Optional[str] = None
     instrument_name: Optional[str] = None
+    instrument_code: Optional[str] = None
     assignee_name: Optional[str] = None
     project_id: Optional[int] = None
     delay_hours: Optional[float] = None
@@ -202,17 +219,59 @@ class TaskStatusUpdate(BaseModel):
 # ---- Schedule ----
 class ScheduleGenerateRequest(BaseModel):
     project_ids: Optional[List[int]] = None
+    mode: Literal["normal"] = "normal"
 
 class InsertOrderRequest(BaseModel):
     project_id: int
     task_ids: List[int]
-    priority_override: Optional[int] = None
+    priority_override: Optional[int] = Field(default=None, ge=1, le=3)
 
-class InsertOrderCost(BaseModel):
-    displaced_tasks: List[dict] = []
-    affected_projects: List[dict] = []
-    milestone_violations: List[dict] = []
+class ProjectPlanApplyRequest(BaseModel):
+    project_id: int
+
+class ProjectPlanInsertConfirmRequest(BaseModel):
+    project_id: int
+    preview_token: str
+
+class ProjectPlanApplyResponse(BaseModel):
+    status: Literal["applied", "no_changes", "insert_confirmation_required", "error"]
+    message: Optional[str] = None
+    project_id: int
+    schedule_run_id: Optional[str] = None
+    timeslots_created: int = 0
+    moved_tasks: int = 0
+    conflicts_checked: bool = False
+    preview_token: Optional[str] = None
+    impacts: List["InsertOrderImpact"] = []
+
+class InsertOrderImpact(BaseModel):
+    task_id: int
+    task_name: str
+    project_id: int
+    project_name: str
+    is_insert_task: bool = False
+    original_start: Optional[datetime] = None
+    original_end: Optional[datetime] = None
+    new_start: datetime
+    new_end: datetime
+    delay_hours: float = 0
+
+class InsertOrderPreview(BaseModel):
+    status: str = "ok"
+    schedule_run_id: str
+    timeslots_created: int = 0
     total_delay_hours: float = 0
+    impacts: List[InsertOrderImpact] = []
+
+class InsertOrderResult(BaseModel):
+    status: str = "ok"
+    schedule_run_id: str
+    timeslots_created: int = 0
+    moved_tasks: int = 0
+    conflicts_checked: bool = False
+    impacts: List[InsertOrderImpact] = []
+
+InsertOrderCost = InsertOrderPreview
 
 class RescheduleRequest(BaseModel):
     trigger_type: str

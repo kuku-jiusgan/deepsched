@@ -1,8 +1,8 @@
-﻿<template>
-  <div class="gantt-page">
+<template>
+  <div class="gantt-page" :class="{ 'is-fullscreen': isFullscreen }">
     <div class="page-header"><h2>项目甘特图</h2></div>
 
-    <div class="action-bar">
+    <div class="action-bar" :class="{ 'is-screen-toolbar': isFullscreen }">
       <a-button-group>
         <a-button :type="viewMode === 'day' ? 'primary' : 'default'" @click="switchView('day')">日</a-button>
         <a-button :type="viewMode === 'week' ? 'primary' : 'default'" @click="switchView('week')">周</a-button>
@@ -13,6 +13,10 @@
       <a-button @click="goNext"><RightOutlined /></a-button>
       <a-button @click="goToday">今天</a-button>
       <a-button @click="fetchData"><ReloadOutlined /> 刷新</a-button>
+      <a-button @click="toggleFullscreen">
+        <component :is="isFullscreen ? FullscreenExitOutlined : FullscreenOutlined" />
+        {{ isFullscreen ? '退出全屏' : '全屏' }}
+      </a-button>
       <a-input v-model:value="filterKeyword" placeholder="搜索项目编号/名称" allowClear style="width: 200px" />
       
     </div>
@@ -60,7 +64,7 @@
               </span>
               <span class="bar-tag"><component :is="getTaskIcon(slot.task_type)" /></span>
               <span class="bar-label">
-                <span class="bar-project">{{ getBarProjectText(slot) }}</span>
+                <span class="bar-instrument">{{ getBarInstrumentText(slot) }}</span>
                 <span class="bar-task">{{ getBarTaskText(slot) }}</span>
               </span>
             </div>
@@ -72,7 +76,7 @@
     <div v-if="hoveredSlot" class="gantt-tooltip" :style="tooltipStyle">
       <div class="tooltip-title">{{ hoveredSlot.task_name }}</div>
       <div class="tooltip-row"><span>工序</span>{{ getTaskTypeLabel(hoveredSlot.task_type) }}</div>
-      <div class="tooltip-row"><span>项目</span>{{ getBarProjectText(hoveredSlot) }}</div>
+      <div class="tooltip-row"><span>所需仪器</span>{{ getBarInstrumentText(hoveredSlot) }}</div>
       <div class="tooltip-row"><span>负责人</span>{{ hoveredSlot.assignee_name || '-' }}</div>
       <div class="tooltip-row"><span>开始</span>{{ dayjs(hoveredSlot.plan_start).format('MM-DD HH:mm') }}</div>
       <div class="tooltip-row"><span>结束</span>{{ dayjs(hoveredSlot.plan_end).format('MM-DD HH:mm') }}</div>
@@ -86,7 +90,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import type { CSSProperties } from 'vue'
 import { message } from 'ant-design-vue'
-import { LeftOutlined, RightOutlined, ReloadOutlined, ExperimentOutlined, EditOutlined, CheckSquareOutlined, DotChartOutlined, FileTextOutlined } from '@ant-design/icons-vue'
+import { LeftOutlined, RightOutlined, ReloadOutlined, FullscreenOutlined, FullscreenExitOutlined, ExperimentOutlined, EditOutlined, CheckSquareOutlined, DotChartOutlined, FileTextOutlined } from '@ant-design/icons-vue'
 import { getProjects, getTimeslots, getTaskTypes, type TaskTypeConfig } from '@/services/api'
 import type { Project, TimeSlot } from '@/types'
 import dayjs from 'dayjs'
@@ -96,6 +100,7 @@ const projects = ref<Project[]>([])
 const slots = ref<TimeSlot[]>([])
 const viewMode = ref<'day' | 'week' | 'month'>('week')
 const cursorDate = ref(dayjs().startOf('week'))
+const isFullscreen = ref(false)
 const hoveredSlot = ref<TimeSlot | null>(null)
 const tooltipX = ref(0)
 const tooltipY = ref(0)
@@ -312,10 +317,8 @@ const taskIconMap: Record<string, any> = {
 }
 function getTaskIcon(code: string | null | undefined) { return code ? (taskIconMap[code] || null) : null }
 function getTaskTypeLabel(code: string | null | undefined) { return code ? (taskTypeMap.value[code] || code) : '' }
-function getBarProjectText(slot: TimeSlot) {
-  const code = slot.project_code || ''
-  const name = slot.project_name || ''
-  return [code, name].filter(Boolean).join(' / ') || '-'
+function getBarInstrumentText(slot: TimeSlot) {
+  return slot.instrument_code || slot.instrument_name || '未指定仪器'
 }
 function getBarTaskText(slot: TimeSlot) {
   const taskName = slot.task_name || '-'
@@ -460,8 +463,8 @@ function recalc() {
   })
 }
 
-async function fetchData() {
-  loading.value = true
+async function fetchData(silent = false) {
+  if (!silent) loading.value = true
   try {
     const [insts, timeslots, types] = await Promise.all([getProjects(), getTimeslots(), getTaskTypes()])
     projects.value = insts
@@ -469,9 +472,9 @@ async function fetchData() {
     const map: Record<string, string> = {}
     types.forEach((t: TaskTypeConfig) => { map[t.code] = t.name })
     taskTypeMap.value = map
-  } catch { message.error('加载数据失败') }
+  } catch { if (!silent) message.error('加载数据失败') }
   finally {
-    loading.value = false
+    if (!silent) loading.value = false
     await nextTick()
     recalc()
     if (viewMode.value === 'day') scrollToNow()
@@ -482,10 +485,25 @@ let resizeObserver: ResizeObserver | null = null
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 
+function toggleFullscreen() {
+  if (!isFullscreen.value) {
+    document.documentElement.requestFullscreen()
+      .catch(() => message.error('浏览器未允许进入全屏'))
+    return
+  }
+  document.exitFullscreen()
+}
+
+function onFullscreenChange() {
+  isFullscreen.value = !!document.fullscreenElement
+  recalc()
+}
+
 onMounted(() => {
   fetchData()
-  refreshTimer = setInterval(fetchData, 15000)
+  refreshTimer = setInterval(() => fetchData(true), 30000)
   window.addEventListener('resize', recalc)
+  document.addEventListener('fullscreenchange', onFullscreenChange)
   nextTick(() => {
     if (containerRef.value) {
       resizeObserver = new ResizeObserver(() => {
@@ -500,12 +518,25 @@ onMounted(() => {
 onUnmounted(() => {
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
   window.removeEventListener('resize', recalc)
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
   if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null }
 })
 </script>
 
 <style scoped>
 .gantt-page { display: flex; flex-direction: column; height: calc(100vh - 64px); }
+.gantt-page.is-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  height: 100vh;
+  padding: 16px;
+  background: #f6f8fb;
+}
+.gantt-page.is-fullscreen .page-header { display: none; }
+.gantt-page.is-fullscreen .action-bar { margin-bottom: 0; padding-bottom: 12px; }
+.gantt-page.is-fullscreen .gantt-container { flex: 1; min-height: 0; margin-top: 0; }
+.action-bar.is-screen-toolbar { align-items: center; }
 
 .gantt-container { display: flex; flex: 1; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; margin-top: 12px; min-height: 0; }
 
@@ -544,8 +575,8 @@ onUnmounted(() => {
 .bar-delay-segment::after { content: ""; position: absolute; right: -2px; top: -2px; border-top: 12px solid #dc2626; border-left: 12px solid transparent; }
 .bar-tag { position: relative; z-index: 2; flex-shrink: 0; width: 18px; height: 18px; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; background: rgba(0,0,0,0.12); color: inherit; }
 .bar-label { position: relative; z-index: 2; display: flex; flex-direction: column; justify-content: center; gap: 1px; overflow: hidden; min-width: 0; color: inherit; line-height: 1.15; }
-.bar-project, .bar-task { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bar-project { font-size: 11px; font-weight: 700; }
+.bar-instrument, .bar-task { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar-instrument { font-size: 11px; font-weight: 700; }
 .bar-task { font-size: 10px; font-weight: 500; opacity: 0.92; }
 .bar-delay-badge { position: absolute; right: 0; top: 0; z-index: 2; width: 14px; height: 14px; border-radius: 2px; display: flex; align-items: center; justify-content: center; background: #dc2626; color: #fff; font-size: 10px; font-weight: 700; line-height: 1; pointer-events: none; }
 

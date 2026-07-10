@@ -9,10 +9,8 @@ class Project(Base):
     name = Column(String(200), nullable=False)
     code = Column(String(50), unique=True, nullable=False)
     client_name = Column(String(200))
-    priority = Column(Integer, default=0)
-    sla_level = Column(String(20))
+    priority = Column(Integer, default=3)
     status = Column(String(20), default="active")
-    profit_weight = Column(Float, default=1.0)
     manager_id = Column(Integer, ForeignKey("user.id"))
     start_date = Column(DateTime)
     end_date = Column(DateTime)
@@ -53,6 +51,7 @@ class Task(Base):
     priority_weight = Column(Float, default=1.0)
     instrument_ids = Column(JSON, default=[], comment="可选仪器ID列表")
     status = Column(String(20), default="pending")
+    schedule_dirty = Column(Boolean, default=False)
     parent_id = Column(Integer, ForeignKey("task.id"), nullable=True)
     assignee_id = Column(Integer, ForeignKey("user.id"))
     assignee = relationship("User")
@@ -74,6 +73,22 @@ class Task(Base):
     def predecessor_ids(self):
         return [d.predecessor_id for d in self.predecessors] if self.predecessors else []
 
+    @property
+    def schedule_lock_status(self):
+        if self.status in {"done", "completed"} or any(slot.status == "completed" for slot in self.time_slots):
+            return "completed"
+        if self.status == "running" or any(
+            slot.status == "running" or (slot.actual_start is not None and slot.actual_end is None)
+            for slot in self.time_slots
+        ):
+            return "running"
+        if any(slot.tier == "frozen" for slot in self.time_slots):
+            return "frozen"
+        return "none"
+
+    @property
+    def can_edit_schedule_fields(self):
+        return self.schedule_lock_status == "none"
     predecessors = relationship("TaskDependency", foreign_keys="TaskDependency.task_id", back_populates="task", cascade="all, delete-orphan")
     capability_requirements = relationship("TaskCapabilityRequirement", back_populates="task", cascade="all, delete-orphan")
     time_slots = relationship("TimeSlot", back_populates="task", cascade="all, delete-orphan")

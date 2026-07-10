@@ -154,7 +154,7 @@ class ScheduleRuleLockedError(Exception):
     pass
 
 
-def sync_rules(db: Any) -> None:
+def sync_rules(db: Any, commit: bool = True) -> None:
     rules_by_code = {
         rule.code: rule for rule in db.query(ScheduleRule).all()
     }
@@ -192,7 +192,10 @@ def sync_rules(db: Any) -> None:
         if rule.params.get("locked"):
             rule.is_enabled = True
 
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
 
 
 def list_rules(db: Any) -> list[ScheduleRule]:
@@ -228,7 +231,7 @@ def toggle_rule(db: Any, rule_id: int) -> ScheduleRule:
 
 
 def get_solver_constraints(db: Any) -> dict[str, ScheduleRule]:
-    sync_rules(db)
+    sync_rules(db, commit=False)
     return {
         rule.code: rule
         for rule in db.query(ScheduleRule).filter(

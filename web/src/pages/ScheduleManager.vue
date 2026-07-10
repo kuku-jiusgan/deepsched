@@ -28,6 +28,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from "vue"
+import { useRouter } from "vue-router"
 import { message, Modal } from "ant-design-vue"
 import { ThunderboltOutlined, PlusCircleOutlined, ReloadOutlined, ForwardOutlined } from "@ant-design/icons-vue"
 import { generateSchedule, reschedule, dailyRoll, getTimeslots } from "@/services/api"
@@ -35,6 +36,7 @@ import dayjs from "dayjs"
 import type { TimeSlot } from "@/types"
 
 const genLoading = ref(false)
+const router = useRouter()
 const STORAGE_KEY = "schedule_recent_slots"
 const recentSlots = ref<TimeSlot[]>(loadFromStorage())
 
@@ -88,7 +90,7 @@ onMounted(async () => {
   }
 })
 
-function openInsert() { message.info("插单功能开发中") }
+function openInsert() { router.push('/schedule/insert-order') }
 async function handleReschedule(s: string) {
   try { await reschedule({ trigger_type: "manual", strategy: s }); message.success("重排完成") }
   catch { message.error("重排失败") }

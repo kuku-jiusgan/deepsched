@@ -164,6 +164,10 @@ interface WeekBarDisplay {
   taskText: string
 }
 
+interface GanttSlot extends TimeSlot {
+  mergedSlotIds?: number[]
+}
+
 const slotStatusMetaMap: Record<string, StatusMeta> = {
   scheduled: { key: 'scheduled', label: '待执行' },
   pending: { key: 'scheduled', label: '待执行' },
@@ -189,7 +193,7 @@ const cursorDate = ref(dayjs().startOf('week'))
 const isFullscreen = ref(false)
 const autoScrollEnabled = ref(true)
 const hasVerticalOverflow = ref(false)
-const hoveredSlot = ref<TimeSlot | null>(null)
+const hoveredSlot = ref<GanttSlot | null>(null)
 const tooltipX = ref(0)
 const tooltipY = ref(0)
 const tooltipStyle = computed(() => ({ left: tooltipX.value + 'px', top: tooltipY.value + 'px' }))
@@ -276,11 +280,13 @@ const timeColumns = computed<TimeCol[]>(() => {
   return cols
 })
 
+const displaySlots = computed<GanttSlot[]>(() => mergeContinuousSlots(slots.value))
+
 function computeLanes() {
   const map: Record<number, Record<number, number>> = {}
   const counts: Record<number, number> = {}
   for (const inst of instruments.value) {
-    const instSlots = slots.value.filter(s => s.instrument_id === inst.id).sort((a, b) => dayjs(a.plan_start).valueOf() - dayjs(b.plan_start).valueOf())
+    const instSlots = displaySlots.value.filter(s => s.instrument_id === inst.id).sort((a, b) => dayjs(a.plan_start).valueOf() - dayjs(b.plan_start).valueOf())
     const lanes: { end: dayjs.Dayjs }[] = []
     const assign: Record<number, number> = {}
     for (const slot of instSlots) {
@@ -330,7 +336,7 @@ function getSegmentLabel(quarter: number) {
   return `${start}-${end}`
 }
 
-function getBarClasses(slot: TimeSlot, quarter?: number) {
+function getBarClasses(slot: GanttSlot, quarter?: number) {
   const statusMeta = getSlotStatusMeta(slot.status)
   return [
     'status-' + statusMeta.key,
@@ -358,10 +364,10 @@ function getSlotsForQuarter(instId: number, quarter: number) {
 }
 
 function getSlotsForInstrument(instId: number) {
-  return slots.value.filter(s => s.instrument_id === instId)
+  return displaySlots.value.filter(s => s.instrument_id === instId)
 }
 
-function getBarStyle(slot: TimeSlot, quarter?: number) {
+function getBarStyle(slot: GanttSlot, quarter?: number) {
   const start = dayjs(slot.plan_start)
   const end = dayjs(slot.plan_end)
   const cols = timeColumns.value
@@ -639,12 +645,42 @@ function statusLabel(s: string) {
   return getSlotStatusMeta(s).label
 }
 
-function showTooltip(slot: TimeSlot, e: MouseEvent) {
+function showTooltip(slot: GanttSlot, e: MouseEvent) {
   hoveredSlot.value = slot
   tooltipX.value = e.clientX + 12
   tooltipY.value = e.clientY - 100
 }
 function hideTooltip() { hoveredSlot.value = null }
+
+function mergeContinuousSlots(sourceSlots: TimeSlot[]): GanttSlot[] {
+  const sortedSlots = [...sourceSlots].sort((a, b) => {
+    if (a.instrument_id !== b.instrument_id) return a.instrument_id - b.instrument_id
+    const startDiff = dayjs(a.plan_start).valueOf() - dayjs(b.plan_start).valueOf()
+    if (startDiff !== 0) return startDiff
+    return a.id - b.id
+  })
+
+  const merged: GanttSlot[] = []
+  for (const slot of sortedSlots) {
+    const lastSlot = merged[merged.length - 1]
+    if (lastSlot && canMergeSlots(lastSlot, slot)) {
+      lastSlot.plan_end = slot.plan_end
+      lastSlot.actual_end = slot.actual_end || lastSlot.actual_end
+      lastSlot.mergedSlotIds = [...(lastSlot.mergedSlotIds || [lastSlot.id]), slot.id]
+      continue
+    }
+    merged.push({ ...slot, mergedSlotIds: [slot.id] })
+  }
+  return merged
+}
+
+function canMergeSlots(current: GanttSlot, next: TimeSlot) {
+  return current.instrument_id === next.instrument_id
+    && current.task_id === next.task_id
+    && current.status === next.status
+    && current.tier === next.tier
+    && dayjs(current.plan_end).isSame(dayjs(next.plan_start))
+}
 
 function switchView(mode: 'day' | 'week' | 'month') {
   viewMode.value = mode
