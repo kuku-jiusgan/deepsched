@@ -197,6 +197,7 @@ class TimeSlotOut(BaseModel):
     project_name: Optional[str] = None
     instrument_name: Optional[str] = None
     instrument_code: Optional[str] = None
+    assignee_id: Optional[int] = None
     assignee_name: Optional[str] = None
     project_id: Optional[int] = None
     delay_hours: Optional[float] = None
@@ -346,6 +347,15 @@ class UserCreate(BaseModel):
     phone: Optional[str] = None
     wecom_id: Optional[str] = None
     is_active: bool = True
+
+class UserDirectoryOut(BaseModel):
+    id: int
+    username: str
+    display_name: str
+    role: str
+    is_active: bool
+    model_config = ConfigDict(from_attributes=True)
+
 
 class UserOut(BaseModel):
     id: int

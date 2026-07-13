@@ -19,6 +19,7 @@ const routes = [
       { path: 'operations/lab-status', component: () => import('@/pages/operations/LabStatusScreen.vue') },
       { path: 'kanban/instrument-gantt', component: () => import('@/pages/InstrumentGantt.vue') },
       { path: 'kanban/project-gantt', component: () => import('@/pages/kanban/ProjectGantt.vue') },
+      { path: 'kanban/human-gantt', component: () => import('@/pages/kanban/HumanGantt.vue') },
       { path: 'tasks/workspace', component: () => import('@/pages/tasks/PersonalWorkspace.vue') },
       { path: 'tasks/faults', component: () => import('@/pages/tasks/InstrumentFaults.vue') },
       { path: 'projects/ledger', component: () => import('@/pages/ProjectBoard.vue') },

@@ -33,6 +33,11 @@ def report_task_delay(db, slot_id: int, delay_hours: float, reason: str) -> dict
     if not task:
         raise ScheduleDelayNotFoundError("任务不存在")
 
+    final_slot = _final_task_slot(db, task.id)
+    if not final_slot:
+        raise ScheduleDelayNotFoundError("任务没有可延期的排程时段")
+
+    slot = final_slot
     delay = timedelta(hours=delay_hours)
     cutoff = slot.plan_end
     affected_slot_ids = _affected_slot_ids(db, task, slot, cutoff)
@@ -55,6 +60,18 @@ def report_task_delay(db, slot_id: int, delay_hours: float, reason: str) -> dict
         "affected_tasks": _affected_task_count(db, affected_slot_ids),
         "reason": clean_reason,
     }
+
+
+def _final_task_slot(db, task_id: int) -> TimeSlot | None:
+    return (
+        db.query(TimeSlot)
+        .filter(
+            TimeSlot.task_id == task_id,
+            TimeSlot.status.in_(ACTIVE_SLOT_STATUSES),
+        )
+        .order_by(TimeSlot.plan_end.desc(), TimeSlot.id.desc())
+        .first()
+    )
 
 
 def _affected_slot_ids(db, task: Task, slot: TimeSlot, cutoff: datetime) -> Set[int]:

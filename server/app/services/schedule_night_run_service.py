@@ -57,7 +57,7 @@ def _merge_or_create_night_slot(
     ).first()
 
     if start_time <= slot.plan_end:
-        slot.plan_end = max(slot.plan_end, end_time)
+        slot.plan_end = end_time
         if existing_slot:
             slot.plan_end = max(slot.plan_end, existing_slot.plan_end)
             db.delete(existing_slot)
@@ -88,6 +88,10 @@ def _resolve_night_start(slot: TimeSlot, value: Optional[str]) -> datetime:
     parsed = _parse_clock_time_on_date(fallback, value)
     if parsed is None:
         return fallback
+    if parsed > slot.plan_end:
+        previous_day = parsed - timedelta(days=1)
+        if previous_day >= slot.plan_start:
+            parsed = previous_day
     while parsed < slot.plan_start:
         parsed += timedelta(days=1)
     return parsed

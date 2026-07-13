@@ -14,7 +14,7 @@
 
         <div v-if="group.cards.length" class="today-card-stack">
           <article v-for="card in group.cards" :key="card.key" class="today-card">
-            <div class="today-card-meta">
+            <div v-if="card.category === 'exception'" class="today-card-meta">
               <a-tag :color="card.tagColor">{{ card.tagText }}</a-tag>
               <span>{{ card.statusText }}</span>
             </div>
@@ -34,13 +34,21 @@
               {{ card.nightRunSummary }}
             </div>
             <div class="today-card-actions">
-              <a-button size="small" class="task-action-button-complete" @click="emit('complete', card.task)">确认完成</a-button>
+              <a-button
+                v-if="canStartTask(card.task)"
+                size="small"
+                type="primary"
+                @click="emit('start', card.task)"
+              >
+                开始任务
+              </a-button>
+              <a-button v-if="canCompleteTask(card.task)" size="small" class="task-action-button-complete" @click="emit('complete', card.task)">确认完成</a-button>
               <a-tooltip :title="card.nightRunDisabledReason">
                 <span>
                   <a-button size="small" type="primary" :disabled="!card.canNightRun" @click="openAutoSequence(card)">夜间运行</a-button>
                 </span>
               </a-tooltip>
-              <a-button size="small" @click="handleCardAction(card, '释放仪器')">释放仪器</a-button>
+              <a-button v-if="canCompleteTask(card.task)" size="small" @click="handleCardAction(card, '释放仪器')">释放仪器</a-button>
               <a-button size="small" danger @click="openDelayReport(card)">延期使用</a-button>
             </div>
           </article>
@@ -199,6 +207,7 @@ interface DelayForm {
 
 const props = defineProps<Props>()
 const emit = defineEmits<{
+  start: [task: MyTask]
   complete: [task: MyTask]
   refreshed: []
 }>()
@@ -335,6 +344,14 @@ function isTaskClosed(task: MyTask) {
   return ['done', 'completed'].includes(task.status)
 }
 
+function canStartTask(task: MyTask) {
+  return ['pending', 'scheduled'].includes(task.status) && Boolean(task.slot_id)
+}
+
+function canCompleteTask(task: MyTask) {
+  return task.status === 'running' && Boolean(task.slot_id)
+}
+
 function isExceptionConfirmTask(task: MyTask) {
   const isProblemStatus = ['blocked', 'interrupted'].includes(task.status)
   const isOverdue = Boolean(task.plan_end) && dayjs(task.plan_end).isBefore(dayjs()) && !isTaskClosed(task)
@@ -344,6 +361,10 @@ function isExceptionConfirmTask(task: MyTask) {
 
 function formatTaskTime(value: string | dayjs.Dayjs | null, fallback: string) {
   return value ? dayjs(value).format('HH:mm') : fallback
+}
+
+function formatTaskDateTime(value: string | dayjs.Dayjs | null, fallback: string) {
+  return value ? dayjs(value).format('YYYY-MM-DD HH:mm') : fallback
 }
 
 function nightRunEndTime(task: MyTask) {
@@ -393,16 +414,17 @@ function isHalfHourDuration(value: unknown) {
   return typeof value === 'number' && Number.isInteger(value * 2)
 }
 
-function canNightRunTask(task: MyTask) {
+function canNightRunTask(task: MyTask, storedNightRun?: StoredAutoSequenceForm | null) {
+  if (storedNightRun) return true
   const nightEnd = nightRunEndTime(task)
   if (!nightEnd) return false
   return nightEnd.isSame(dayjs(), 'day') && nightEnd.format('HH:mm') === workdayEndTime.value
 }
 
-function nightRunDisabledReason(task: MyTask) {
-  if (canNightRunTask(task)) return ''
+function nightRunDisabledReason(task: MyTask, storedNightRun?: StoredAutoSequenceForm | null) {
+  if (canNightRunTask(task, storedNightRun)) return ''
   if (!task.plan_end) return '任务没有计划结束时间，不能继续夜间运行'
-  return `仅当任务当天计划结束时间到达有效工作时段最晚时间 ${workdayEndTime.value} 时，才能继续夜间运行`
+  return `首次设置夜间运行时，任务当天计划结束时间需到达有效工作时段最晚时间 ${workdayEndTime.value}`
 }
 
 function statusLabel(status: string) {
@@ -419,15 +441,20 @@ function statusLabel(status: string) {
 }
 
 function scheduleText(task: MyTask) {
-  const startText = formatTaskTime(task.plan_start, '--:--')
-  const endText = formatTaskTime(task.plan_end, '--:--')
-  return `${startText}–${endText} ${task.task_name || '未命名任务'}`
+  const startText = formatTaskDateTime(task.plan_start, '---- -- -- --:--')
+  const endText = formatTaskDateTime(task.plan_end, '---- -- -- --:--')
+  return `${startText}–${endText}`
 }
 
 function actualText(task: MyTask) {
-  const startText = formatTaskTime(task.actual_start, '--:--')
-  const endText = formatTaskTime(task.actual_end, '--:--')
+  const startText = formatTaskDateTime(task.actual_start, '---- -- -- --:--')
+  const endText = formatTaskDateTime(task.actual_end, '---- -- -- --:--')
   return `${startText}–${endText}`
+}
+
+function formatProjectText(task: MyTask) {
+  const parts = [task.project_code, task.project_name].filter(Boolean)
+  return parts.length ? parts.join(' · ') : '未关联项目'
 }
 
 function buildTodayCard(task: MyTask, category: TodayCardCategory): TodayTaskCard {
@@ -447,7 +474,7 @@ function buildTodayCard(task: MyTask, category: TodayCardCategory): TodayTaskCar
     key: `${category}-${task.slot_id || task.task_id}`,
     category,
     task,
-    projectText: task.project_name || task.project_code || '未关联项目',
+    projectText: formatProjectText(task),
     taskText: task.task_name || '未命名任务',
     instrumentText: task.instrument_name || task.instrument_code || '未指定仪器',
     ownerText: currentUserName(),
@@ -460,8 +487,8 @@ function buildTodayCard(task: MyTask, category: TodayCardCategory): TodayTaskCar
     latestEnd: NIGHT_RESERVE_END,
     nightRunSummary: storedNightRun ? formatNightRunSummary(storedNightRun) : '',
     delayText: getDelayText(task),
-    canNightRun: canNightRunTask(task),
-    nightRunDisabledReason: nightRunDisabledReason(task),
+    canNightRun: canNightRunTask(task, storedNightRun),
+    nightRunDisabledReason: nightRunDisabledReason(task, storedNightRun),
   }
 }
 

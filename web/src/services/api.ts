@@ -239,6 +239,14 @@ export interface User {
   updated_at: string
 }
 
+export interface UserDirectoryEntry {
+  id: number
+  username: string
+  display_name: string
+  role: string
+  is_active: boolean
+}
+
 export interface UserPayload {
   username: string
   display_name: string
@@ -249,6 +257,9 @@ export interface UserPayload {
   wecom_id?: string | null
   is_active: boolean
 }
+
+export const getUserDirectory = (): Promise<UserDirectoryEntry[]> =>
+  api.get<UserDirectoryEntry[]>('/users/directory').then(r => r.data)
 
 export const getUsers = (): Promise<User[]> =>
   api.get<User[]>('/users').then(r => r.data)
@@ -261,6 +272,9 @@ export const updateUser = (id: number, data: UserPayload): Promise<User> =>
 
 export const deleteUser = (id: number): Promise<void> =>
   api.delete(`/users/${id}`)
+
+export const keepSessionAlive = (): Promise<void> =>
+  api.post('/users/keep-alive').then(() => undefined)
 
 export const logout = (): Promise<void> =>
   api.post('/users/logout').then(() => undefined)

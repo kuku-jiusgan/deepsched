@@ -91,6 +91,7 @@ import {
 import {
   confirmNotification,
   getNotifications,
+  keepSessionAlive,
   logout,
   markNotificationRead,
   type NotificationRecord,
@@ -101,10 +102,12 @@ const route = useRoute()
 const notificationOpen = ref(false)
 const notifications = ref<NotificationRecord[]>([])
 let notificationTimer: number | undefined
+let sessionKeepAliveTimer: number | undefined
 let idleLogoutTimer: number | undefined
 let lastActivityWriteAt = 0
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000
 const ACTIVITY_THROTTLE_MS = 1000
+const SESSION_KEEP_ALIVE_MS = 5 * 60 * 1000
 const ACTIVITY_EVENTS = ['click', 'keydown', 'mousemove', 'scroll', 'touchstart'] as const
 
 const iconMap: Record<string, any> = {
@@ -131,6 +134,7 @@ const menuItems = [
   { key: '/kanban', icon: icon('AppstoreOutlined'), label: '交互式看板', children: [
     { key: '/kanban/instrument-gantt', icon: icon('BarChartOutlined'), label: '仪器甘特图' },
     { key: '/kanban/project-gantt', icon: icon('BarChartOutlined'), label: '项目甘特图' },
+    { key: '/kanban/human-gantt', icon: icon('TeamOutlined'), label: '人力甘特图' },
   ]},
   { key: '/tasks', icon: icon('CheckSquareOutlined'), label: '任务管理', children: [
     { key: '/tasks/workspace', icon: icon('UserOutlined'), label: '个人工作台' },
@@ -174,6 +178,7 @@ const currentUserLabel = computed(() => {
 
 function clearSession() {
   if (notificationTimer) window.clearInterval(notificationTimer)
+  if (sessionKeepAliveTimer) window.clearInterval(sessionKeepAliveTimer)
   if (idleLogoutTimer) window.clearTimeout(idleLogoutTimer)
   localStorage.removeItem('token')
   localStorage.removeItem('user')
@@ -214,6 +219,16 @@ function markActivity() {
   lastActivityWriteAt = now
   localStorage.setItem('lastActivityAt', String(now))
   resetIdleTimer()
+}
+
+async function keepActiveSessionAlive() {
+  const lastActivityAt = Number(localStorage.getItem('lastActivityAt') || 0)
+  if (!lastActivityAt || Date.now() - lastActivityAt >= IDLE_TIMEOUT_MS) return
+  try {
+    await keepSessionAlive()
+  } catch {
+    // The response interceptor handles expired sessions.
+  }
 }
 
 function resetIdleTimer() {
@@ -304,10 +319,12 @@ onMounted(() => {
   document.addEventListener('visibilitychange', checkIdleOnVisibilityChange)
   fetchNotifications()
   notificationTimer = window.setInterval(fetchNotifications, 15000)
+  sessionKeepAliveTimer = window.setInterval(keepActiveSessionAlive, SESSION_KEEP_ALIVE_MS)
 })
 
 onBeforeUnmount(() => {
   if (notificationTimer) window.clearInterval(notificationTimer)
+  if (sessionKeepAliveTimer) window.clearInterval(sessionKeepAliveTimer)
   if (idleLogoutTimer) window.clearTimeout(idleLogoutTimer)
   ACTIVITY_EVENTS.forEach(eventName => window.removeEventListener(eventName, markActivity))
   document.removeEventListener('visibilitychange', checkIdleOnVisibilityChange)

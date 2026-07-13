@@ -203,14 +203,10 @@ def my_tasks(token: str = Depends(auth_token), db: Session = Depends(get_db)):
         Task.status.in_(["scheduled", "running"]),
     ).all()
     for t in overdue_tasks:
-        slot = db.query(TimeSlot).filter(
-            TimeSlot.task_id == t.id,
-            TimeSlot.status.in_(["scheduled", "running"]),
-        ).first()
+        slot = _latest_open_task_slot(t.id, db)
         if slot and slot.plan_end and slot.plan_end < now:
             t.status = "blocked"
-            if slot:
-                slot.status = "blocked"
+            slot.status = "blocked"
     db.commit()
 
     # Query leaf tasks only: exclude tasks that have children (parent nodes)
@@ -265,6 +261,17 @@ def my_tasks(token: str = Depends(auth_token), db: Session = Depends(get_db)):
             ),
         })
     return result
+
+def _latest_open_task_slot(task_id: int, db: Session) -> Optional[TimeSlot]:
+    return (
+        db.query(TimeSlot)
+        .filter(
+            TimeSlot.task_id == task_id,
+            TimeSlot.status.in_(["scheduled", "running"]),
+        )
+        .order_by(TimeSlot.plan_end.desc(), TimeSlot.id.desc())
+        .first()
+    )
 
 RUNNING_CONTINUATION_STATUSES = {"scheduled", "running"}
 
@@ -336,6 +343,7 @@ def _enrich_slot(slot: TimeSlot, db: Session) -> TimeSlotOut:
         project_name=proj.name if proj else None,
         instrument_name=inst.name if inst else None,
         instrument_code=inst.code if inst else None,
+        assignee_id=task.assignee_id if task else None,
         assignee_name=task.assignee.display_name if task and task.assignee else None,
         project_id=task.project_id if task else None,
         **delay_fields,

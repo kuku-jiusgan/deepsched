@@ -7,9 +7,8 @@
     <div class="action-bar">
       <a-button @click="fetchData"><ReloadOutlined /> 刷新</a-button>
       <a-tabs v-model:activeKey="activeTab" size="small" style="flex: 1; margin: 0 16px">
-        <a-tab-pane key="all" tab="全部" />
-        <a-tab-pane key="pending" tab="待处理" />
-        <a-tab-pane key="running" tab="进行中" />
+        <a-tab-pane key="active" tab="进行中" />
+        <a-tab-pane key="pending" tab="待开始" />
         <a-tab-pane key="completed" tab="已完成" />
       </a-tabs>
     </div>
@@ -17,9 +16,15 @@
     <a-spin v-if="loading" size="large" style="display: block; margin: 80px auto" />
 
     <template v-else>
-      <TodayTaskCards :tasks="tasks" @complete="handleComplete" @refreshed="fetchData" />
+      <TodayTaskCards
+        v-if="activeTab === 'active'"
+        :tasks="cardTasks"
+        @start="handleStart"
+        @complete="handleComplete"
+        @refreshed="fetchData"
+      />
 
-      <a-table :dataSource="filtered" :columns="columns" rowKey="slot_id" size="middle"
+      <a-table v-if="activeTab !== 'active'" :dataSource="filtered" :columns="columns" rowKey="slot_id" size="middle"
         :pagination="{ pageSize: 20, showSizeChanger: true }">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">
@@ -75,12 +80,31 @@
         </template>
       </a-table>
     </template>
+
+    <a-modal
+      v-model:open="releaseConfirmOpen"
+      title="是否释放仪器？"
+      :closable="!releaseSubmitting"
+      :keyboard="!releaseSubmitting"
+      :mask-closable="false"
+      :footer="null"
+      @cancel="closeReleaseConfirm"
+    >
+      <p>{{ releaseConfirmContent }}</p>
+      <div class="release-confirm-actions">
+        <a-button :disabled="releaseSubmitting" @click="closeReleaseConfirm">取消</a-button>
+        <a-button :loading="releaseSubmitting" @click="confirmTaskCompletion(false)">仅标记完成</a-button>
+        <a-button type="primary" :loading="releaseSubmitting" @click="confirmTaskCompletion(true)">
+          释放仪器并前移后续任务
+        </a-button>
+      </div>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Modal, message } from 'ant-design-vue'
+import { message } from 'ant-design-vue'
 import { CheckCircleOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import {
   getMyTasks, startTask, completeTask, getTaskTypes, type MyTask,
@@ -90,18 +114,26 @@ import dayjs from 'dayjs'
 
 const tasks = ref<MyTask[]>([])
 const loading = ref(true)
-const activeTab = ref<string>('all')
+const activeTab = ref<string>('active')
 const actingId = ref<number | null>(null)
+const releaseConfirmOpen = ref(false)
+const releaseSubmitting = ref(false)
+const releaseConfirmTask = ref<MyTask | null>(null)
 
 const EARLY_RELEASE_THRESHOLD_MINUTES = 30
 
 
+const cardTasks = computed(() => {
+  if (activeTab.value === 'active') return tasks.value.filter(task => task.status === 'running')
+  if (activeTab.value === 'pending') return tasks.value.filter(task => ['pending', 'scheduled'].includes(task.status))
+  return []
+})
+
 const filtered = computed(() => {
-  if (activeTab.value === 'all') return tasks.value
-  if (activeTab.value === 'pending') return tasks.value.filter(t => ['pending', 'scheduled'].includes(t.status))
-  if (activeTab.value === 'running') return tasks.value.filter(t => t.status === 'running')
-  if (activeTab.value === 'completed') return tasks.value.filter(t => ['done', 'completed'].includes(t.status))
-  return tasks.value
+  if (activeTab.value === 'completed') {
+    return tasks.value.filter(task => ['done', 'completed'].includes(task.status))
+  }
+  return cardTasks.value
 })
 
 
@@ -177,20 +209,36 @@ async function handleStart(record: MyTask) {
   finally { actingId.value = null }
 }
 
+const releaseConfirmContent = computed(() => {
+  const record = releaseConfirmTask.value
+  if (!record) return ''
+  const earlyMinutes = getEarlyCompletionMinutes(record)
+  return `当前完成时间比计划完成时间 ${formatTaskPlanEnd(record)} 提前约 ${earlyMinutes} 分钟。释放仪器后，同项目同仪器的后续任务可按约束前移。`
+})
+
 async function handleComplete(record: MyTask) {
   const earlyMinutes = getEarlyCompletionMinutes(record)
   if (earlyMinutes > EARLY_RELEASE_THRESHOLD_MINUTES) {
-    Modal.confirm({
-      title: '是否释放仪器？',
-      content: `当前完成时间比计划完成时间 ${formatTaskPlanEnd(record)} 提前约 ${earlyMinutes} 分钟。释放仪器后，同项目同仪器的后续任务可按约束前移；选择仅标记完成则后续排程保持不变。`,
-      okText: '释放仪器并前移后续任务',
-      cancelText: '仅标记完成',
-      onOk: () => submitComplete(record, true),
-      onCancel: () => submitComplete(record, false),
-    })
+    releaseConfirmTask.value = record
+    releaseConfirmOpen.value = true
     return
   }
   await submitComplete(record, true)
+}
+
+function closeReleaseConfirm() {
+  if (releaseSubmitting.value) return
+  releaseConfirmOpen.value = false
+  releaseConfirmTask.value = null
+}
+
+async function confirmTaskCompletion(releaseInstrument: boolean) {
+  const record = releaseConfirmTask.value
+  if (!record || releaseSubmitting.value) return
+  releaseSubmitting.value = true
+  const isCompleted = await submitComplete(record, releaseInstrument)
+  releaseSubmitting.value = false
+  if (isCompleted) closeReleaseConfirm()
 }
 
 function getEarlyCompletionMinutes(record: MyTask) {
@@ -204,9 +252,14 @@ async function submitComplete(record: MyTask, releaseInstrument: boolean) {
   try {
     const result = await completeTask(record.slot_id, { release_instrument: releaseInstrument })
     message.success(completionMessage(result, releaseInstrument))
-    fetchData()
-  } catch { message.error('操作失败') }
-  finally { actingId.value = null }
+    await fetchData()
+    return true
+  } catch {
+    message.error('操作失败')
+    return false
+  } finally {
+    actingId.value = null
+  }
 }
 
 function completionMessage(result: { message?: string; moved_tasks?: number }, releaseInstrument: boolean) {
@@ -244,5 +297,12 @@ onMounted(fetchData)
   color: #ffffff !important;
   background: #15803d !important;
   border-color: #15803d !important;
+}
+
+.release-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
 }
 </style>

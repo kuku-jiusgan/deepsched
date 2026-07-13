@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
@@ -31,39 +31,19 @@ def complete_task_and_shift(
     if not task:
         return {"status": "error", "message": "未找到指定任务"}
 
-    task.status = "done"
     task_slots = (
         db.query(TimeSlot)
         .filter(TimeSlot.task_id == task_id)
-        .order_by(TimeSlot.plan_start)
+        .order_by(TimeSlot.plan_start, TimeSlot.id)
         .all()
     )
-    affected_instrument_ids = {slot.instrument_id for slot in task_slots if slot.instrument_id}
+    if not task_slots:
+        return {"status": "error", "message": "任务没有排程时段"}
+
+    task.status = "done"
     completed_slot = _select_completed_slot(task_slots, completed_slot_id, end_time)
-
-    for slot in task_slots:
-        if slot.id == completed_slot.id:
-            _mark_completed_slot(slot, end_time)
-            continue
-        if slot.plan_start > end_time:
-            db.delete(slot)
-            continue
-        if slot.plan_end > end_time:
-            slot.plan_end = end_time
-        if slot.actual_start is None:
-            slot.actual_start = slot.plan_start
-        slot.actual_end = end_time
-        slot.status = "completed"
-
-    db.flush()
-    completed_record = (
-        db.query(TimeSlot)
-        .filter(TimeSlot.task_id == task_id, TimeSlot.status == "completed")
-        .order_by(TimeSlot.actual_end.desc(), TimeSlot.plan_end.desc())
-        .first()
-    )
-    if completed_record is None:
-        completed_record = _restore_completed_record(db, completed_slot, end_time)
+    affected_instrument_ids = {slot.instrument_id for slot in task_slots if slot.instrument_id}
+    _mark_task_slots_completed(task_slots, completed_slot, end_time)
 
     for instrument_id in affected_instrument_ids:
         refresh_instrument_status(db, instrument_id)
@@ -76,7 +56,7 @@ def complete_task_and_shift(
             "moved_tasks": 0,
             "released_instrument": False,
         }
-    result = _forward_shift_same_project_work(db, task)
+    result = _forward_shift_same_project_work(db, task, completed_slot.instrument_id, end_time)
     result["released_instrument"] = True
     return result
 
@@ -86,72 +66,49 @@ def _select_completed_slot(
     completed_slot_id: int | None,
     end_time: datetime,
 ) -> TimeSlot:
-    if completed_slot_id is not None:
-        matched = next((slot for slot in slots if slot.id == completed_slot_id), None)
-        if matched:
-            return matched
-    running_slot = next((slot for slot in slots if slot.status == "running"), None)
-    if running_slot:
-        return running_slot
     active_slot = next(
-        (
-            slot for slot in slots
-            if slot.plan_start <= end_time <= slot.plan_end
-        ),
+        (slot for slot in slots if slot.plan_start <= end_time <= slot.plan_end),
         None,
     )
     if active_slot:
         return active_slot
+
+    started_slots = [slot for slot in slots if slot.plan_start <= end_time]
+    if started_slots:
+        return started_slots[-1]
+
+    if completed_slot_id is not None:
+        matched = next((slot for slot in slots if slot.id == completed_slot_id), None)
+        if matched:
+            return matched
     return slots[0]
 
 
-def _mark_completed_slot(slot: TimeSlot, end_time: datetime) -> None:
-    start_time = slot.actual_start or min(slot.plan_start, end_time)
-    if start_time >= end_time:
-        start_time = end_time - timedelta(minutes=SCHEDULE_UNIT_MINUTES)
-    slot.plan_start = start_time
-    slot.plan_end = end_time
-    slot.actual_start = start_time
-    slot.actual_end = end_time
-    slot.status = "completed"
-
-
-def _restore_completed_record(
-    db: Session,
-    source_slot: TimeSlot,
+def _mark_task_slots_completed(
+    slots: list[TimeSlot],
+    completed_slot: TimeSlot,
     end_time: datetime,
-) -> TimeSlot:
-    start_time = source_slot.actual_start or min(source_slot.plan_start, end_time)
-    if start_time >= end_time:
-        start_time = end_time - timedelta(minutes=SCHEDULE_UNIT_MINUTES)
-    completed_slot = TimeSlot(
-        task_id=source_slot.task_id,
-        schedule_run_id=source_slot.schedule_run_id,
-        instrument_id=source_slot.instrument_id,
-        plan_start=start_time,
-        plan_end=end_time,
-        actual_start=start_time,
-        actual_end=end_time,
-        tier=_tier_for_start(start_time),
-        status="completed",
-    )
-    db.add(completed_slot)
-    db.flush()
-    return completed_slot
+) -> None:
+    for slot in slots:
+        slot.status = "completed"
+        if slot.plan_start > end_time:
+            slot.actual_start = None
+            slot.actual_end = None
+            continue
+        if slot.actual_start is None:
+            slot.actual_start = slot.plan_start
+        slot.actual_end = end_time if slot.id == completed_slot.id else min(slot.plan_end, end_time)
 
 
-def _forward_shift_same_project_work(db: Session, completed_task: Task) -> dict:
-    last_slot = (
-        db.query(TimeSlot)
-        .filter(TimeSlot.task_id == completed_task.id)
-        .order_by(TimeSlot.plan_end.desc())
-        .first()
-    )
-    instrument_id = last_slot.instrument_id if last_slot else None
+def _forward_shift_same_project_work(
+    db: Session,
+    completed_task: Task,
+    instrument_id: int | None,
+    released_at: datetime,
+) -> dict:
     if not instrument_id:
         return {"status": "ok", "message": "任务已完成，无绑定仪器，无需前移排程"}
 
-    released_at = last_slot.plan_end
     candidate_tasks = _load_forward_shift_candidates(
         db,
         completed_task.project_id,
@@ -180,7 +137,7 @@ def _forward_shift_same_project_work(db: Session, completed_task: Task) -> dict:
         db.query(TimeSlot).filter(
             TimeSlot.task_id == task_id,
             TimeSlot.status == "scheduled",
-        ).delete(synchronize_session=False)
+        ).delete(synchronize_session="fetch")
     db.flush()
 
     moved = 0
@@ -299,14 +256,27 @@ def _dependency_ready_time(
 ) -> datetime:
     ready_time = fallback
     for dependency in task.predecessors:
-        pred_end = (
-            db.query(func.max(TimeSlot.plan_end))
-            .filter(TimeSlot.task_id == dependency.predecessor_id)
-            .scalar()
-        )
+        pred_end = _predecessor_ready_time(db, dependency.predecessor_id)
         if pred_end and pred_end > ready_time:
             ready_time = pred_end
     return ready_time
+
+
+def _predecessor_ready_time(db: Session, task_id: int) -> datetime | None:
+    predecessor = db.query(Task).filter(Task.id == task_id).first()
+    if predecessor and predecessor.status in {"done", "completed"}:
+        actual_end = (
+            db.query(func.max(TimeSlot.actual_end))
+            .filter(TimeSlot.task_id == task_id)
+            .scalar()
+        )
+        if actual_end:
+            return actual_end
+    return (
+        db.query(func.max(TimeSlot.plan_end))
+        .filter(TimeSlot.task_id == task_id)
+        .scalar()
+    )
 
 
 def _build_forward_slots(
@@ -365,8 +335,20 @@ def _can_use_unit(
         db.query(TimeSlot.id)
         .filter(
             TimeSlot.instrument_id == instrument_id,
-            TimeSlot.plan_start < end,
-            TimeSlot.plan_end > start,
+            or_(
+                and_(
+                    TimeSlot.status == "completed",
+                    TimeSlot.actual_start.isnot(None),
+                    TimeSlot.actual_end.isnot(None),
+                    TimeSlot.actual_start < end,
+                    TimeSlot.actual_end > start,
+                ),
+                and_(
+                    TimeSlot.status != "completed",
+                    TimeSlot.plan_start < end,
+                    TimeSlot.plan_end > start,
+                ),
+            ),
         )
         .first()
     )

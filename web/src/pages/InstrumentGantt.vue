@@ -1181,10 +1181,10 @@ onUnmounted(() => {
 
 /* Status colors */
 .status-scheduled {
-  background: #eff6ff;
-  color: #1d4ed8;
-  border: 1px solid #bfdbfe;
-  border-left-color: #2563eb;
+  background: #f8fafc;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  border-left-color: #94a3b8;
 }
 .status-running {
   background: #ecfdf5;
@@ -1196,14 +1196,14 @@ onUnmounted(() => {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, transparent 0%, rgba(20, 184, 166, 0.12) 50%, transparent 100%);
+  background: linear-gradient(90deg, transparent 0%, rgba(16, 185, 129, 0.14) 50%, transparent 100%);
   pointer-events: none;
 }
 .status-completed {
-  background: #f1f5f9;
-  color: #475569;
-  border: 1px solid #cbd5e1;
-  border-left-color: #94a3b8;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  border-left-color: #2563eb;
 }
 .status-blocked {
   background: #fef2f2;

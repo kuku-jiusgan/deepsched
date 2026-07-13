@@ -105,6 +105,7 @@ export interface TimeSlot {
   project_name?: string;
   instrument_name?: string;
   instrument_code?: string;
+  assignee_id: number | null;
   assignee_name?: string;
   project_id?: number | null;
   delay_hours?: number | null;

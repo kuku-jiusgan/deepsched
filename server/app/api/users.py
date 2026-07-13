@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models import User
-from app.schemas.schemas import UserCreate, UserOut
+from app.services.user_directory_service import list_user_directory
+from app.schemas.schemas import UserCreate, UserDirectoryOut, UserOut
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
 
@@ -233,6 +234,15 @@ def _seed_admin(db: Session):
     db.commit()
 
 
+@router.get("/directory", response_model=List[UserDirectoryOut])
+def get_user_directory(
+    token: str = Depends(auth_token),
+    db: Session = Depends(get_db),
+):
+    get_current_user(token, db)
+    return list_user_directory(db)
+
+
 @router.get("", response_model=List[UserOut])
 def list_users(token: str = Depends(auth_token), db: Session = Depends(get_db)):
     _seed_admin(db)
@@ -334,6 +344,12 @@ def login(data: LoginRequest, request: Request, db: Session = Depends(get_db)):
 def get_me(token: str = Depends(auth_token), db: Session = Depends(get_db)):
     user = get_current_user(token, db)
     return {"id": user.id, "username": user.username, "display_name": user.display_name, "role": user.role}
+
+
+@router.post("/keep-alive")
+def keep_alive(token: str = Depends(auth_token), db: Session = Depends(get_db)):
+    get_current_user(token, db)
+    return {"detail": "会话已续期", "expires_in": IDLE_TIMEOUT_SECONDS}
 
 
 @router.post("/logout")

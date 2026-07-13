@@ -12,7 +12,7 @@ from app.services.scheduler_fixed_slots import add_instrument_capacity_constrain
 from app.services.scheduler_persistence import persist_slots
 from app.services.scheduler_objective import add_scheduler_objective
 from app.services.scheduler_split_tasks import add_split_task_variables
-from app.services.scheduler_diagnostics import unavailable_instrument_message
+from app.services.scheduler_diagnostics import frozen_schedule_message, unavailable_instrument_message
 from app.services.scheduler_data import load_scheduler_data
 from app.services.scheduler_helpers import (
     build_compatibility,
@@ -353,6 +353,22 @@ class SchedulerService:
 
         total_req_hours = sum(t.est_duration_hours or 4 for t in tasks if t.requires_instrument)
         if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            frozen_message = (
+                frozen_schedule_message(
+                    tasks,
+                    compat,
+                    fixed_slots,
+                    global_prefix_sum,
+                    horizon_start,
+                    total_units,
+                    CROSS_PROJECT_SETUP_UNITS,
+                )
+                if status == cp_model.INFEASIBLE
+                and constraints["non_overlap"].is_enabled
+                else None
+            )
+            if frozen_message:
+                return {"status": "error", "message": frozen_message}
             return {"status": "error", "message": f"时间配置冲突：当前待排总工时约 {total_req_hours} 小时，请调整【项目开始/结束时间】或修改【项目工时】。"}
 
         # Persist results
