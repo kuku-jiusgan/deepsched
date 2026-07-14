@@ -108,7 +108,7 @@
             <template v-else-if="rule.code === 'freezing'">
               <span style="font-size: 12px; color: #94a3b8">冻结期</span>
               <a-input-number :value="getNumberParam(rule, 'freeze_days', 3)" :min="0" :max="30" size="small" style="width: 70px" :disabled="!rule.is_enabled" @change="(v: number | null) => saveRuleParam(rule, 'freeze_days', v ?? 3)" />
-              <span style="font-size: 12px; color: #94a3b8">天</span>
+              <span style="font-size: 12px; color: #94a3b8">天（按自然日，1天=今天24点）</span>
             </template>
           </div>
           <div class="rule-toggle">

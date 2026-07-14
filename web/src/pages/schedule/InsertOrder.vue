@@ -116,8 +116,10 @@ const projectOptions = computed(() => projects.value.map(project => ({
 })))
 
 const selectedProject = computed(() => projects.value.find(project => project.id === form.projectId) || null)
-const selectableTasks = computed(() => flattenLeafTasks(selectedProject.value?.tasks || []).filter(task =>
-  !['running', 'done', 'completed'].includes(task.status),
+const selectableTasks = computed(() => uniqueTasksById(
+  flattenLeafTasks(selectedProject.value?.tasks || []).filter(task =>
+    !['running', 'done', 'completed'].includes(task.status),
+  ),
 ))
 
 const impactColumns = [
@@ -139,6 +141,10 @@ onMounted(async () => {
 
 function flattenLeafTasks(tasks: Task[]): Task[] {
   return tasks.flatMap(task => task.children?.length ? flattenLeafTasks(task.children) : [task])
+}
+
+function uniqueTasksById(tasks: Task[]): Task[] {
+  return [...new Map(tasks.map(task => [task.id, task])).values()]
 }
 
 function handleProjectChange() {

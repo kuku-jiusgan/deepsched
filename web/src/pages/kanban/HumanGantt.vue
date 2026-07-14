@@ -24,7 +24,7 @@
         v-model:value="filterKeyword"
         allowClear
         class="people-search"
-        placeholder="搜索人员姓名/账号"
+        placeholder="搜索人员姓名"
       >
         <template #prefix><SearchOutlined /></template>
       </a-input>
@@ -34,7 +34,7 @@
     <div v-else-if="!visibleUsers.length" class="empty-state">
       <TeamOutlined class="empty-icon" />
       <strong>{{ filterKeyword ? '没有匹配的人员' : '暂无人员数据' }}</strong>
-      <span>{{ filterKeyword ? '请调整姓名或账号关键词' : '请先在“用户管理”中添加人员' }}</span>
+      <span>{{ filterKeyword ? '请调整姓名关键词' : '请先在“用户管理”中添加人员' }}</span>
     </div>
 
     <div v-else ref="containerRef" class="gantt-container">
@@ -52,8 +52,6 @@
               <span v-if="row.user.is_active === false" class="inactive-chip">已停用</span>
             </div>
             <div class="person-meta">
-              <span>{{ row.user.username }}</span>
-              <span class="meta-separator">·</span>
               <span>{{ row.user.role }}</span>
               <span v-if="row.laneCount > 1" class="parallel-chip">{{ row.laneCount }} 项并行</span>
             </div>
@@ -165,8 +163,7 @@ const filteredUsers = computed(() => {
   const keyword = filterKeyword.value.trim().toLowerCase()
   if (!keyword) return users.value
   return users.value.filter(user =>
-    user.display_name.toLowerCase().includes(keyword)
-    || user.username.toLowerCase().includes(keyword),
+    user.display_name.toLowerCase().includes(keyword),
   )
 })
 

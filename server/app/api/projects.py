@@ -2,51 +2,82 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from app.core.database import get_db
+from app.api.users import auth_token, get_current_user
 from app.models import Project, Milestone, Task, TaskDependency, TaskCapabilityRequirement, TimeSlot
 from app.schemas.schemas import (
     ProjectCreate, ProjectOut, TaskCreate, TaskUpdate, TaskOut,
     MilestoneCreate, MilestoneOut, TaskCapabilityReqOut
 )
+from app.services.project_access_service import (
+    ProjectNotVisibleError,
+    get_visible_project,
+    get_visible_project_dag,
+    list_visible_projects,
+)
+from app.services.project_hours_validation_service import (
+    ProjectHoursExceededError,
+    validate_project_estimated_hours,
+)
+from app.services.project_task_rollup_service import recalculate_project_parent_hours
+from app.services.project_service import ProjectCodeExistsError, create_project as create_project_service
 from app.services.project_plan_change_service import (
     PlanChangeInvalidError,
     PlanChangeNotFoundError,
     update_project_plan,
     update_task_plan,
 )
+from app.services.project_status_service import calculate_project_status
 
 router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 
+PROJECT_INFO_WRITE_ROLES = {"系统管理员", "项目管理员", "分析所所长"}
+
 @router.post("", response_model=ProjectOut)
-def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
-    proj = Project(
-        name=data.name, code=data.code, client_name=data.client_name,
-        priority=data.priority, manager_id=data.manager_id,
-        start_date=data.start_date, end_date=data.end_date
-    )
-    db.add(proj)
-    db.commit()
-    db.refresh(proj)
-    return proj
+def create_project(data: ProjectCreate, token: str = Depends(auth_token), db: Session = Depends(get_db)):
+    ensure_project_info_write_permission(token, db)
+    try:
+        return project_response(create_project_service(db, data))
+    except ProjectCodeExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
 @router.get("", response_model=List[ProjectOut])
-def list_projects(db: Session = Depends(get_db)):
-    return db.query(Project).all()
+def list_projects(
+    token: str = Depends(auth_token),
+    db: Session = Depends(get_db),
+):
+    return [project_response(project) for project in list_visible_projects(db, get_current_user(token, db))]
 
 @router.get("/{proj_id}", response_model=ProjectOut)
-def get_project(proj_id: int, db: Session = Depends(get_db)):
-    proj = db.query(Project).filter(Project.id == proj_id).first()
-    if not proj:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    return proj
+def get_project(
+    proj_id: int,
+    token: str = Depends(auth_token),
+    db: Session = Depends(get_db),
+):
+    try:
+        return project_response(get_visible_project(db, proj_id, get_current_user(token, db)))
+    except ProjectNotVisibleError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 @router.put("/{proj_id}", response_model=ProjectOut)
-def update_project(proj_id: int, data: ProjectCreate, db: Session = Depends(get_db)):
+def update_project(proj_id: int, data: ProjectCreate, token: str = Depends(auth_token), db: Session = Depends(get_db)):
+    ensure_project_info_write_permission(token, db)
     try:
-        return update_project_plan(db, proj_id, data)
+        return project_response(update_project_plan(db, proj_id, data))
     except PlanChangeNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except PlanChangeInvalidError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+
+def ensure_project_info_write_permission(token: str, db: Session) -> None:
+    user = get_current_user(token, db)
+    if user.role not in PROJECT_INFO_WRITE_ROLES:
+        raise HTTPException(status_code=403, detail="无权新建或编辑项目信息")
+
+def project_response(project: Project) -> dict:
+    data = ProjectOut.model_validate(project).model_dump()
+    data["status"] = calculate_project_status(project)
+    return data
+
 @router.delete("/{proj_id}")
 def delete_project(proj_id: int, db: Session = Depends(get_db)):
     proj = db.query(Project).filter(Project.id == proj_id).first()
@@ -90,6 +121,12 @@ def add_task(proj_id: int, data: TaskCreate, db: Session = Depends(get_db)):
     # Dependencies
     for pred_id in data.predecessor_ids:
         db.add(TaskDependency(task_id=task.id, predecessor_id=pred_id))
+    recalculate_project_parent_hours(db, proj_id)
+    try:
+        validate_project_estimated_hours(db, proj_id)
+    except ProjectHoursExceededError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc))
     db.commit()
     db.refresh(task)
     return _task_to_out(task, db)
@@ -105,7 +142,10 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
     ).delete()
     db.query(TaskCapabilityRequirement).filter(TaskCapabilityRequirement.task_id == task_id).delete()
     db.query(TimeSlot).filter(TimeSlot.task_id == task_id).delete()
+    project_id = task.project_id
     db.delete(task)
+    db.flush()
+    recalculate_project_parent_hours(db, project_id)
     db.commit()
     return {"detail": "已删除"}
 
@@ -118,17 +158,15 @@ def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db)):
     except PlanChangeInvalidError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 @router.get("/{proj_id}/dag")
-def get_project_dag(proj_id: int, db: Session = Depends(get_db)):
-    tasks = db.query(Task).filter(Task.project_id == proj_id).all()
-    nodes = []
-    edges = []
-    for t in tasks:
-        nodes.append({"id": t.id, "name": t.name, "type": t.task_type,
-                       "requires_instrument": t.requires_instrument, "status": t.status})
-        for dep in t.predecessors:
-            edges.append({"from": dep.predecessor_id, "to": t.id})
-    return {"nodes": nodes, "edges": edges}
-
+def get_project_dag(
+    proj_id: int,
+    token: str = Depends(auth_token),
+    db: Session = Depends(get_db),
+):
+    try:
+        return get_visible_project_dag(db, proj_id, get_current_user(token, db))
+    except ProjectNotVisibleError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 def _task_to_out(task: Task, db: Session) -> TaskOut:
     preds = [d.predecessor_id for d in task.predecessors]
     children_out = [_task_to_out(c, db) for c in task.children] if task.children else []

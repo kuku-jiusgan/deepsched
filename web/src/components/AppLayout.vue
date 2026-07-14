@@ -28,10 +28,17 @@
     <a-layout style="background: #f7f8fa">
       <a-layout-content class="app-content">
         <div class="page-top-actions">
-          <a-tag color="blue" class="current-user">
-            <UserOutlined />
-            <span>{{ currentUserLabel }}</span>
-          </a-tag>
+          <a-dropdown trigger="click">
+            <a-tag color="blue" class="current-user">
+              <UserOutlined />
+              <span>{{ currentUserLabel }}</span>
+            </a-tag>
+            <template #overlay>
+              <a-menu>
+                <a-menu-item key="password" @click="openPasswordModal">修改密码</a-menu-item>
+              </a-menu>
+            </template>
+          </a-dropdown>
         <a-popover v-model:open="notificationOpen" trigger="click" placement="bottomRight" overlayClassName="notification-popover">
           <template #content>
             <div class="notification-panel">
@@ -70,11 +77,32 @@
         <router-view />
       </a-layout-content>
     </a-layout>
+    <a-modal
+      v-model:open="passwordModalOpen"
+      title="修改密码"
+      ok-text="确认修改"
+      cancel-text="取消"
+      :confirm-loading="passwordSubmitting"
+      @ok="handleChangePassword"
+      @cancel="closePasswordModal"
+    >
+      <a-form layout="vertical">
+        <a-form-item label="原密码" required>
+          <a-input-password v-model:value="passwordForm.oldPassword" autocomplete="current-password" />
+        </a-form-item>
+        <a-form-item label="新密码" required :help="newPasswordHelp">
+          <a-input-password v-model:value="passwordForm.newPassword" placeholder="至少8位，包含字母和数字" autocomplete="new-password" />
+        </a-form-item>
+        <a-form-item label="确认新密码" required>
+          <a-input-password v-model:value="passwordForm.confirmPassword" autocomplete="new-password" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
   </a-layout>
 </template>
 
 <script setup lang="ts">
-import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Empty, message } from 'ant-design-vue'
 import dayjs from 'dayjs'
@@ -86,9 +114,10 @@ import {
   WarningOutlined, DatabaseOutlined, PartitionOutlined,
   ApartmentOutlined, TableOutlined, ToolOutlined,
   ThunderboltOutlined, SwapOutlined, DollarOutlined,
-  BellOutlined, SyncOutlined, TeamOutlined, CalendarOutlined, LogoutOutlined,
+  BellOutlined, TeamOutlined, CalendarOutlined, LogoutOutlined,
 } from '@ant-design/icons-vue'
 import {
+  changeMyPassword,
   confirmNotification,
   getNotifications,
   keepSessionAlive,
@@ -101,7 +130,16 @@ const router = useRouter()
 const route = useRoute()
 const notificationOpen = ref(false)
 const notifications = ref<NotificationRecord[]>([])
+const passwordModalOpen = ref(false)
+const passwordSubmitting = ref(false)
+const passwordForm = reactive({
+  oldPassword: '',
+  newPassword: '',
+  confirmPassword: '',
+})
 let notificationTimer: number | undefined
+let notificationFailureCount = 0
+let hasNotifiedNotificationFailure = false
 let sessionKeepAliveTimer: number | undefined
 let idleLogoutTimer: number | undefined
 let lastActivityWriteAt = 0
@@ -118,16 +156,20 @@ const iconMap: Record<string, any> = {
   WarningOutlined, DatabaseOutlined, PartitionOutlined,
   ApartmentOutlined, TableOutlined, ToolOutlined,
   ThunderboltOutlined, SwapOutlined, DollarOutlined,
-  BellOutlined, SyncOutlined, TeamOutlined, CalendarOutlined, LogoutOutlined,
+  BellOutlined, TeamOutlined, CalendarOutlined, LogoutOutlined,
 }
 
 function icon(name: string) {
   return () => h(iconMap[name])
 }
 
-const menuItems = [
+const ANALYST_ROLE = '分析员'
+const ANALYST_MENU_KEYS = new Set(['/operations', '/tasks', '/projects'])
+
+const baseMenuItems = [
   { key: '/operations', icon: icon('FundOutlined'), label: '运营数据中台', children: [
     { key: '/dashboard', icon: icon('DashboardOutlined'), label: '核心 KPI 仪表盘' },
+    { key: '/operations/lab-dashboard', icon: icon('DesktopOutlined'), label: '实验室运营看板' },
     { key: '/operations/reports', icon: icon('FileTextOutlined'), label: '精细化运营报表' },
     { key: '/operations/lab-status', icon: icon('DesktopOutlined'), label: '实验室状态大屏' },
   ]},
@@ -148,21 +190,34 @@ const menuItems = [
   ]},
   { key: '/schedule', icon: icon('ScheduleOutlined'), label: '排程管理', children: [
     { key: '/schedule/rules', icon: icon('ToolOutlined'), label: '排程规则配置' },
-    { key: '/schedule/engine', icon: icon('ThunderboltOutlined'), label: '自动排程引擎' },
-    { key: '/schedule/reschedule', icon: icon('SwapOutlined'), label: '重排与人工微调' },
-    { key: '/schedule/insert-order', icon: icon('DollarOutlined'), label: '插单与代价计算' },
+    { key: '/schedule/engine', icon: icon('ThunderboltOutlined'), label: '自动排程引擎', adminOnly: true },
+    { key: '/schedule/insert-order', icon: icon('DollarOutlined'), label: '插单代价计算' },
   ]},
   { key: '/system', icon: icon('SettingOutlined'), label: '系统管理', children: [
     { key: '/system/alerts', icon: icon('BellOutlined'), label: '智能预警推送' },
-    { key: '/system/external-sync', icon: icon('SyncOutlined'), label: '外部数据同步' },
     { key: '/system/users', icon: icon('TeamOutlined'), label: '用户管理' },
     { key: '/system/basic', icon: icon('SettingOutlined'), label: '系统基础管理' },
     { key: '/system/calendar', icon: icon('CalendarOutlined'), label: '工作日历管理' },
   ]},
 ]
 
+const menuItems = computed(() => {
+  const user = getStoredUser()
+  return filterMenuItems(baseMenuItems, user?.role)
+})
+
+function filterMenuItems(items: typeof baseMenuItems, role?: string) {
+  return items
+    .filter(item => role !== ANALYST_ROLE || ANALYST_MENU_KEYS.has(item.key))
+    .map(item => ({
+      ...item,
+      children: item.children?.filter(child => !child.adminOnly || role === '系统管理员'),
+    }))
+    .filter(item => !item.children || item.children.length > 0)
+}
+
 const openKeys = computed(() => {
-  for (const item of menuItems) {
+  for (const item of menuItems.value) {
     if (item.children?.some((c: any) => c.key === route.path)) {
       return [item.key]
     }
@@ -175,6 +230,11 @@ const currentUserLabel = computed(() => {
   const user = getStoredUser()
   return user?.display_name || user?.username || '未登录'
 })
+const newPasswordHelp = computed(() => (
+  passwordForm.newPassword && !isStrongPassword(passwordForm.newPassword)
+    ? '密码至少8位，且必须包含字母和数字'
+    : undefined
+))
 
 function clearSession() {
   if (notificationTimer) window.clearInterval(notificationTimer)
@@ -195,6 +255,65 @@ async function handleLogout() {
   router.replace('/login')
 }
 
+function openPasswordModal() {
+  resetPasswordForm()
+  passwordModalOpen.value = true
+}
+
+function closePasswordModal() {
+  if (passwordSubmitting.value) return
+  passwordModalOpen.value = false
+  resetPasswordForm()
+}
+
+function resetPasswordForm() {
+  passwordForm.oldPassword = ''
+  passwordForm.newPassword = ''
+  passwordForm.confirmPassword = ''
+}
+
+async function handleChangePassword() {
+  if (!passwordForm.oldPassword) {
+    message.error('请输入原密码')
+    return
+  }
+  if (!passwordForm.newPassword) {
+    message.error('请输入新密码')
+    return
+  }
+  if (!isStrongPassword(passwordForm.newPassword)) {
+    message.error('密码至少8位，且必须包含字母和数字')
+    return
+  }
+  if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+    message.error('两次输入的新密码不一致')
+    return
+  }
+  passwordSubmitting.value = true
+  try {
+    await changeMyPassword({
+      old_password: passwordForm.oldPassword,
+      new_password: passwordForm.newPassword,
+    })
+    message.success('密码修改成功，请重新登录')
+    clearSession()
+    router.replace('/login')
+  } catch (error: unknown) {
+    message.error(getErrorDetail(error, '密码修改失败'))
+  } finally {
+    passwordSubmitting.value = false
+  }
+}
+
+function isStrongPassword(value: string) {
+  return value.length >= 8 && /[A-Za-z]/.test(value) && /\d/.test(value)
+}
+
+function getErrorDetail(error: unknown, fallback: string) {
+  const maybeError = error as { response?: { data?: { detail?: string } } }
+  return maybeError.response?.data?.detail || fallback
+}
+
 function navigate({ key }: { key: string }) {
   router.push(key)
 }
@@ -208,8 +327,14 @@ async function fetchNotifications() {
       channel: 'site',
       unread_only: true,
     })
+    notificationFailureCount = 0
+    hasNotifiedNotificationFailure = false
   } catch {
-    message.error('站内通知加载失败')
+    notificationFailureCount += 1
+    if (notificationFailureCount >= 3 && !hasNotifiedNotificationFailure) {
+      hasNotifiedNotificationFailure = true
+      message.warning('站内通知暂时无法更新，系统将自动重试')
+    }
   }
 }
 
@@ -270,15 +395,16 @@ async function confirmItem(item: NotificationRecord) {
   message.success('已确认')
 }
 
-function getStoredUser(): { username: string; display_name?: string } | null {
+function getStoredUser(): { username: string; display_name?: string; role?: string } | null {
   const raw = localStorage.getItem('user')
   if (!raw) return null
   try {
-    const parsed = JSON.parse(raw) as { username?: unknown; display_name?: unknown }
+    const parsed = JSON.parse(raw) as { username?: unknown; display_name?: unknown; role?: unknown }
     if (typeof parsed.username !== 'string') return null
     return {
       username: parsed.username,
       display_name: typeof parsed.display_name === 'string' ? parsed.display_name : undefined,
+      role: typeof parsed.role === 'string' ? parsed.role : undefined,
     }
   } catch {
     return null
@@ -500,4 +626,3 @@ onBeforeUnmount(() => {
   margin-top: 8px;
 }
 </style>
-

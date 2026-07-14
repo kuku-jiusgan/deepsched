@@ -18,7 +18,7 @@ from app.schemas.schemas import UserCreate, UserDirectoryOut, UserOut
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
 
-ROLE_OPTIONS = ["系统管理员", "项目管理员", "项目负责人", "分析员"]
+ROLE_OPTIONS = ["系统管理员", "项目管理员", "分析所所长", "分析员"]
 ADMIN_ROLE = "系统管理员"
 IDLE_TIMEOUT_SECONDS = 30 * 60
 LOGIN_FAILURE_WINDOW_SECONDS = 10 * 60
@@ -314,6 +314,11 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class ChangeMyPasswordRequest(BaseModel):
+    old_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=1, max_length=128)
+
+
 @router.post("/login")
 def login(data: LoginRequest, request: Request, db: Session = Depends(get_db)):
     _seed_admin(db)
@@ -344,6 +349,21 @@ def login(data: LoginRequest, request: Request, db: Session = Depends(get_db)):
 def get_me(token: str = Depends(auth_token), db: Session = Depends(get_db)):
     user = get_current_user(token, db)
     return {"id": user.id, "username": user.username, "display_name": user.display_name, "role": user.role}
+
+
+@router.post("/me/password")
+def change_my_password(data: ChangeMyPasswordRequest, token: str = Depends(auth_token), db: Session = Depends(get_db)):
+    user = get_current_user(token, db)
+    if not verify_password(data.old_password, user.password_hash or ""):
+        raise HTTPException(status_code=400, detail="原密码不正确")
+    validate_password_strength(data.new_password)
+    if data.old_password == data.new_password:
+        raise HTTPException(status_code=400, detail="新密码不能与原密码相同")
+    user.password_hash = hash_password(data.new_password)
+    db.commit()
+    TOKENS.pop(token, None)
+    _save_tokens(TOKENS)
+    return {"detail": "密码已修改，请重新登录"}
 
 
 @router.post("/keep-alive")

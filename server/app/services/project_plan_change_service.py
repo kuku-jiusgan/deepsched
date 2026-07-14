@@ -1,7 +1,14 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from app.models import Project, Task, TaskDependency, TimeSlot
 from app.schemas.schemas import ProjectCreate, TaskUpdate
+from app.services.project_hours_validation_service import (
+    ProjectHoursExceededError,
+    validate_project_estimated_hours,
+)
+from app.services.project_task_rollup_service import recalculate_project_parent_hours
 
 
 SCHEDULE_FIELDS = {
@@ -33,22 +40,33 @@ def update_project_plan(db, project_id: int, data: ProjectCreate) -> Project:
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise PlanChangeNotFoundError("项目不存在")
+    start_date = _naive_datetime(data.start_date)
+    end_date = _naive_datetime(data.end_date)
+
+    project_code = data.code.strip()
+    duplicate = db.query(Project).filter(
+        Project.code == project_code,
+        Project.id != project_id,
+    ).first()
+    if duplicate:
+        raise PlanChangeInvalidError(f"项目编号 {project_code} 已存在")
 
     schedule_changed = any((
         project.priority != data.priority,
-        project.start_date != data.start_date,
-        project.end_date != data.end_date,
+        project.start_date != start_date,
+        project.end_date != end_date,
     ))
     if schedule_changed:
-        _ensure_project_window_keeps_protected_slots(db, project_id, data)
+        _ensure_project_window_keeps_protected_slots(db, project_id, start_date, end_date)
 
-    project.name = data.name
-    project.code = data.code
+    project.name = data.name.strip()
+    project.code = project_code
     project.client_name = data.client_name
+    project.estimated_hours = data.estimated_hours
     project.priority = data.priority
     project.manager_id = data.manager_id
-    project.start_date = data.start_date
-    project.end_date = data.end_date
+    project.start_date = start_date
+    project.end_date = end_date
     if schedule_changed:
         _mark_project_movable_tasks_dirty(db, project_id)
 
@@ -81,6 +99,13 @@ def update_task_plan(db, task_id: int, data: TaskUpdate) -> Task:
         task.instrument_ids = list(instrument_ids)
     if predecessor_ids is not None:
         _replace_dependencies(db, task.id, predecessor_ids)
+
+    recalculate_project_parent_hours(db, task.project_id)
+    try:
+        validate_project_estimated_hours(db, task.project_id)
+    except ProjectHoursExceededError as exc:
+        db.rollback()
+        raise PlanChangeInvalidError(str(exc))
 
     if schedule_changed:
         if is_structure_change:
@@ -121,17 +146,28 @@ def _ensure_schedule_fields_editable(db, task: Task, is_structure_change: bool) 
         raise PlanChangeInvalidError(f"下游存在固定任务【{names}】，不能修改当前任务的排程字段")
 
 
-def _ensure_project_window_keeps_protected_slots(db, project_id: int, data: ProjectCreate) -> None:
+def _ensure_project_window_keeps_protected_slots(
+    db,
+    project_id: int,
+    start_date: datetime | None,
+    end_date: datetime | None,
+) -> None:
     tasks = _project_tasks(db, project_id)
     protected_ids = {task.id for task in tasks if task.schedule_lock_status != "none"}
     if not protected_ids:
         return
     slots = db.query(TimeSlot).filter(TimeSlot.task_id.in_(protected_ids)).all()
     for slot in slots:
-        if data.start_date and slot.plan_start < data.start_date:
+        if start_date and slot.plan_start < start_date:
             raise PlanChangeInvalidError(f"项目开始时间晚于固定任务【{slot.task.name}】的排程时间")
-        if data.end_date and slot.plan_end > data.end_date:
+        if end_date and slot.plan_end > end_date:
             raise PlanChangeInvalidError(f"项目结束时间早于固定任务【{slot.task.name}】的排程时间")
+
+
+def _naive_datetime(value: datetime | None) -> datetime | None:
+    if value is None or value.tzinfo is None:
+        return value
+    return value.replace(tzinfo=None)
 
 
 def _mark_task_and_downstream_dirty(db, task: Task) -> None:

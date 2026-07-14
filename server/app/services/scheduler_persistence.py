@@ -4,7 +4,11 @@ from datetime import datetime, timedelta
 
 from app.core.config import get_settings
 from app.models import TimeSlot
-from app.services.scheduler_helpers import TIME_UNIT_MINUTES, is_allowed_calendar_day
+from app.services.scheduler_helpers import (
+    TIME_UNIT_MINUTES,
+    is_allowed_calendar_day,
+    natural_day_boundary,
+)
 
 
 def persist_slots(
@@ -27,7 +31,7 @@ def persist_slots(
     split_unit_presences=None,
 ) -> int:
     now = datetime.now()
-    frozen_boundary = now + timedelta(days=freeze_days)
+    frozen_boundary = natural_day_boundary(now, freeze_days)
     confirmed_boundary = now + timedelta(
         days=get_settings().CONFIRMED_DAYS
     )

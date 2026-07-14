@@ -14,6 +14,16 @@ DEFAULT_WORK_START_MINUTES = 8 * 60 + 30
 DEFAULT_WORK_END_MINUTES = 20 * 60
 
 
+def natural_day_boundary(now: datetime, days: int) -> datetime:
+    if days <= 0:
+        return now
+    next_boundary = datetime.combine(
+        now.date() + timedelta(days=days),
+        datetime.min.time(),
+    )
+    return next_boundary - timedelta(microseconds=1)
+
+
 def time_horizon() -> tuple[datetime, datetime, int]:
     now = datetime.now().replace(second=0, microsecond=0)
     minute = now.minute

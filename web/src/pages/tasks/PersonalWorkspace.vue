@@ -124,10 +124,19 @@ const EARLY_RELEASE_THRESHOLD_MINUTES = 30
 
 
 const cardTasks = computed(() => {
-  if (activeTab.value === 'active') return tasks.value.filter(task => task.status === 'running')
-  if (activeTab.value === 'pending') return tasks.value.filter(task => ['pending', 'scheduled'].includes(task.status))
+  if (activeTab.value === 'active') {
+    return tasks.value.filter(task => task.status === 'running' || isReadyToStart(task))
+  }
+  if (activeTab.value === 'pending') {
+    return tasks.value.filter(task => ['pending', 'scheduled'].includes(task.status) && !isReadyToStart(task))
+  }
   return []
 })
+
+function isReadyToStart(task: MyTask) {
+  if (!['pending', 'scheduled'].includes(task.status) || !task.plan_start) return false
+  return !dayjs(task.plan_start).isAfter(dayjs())
+}
 
 const filtered = computed(() => {
   if (activeTab.value === 'completed') {
@@ -181,6 +190,7 @@ const columns = [
   { title: '任务类型', key: 'task_type', width: 110 },
   { title: '所属项目', key: 'project', width: 200 },
   { title: '仪器', key: 'instrument', width: 130 },
+  { title: '负责人', dataIndex: 'assignee_name', key: 'assignee_name', width: 90 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 80 },
   { title: '计划开始', key: 'plan_start', width: 120 },
   { title: '计划结束', key: 'plan_end', width: 120 },

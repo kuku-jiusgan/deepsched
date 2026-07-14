@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import not_
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from app.core.database import get_db
-from app.core.config import get_settings
 from app.models import TimeSlot, Task, Instrument, Project, AuditLog
 from app.schemas.schemas import (
     TimeSlotOut, TimeSlotUpdate, TaskStatusUpdate,
@@ -32,9 +32,12 @@ from app.services.schedule_night_run_service import (
     record_night_run,
 )
 from app.services.schedule_reschedule_service import reschedule as reschedule_service
+from app.services.schedule_tier_service import roll_schedule_tiers
 from app.api.users import auth_token
 
 router = APIRouter(prefix="/api/v1/schedules", tags=["schedules"])
+
+WORKSPACE_ALL_TASK_ROLES = {"系统管理员"}
 
 @router.get("/timeslots", response_model=List[TimeSlotOut])
 def list_timeslots(
@@ -172,23 +175,7 @@ def confirm_insert(data: InsertOrderRequest, db: Session = Depends(get_db)):
 
 @router.post("/daily-roll")
 def daily_roll(db: Session = Depends(get_db)):
-    now = datetime.now()
-    settings = get_settings()
-    frozen_boundary = now + timedelta(days=settings.FROZEN_DAYS)
-    confirmed_boundary = now + timedelta(days=settings.CONFIRMED_DAYS)
-
-    db.query(TimeSlot).filter(
-        TimeSlot.tier == "confirmed",
-        TimeSlot.plan_start <= frozen_boundary
-    ).update({"tier": "frozen"}, synchronize_session=False)
-
-    db.query(TimeSlot).filter(
-        TimeSlot.tier == "forecast",
-        TimeSlot.plan_start <= confirmed_boundary
-    ).update({"tier": "confirmed"}, synchronize_session=False)
-
-    db.commit()
-    return {"status": "ok", "rolled_at": now.isoformat()}
+    return roll_schedule_tiers(db)
 
 @router.get("/my-tasks")
 def my_tasks(token: str = Depends(auth_token), db: Session = Depends(get_db)):
@@ -198,10 +185,9 @@ def my_tasks(token: str = Depends(auth_token), db: Session = Depends(get_db)):
 
     # Auto-delay: mark overdue tasks as blocked (no reschedule triggered)
     now = datetime.now()
-    overdue_tasks = db.query(Task).filter(
-        Task.assignee_id == user.id,
-        Task.status.in_(["scheduled", "running"]),
-    ).all()
+    overdue_tasks_query = db.query(Task).filter(Task.status.in_(["scheduled", "running"]))
+    overdue_tasks_query = _filter_workspace_tasks_by_user(overdue_tasks_query, user)
+    overdue_tasks = overdue_tasks_query.all()
     for t in overdue_tasks:
         slot = _latest_open_task_slot(t.id, db)
         if slot and slot.plan_end and slot.plan_end < now:
@@ -210,14 +196,14 @@ def my_tasks(token: str = Depends(auth_token), db: Session = Depends(get_db)):
     db.commit()
 
     # Query leaf tasks only: exclude tasks that have children (parent nodes)
-    from sqlalchemy import not_
     parent_ids = db.query(Task.parent_id).filter(Task.parent_id != None).subquery()
 
-    tasks = db.query(Task).filter(
-        Task.assignee_id == user.id,
+    tasks_query = db.query(Task).filter(
         Task.status.in_(["pending", "running", "blocked", "scheduled", "done", "interrupted"]),
         not_(Task.id.in_(parent_ids)),
-    ).order_by(Task.id).all()
+    )
+    tasks_query = _filter_workspace_tasks_by_user(tasks_query, user)
+    tasks = tasks_query.order_by(Task.id).all()
     
     result = []
     for task in tasks:
@@ -239,6 +225,8 @@ def my_tasks(token: str = Depends(auth_token), db: Session = Depends(get_db)):
             "task_id": task.id,
             "task_name": task.name,
             "task_type": task.task_type,
+            "assignee_id": task.assignee_id,
+            "assignee_name": task.assignee.display_name if task.assignee else None,
             "project_id": proj.id if proj else None,
             "project_name": proj.name if proj else None,
             "project_code": proj.code if proj else None,
@@ -273,6 +261,11 @@ def _latest_open_task_slot(task_id: int, db: Session) -> Optional[TimeSlot]:
         .first()
     )
 
+def _filter_workspace_tasks_by_user(query, user):
+    if user.role in WORKSPACE_ALL_TASK_ROLES:
+        return query
+    return query.filter(Task.assignee_id == user.id)
+
 RUNNING_CONTINUATION_STATUSES = {"scheduled", "running"}
 
 def _continuous_running_slots(db: Session, start_slot: TimeSlot) -> list[TimeSlot]:
@@ -288,7 +281,15 @@ def _continuous_running_slots(db: Session, start_slot: TimeSlot) -> list[TimeSlo
     )
 
 def _select_workspace_slot(slots: list[TimeSlot], now: datetime) -> Optional[TimeSlot]:
-    running_slot = next((slot for slot in slots if slot.status == "running"), None)
+    running_slot = next(
+        (
+            slot for slot in slots
+            if slot.status == "running"
+            and slot.plan_end
+            and slot.plan_end >= now
+        ),
+        None,
+    )
     if running_slot:
         return running_slot
 

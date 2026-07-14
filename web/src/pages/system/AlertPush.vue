@@ -145,7 +145,8 @@ const pushConfig = reactive<PushChannelConfig>({
 const roleOptions = [
   { label: '系统管理员', value: '系统管理员' },
   { label: '项目管理员', value: '项目管理员' },
-  { label: '项目负责人', value: '项目负责人' },
+  { label: '分析所所长', value: '分析所所长' },
+  { label: '项目负责人（项目指定）', value: '项目负责人' },
   { label: '分析员', value: '分析员' },
 ]
 

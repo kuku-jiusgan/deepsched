@@ -164,13 +164,11 @@ def lab_status(db: Session = Depends(get_db)):
     now = datetime.now()
     result = []
     for inst in instruments:
-        running = db.query(TimeSlot).filter(
-            TimeSlot.instrument_id == inst.id,
-            TimeSlot.status == "running",
-        ).first()
+        running = _current_running_slot(db, inst.id, now)
 
         current_task = None
         current_project = None
+        current_user = None
         progress = None
         if running:
             task = db.query(Task).filter(Task.id == running.task_id).first()
@@ -178,11 +176,13 @@ def lab_status(db: Session = Depends(get_db)):
                 proj = db.query(Project).filter(Project.id == task.project_id).first()
                 current_task = task.name
                 current_project = proj.name if proj else None
-                if running.actual_start and running.plan_end:
-                    elapsed = (now - running.actual_start).total_seconds()
+                current_user = task.assignee_name
+                progress_start = running.actual_start or running.plan_start
+                if progress_start and running.plan_end:
+                    elapsed = (now - progress_start).total_seconds()
                     total = (running.plan_end - running.plan_start).total_seconds()
                     if total > 0:
-                        progress = min(round(elapsed / total * 100, 1), 100)
+                        progress = min(max(round(elapsed / total * 100, 1), 0), 100)
 
         upcoming = db.query(TimeSlot).filter(
             TimeSlot.instrument_id == inst.id,
@@ -209,6 +209,7 @@ def lab_status(db: Session = Depends(get_db)):
             "label_y": inst.label_y or 0,
             "current_task": current_task,
             "current_project": current_project,
+            "current_user": current_user,
             "progress": progress,
             "next_task": next_task,
             "next_start": next_start,
@@ -216,3 +217,19 @@ def lab_status(db: Session = Depends(get_db)):
             "running_start": running.actual_start.isoformat() if running and running.actual_start else None,
         })
     return result
+
+
+def _current_running_slot(db: Session, instrument_id: int, now: datetime) -> TimeSlot | None:
+    active_slot = db.query(TimeSlot).filter(
+        TimeSlot.instrument_id == instrument_id,
+        TimeSlot.status == "running",
+        TimeSlot.plan_start <= now,
+        TimeSlot.plan_end >= now,
+    ).order_by(TimeSlot.plan_start, TimeSlot.id).first()
+    if active_slot:
+        return active_slot
+
+    return db.query(TimeSlot).filter(
+        TimeSlot.instrument_id == instrument_id,
+        TimeSlot.status == "running",
+    ).order_by(TimeSlot.plan_end.desc(), TimeSlot.id.desc()).first()

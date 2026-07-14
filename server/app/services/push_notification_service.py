@@ -57,6 +57,7 @@ def push_by_rule(
     content: str,
     related_entity_type: str | None = None,
     related_entity_id: int | None = None,
+    context_roles: Iterable[str] | None = None,
 ) -> int:
     rule = db.query(AlertRule).filter(AlertRule.rule_type == rule_type).first()
     if rule and not rule.enabled:
@@ -64,7 +65,7 @@ def push_by_rule(
 
     enable_site = True if not rule else bool(rule.enable_site)
     enable_wecom = False if not rule else bool(rule.enable_wecom)
-    unique_users = _unique_active_users(users)
+    unique_users = _notification_recipients(rule, users, context_roles)
     sent_count = 0
 
     if enable_site:
@@ -203,6 +204,32 @@ def _post_json(url: str, payload: dict) -> dict:
     )
     with urllib.request.urlopen(request, timeout=10) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _notification_recipients(
+    rule: AlertRule | None,
+    users: Iterable[User],
+    context_roles: Iterable[str] | None,
+) -> list[User]:
+    active_users = _unique_active_users(users)
+    if not rule or rule.notify_roles is None:
+        return active_users
+    notify_roles = _parse_notify_roles(rule.notify_roles)
+    matched_context_roles = notify_roles & set(context_roles or [])
+    return [
+        user for user in active_users
+        if user.role in notify_roles or matched_context_roles
+    ]
+
+
+def _parse_notify_roles(value: str) -> set[str]:
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return set()
+    if not isinstance(parsed, list):
+        return set()
+    return {role for role in parsed if isinstance(role, str) and role}
 
 
 def _unique_active_users(users: Iterable[User]) -> list[User]:

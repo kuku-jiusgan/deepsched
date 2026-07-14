@@ -280,7 +280,7 @@ const timeColumns = computed<TimeCol[]>(() => {
   return cols
 })
 
-const displaySlots = computed<GanttSlot[]>(() => mergeContinuousSlots(slots.value))
+const displaySlots = computed<GanttSlot[]>(() => mergeContinuousSlots(toDisplaySlots(slots.value)))
 
 function computeLanes() {
   const map: Record<number, Record<number, number>> = {}
@@ -651,6 +651,18 @@ function showTooltip(slot: GanttSlot, e: MouseEvent) {
   tooltipY.value = e.clientY - 100
 }
 function hideTooltip() { hoveredSlot.value = null }
+
+function toDisplaySlots(sourceSlots: TimeSlot[]): TimeSlot[] {
+  return sourceSlots.flatMap(slot => {
+    if (slot.status !== 'completed') return [slot]
+    if (!slot.actual_start || !slot.actual_end) return []
+    return [{
+      ...slot,
+      plan_start: slot.actual_start,
+      plan_end: slot.actual_end,
+    }]
+  })
+}
 
 function mergeContinuousSlots(sourceSlots: TimeSlot[]): GanttSlot[] {
   const sortedSlots = [...sourceSlots].sort((a, b) => {

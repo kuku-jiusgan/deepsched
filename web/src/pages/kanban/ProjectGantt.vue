@@ -32,7 +32,7 @@
         <div class="gantt-header-cell">项目</div>
         <div v-for="row in flatRows" :key="'l-' + row.inst.id + '-q' + row.quarter"
           class="gantt-left-row" :class="{ 'is-subrow': row.isSubrow, 'is-last': row.isLast }"
-          :style="{ height: Math.max(12, rowHeight) + 'px' }">
+          :style="getProjectRowStyle(row.inst.id)">
           <template v-if="!row.isSubrow || viewMode !== 'week'">
             <div class="proj-name">{{ row.inst.name }}</div>
             <div class="proj-code">{{ row.inst.code }}</div>
@@ -51,7 +51,7 @@
         <div class="gantt-timeline-body" :style="{ width: totalWidth + 'px' }">
           <div v-for="row in flatRows" :key="'r-' + row.inst.id + '-q' + row.quarter"
             class="gantt-entity-row" :class="{ 'is-subrow': row.isSubrow, 'is-last': row.isLast }"
-            :style="{ height: Math.max(12, rowHeight) + 'px' }">
+            :style="getProjectRowStyle(row.inst.id)">
             <div v-for="col in timeColumns" :key="col.key" class="gantt-grid-cell"
               :style="{ width: colWidth + 'px' }" :class="{ 'is-weekend': col.isWeekend, 'is-today': col.isToday }" />
             <div v-for="slot in getSlotsForQuarter(row.inst.id, row.quarter)" :key="slot.id"
@@ -110,6 +110,8 @@ const leftRef = ref<HTMLElement | null>(null)
 const rightRef = ref<HTMLElement | null>(null)
 const colWidth = ref(140)
 const rowHeight = ref(200)
+const BASE_PROJECT_ROW_HEIGHT = 35
+const PROJECT_LANE_HEIGHT = 28
 const taskTypeMap = ref<Record<string, string>>({})
 const laneMap = ref<Record<number, Record<number, number>>>({})
 const laneCounts = ref<Record<number, number>>({})
@@ -120,6 +122,8 @@ const filteredProjects = computed(() => {
   if (!kw) return projects.value
   return projects.value.filter(p => p.code.toLowerCase().includes(kw) || p.name.toLowerCase().includes(kw))
 })
+
+const displaySlots = computed<TimeSlot[]>(() => toDisplaySlots(slots.value))
 
 const flatRows = computed(() => {
   const rows: { inst: Project; quarter: number; isSubrow: boolean; isLast: boolean }[] = []
@@ -185,11 +189,23 @@ const timeColumns = computed<TimeCol[]>(() => {
   return cols
 })
 
+function toDisplaySlots(sourceSlots: TimeSlot[]): TimeSlot[] {
+  return sourceSlots.flatMap(slot => {
+    if (slot.status !== 'completed') return [slot]
+    if (!slot.actual_start || !slot.actual_end) return []
+    return [{
+      ...slot,
+      plan_start: slot.actual_start,
+      plan_end: slot.actual_end,
+    }]
+  })
+}
+
 function computeLanes() {
   const map: Record<number, Record<number, number>> = {}
   const counts: Record<number, number> = {}
   for (const inst of filteredProjects.value) {
-    const instSlots = slots.value.filter(s => s.project_id === inst.id).sort((a, b) => dayjs(a.plan_start).valueOf() - dayjs(b.plan_start).valueOf())
+    const instSlots = displaySlots.value.filter(s => s.project_id === inst.id).sort((a, b) => dayjs(a.plan_start).valueOf() - dayjs(b.plan_start).valueOf())
     const lanes: { end: dayjs.Dayjs }[] = []
     const assign: Record<number, number> = {}
     for (const slot of instSlots) {
@@ -215,12 +231,19 @@ function computeLanes() {
   laneCounts.value = counts
 }
 
-function getEntityRowStyle(_index: number, _quarter?: number) {
-  return { height: Math.max(12, rowHeight.value) + 'px' }
+function getProjectRowStyle(projectId: number) {
+  const laneCount = laneCounts.value[projectId] || 1
+  const height = Math.max(BASE_PROJECT_ROW_HEIGHT, laneCount * PROJECT_LANE_HEIGHT + 4)
+  return { height: `${height}px` }
 }
 
-function getLeftRowStyle(_index: number, _quarter?: number) {
-  return { height: Math.max(12, rowHeight.value) + 'px' }
+function getProjectLaneStyle(slot: TimeSlot) {
+  const projectId = slot.project_id
+  const lane = projectId ? (laneMap.value[projectId] || {})[slot.id] || 0 : 0
+  return {
+    top: `${lane * PROJECT_LANE_HEIGHT + 2}px`,
+    height: `${PROJECT_LANE_HEIGHT - 2}px`,
+  }
 }
 
 function getSlotsForQuarter(instId: number, quarter: number) {
@@ -240,7 +263,7 @@ function getSlotsForQuarter(instId: number, quarter: number) {
 }
 
 function getSlotsForProject(instId: number) {
-  return slots.value.filter(s => s.project_id === instId)
+  return displaySlots.value.filter(s => s.project_id === instId)
 }
 
 function getBarStyle(slot: TimeSlot, quarter?: number) {
@@ -295,17 +318,15 @@ function getBarStyle(slot: TimeSlot, quarter?: number) {
     return {
       left: barLeft + 'px',
       width: Math.max(3, barRight - barLeft) + 'px',
-      top: '2px', bottom: '2px'
+      ...getProjectLaneStyle(slot),
     }
   }
   
-  const projectId = slot.project_id
-  const lane = projectId ? (laneMap.value[projectId] || {})[slot.id] || 0 : 0
-  const laneCount = projectId ? laneCounts.value[projectId] || 1 : 1
-  const laneH = Math.max(26, Math.floor((rowHeight.value - 4) / laneCount))
-  const top = lane * laneH + 2
-
-  return { left: left + 'px', width: Math.max(3, right - left) + 'px', top: top + 'px', height: (laneH - 2) + 'px' }
+  return {
+    left: left + 'px',
+    width: Math.max(3, right - left) + 'px',
+    ...getProjectLaneStyle(slot),
+  }
 }
 
 const taskIconMap: Record<string, any> = {
@@ -357,7 +378,7 @@ function isFullDelaySlot(slot: TimeSlot) {
   const slotEnd = dayjs(slot.plan_end)
   const slotDurationHours = slotEnd.diff(slotStart, 'hour', true)
   if (slot.delay_hours >= slotDurationHours) return true
-  return slots.value.some(other =>
+  return displaySlots.value.some(other =>
     other.id !== slot.id &&
     other.task_id === slot.task_id &&
     Boolean(other.plan_end) &&

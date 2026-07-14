@@ -3,6 +3,7 @@ export interface Project {
   name: string;
   code: string;
   client_name?: string;
+  estimated_hours?: number | null;
   priority: number;
   status: string;
   manager_id?: number | null;

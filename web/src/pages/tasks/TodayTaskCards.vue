@@ -45,7 +45,7 @@
               <a-button v-if="canCompleteTask(card.task)" size="small" class="task-action-button-complete" @click="emit('complete', card.task)">确认完成</a-button>
               <a-tooltip :title="card.nightRunDisabledReason">
                 <span>
-                  <a-button size="small" type="primary" :disabled="!card.canNightRun" @click="openAutoSequence(card)">夜间运行</a-button>
+                  <a-button size="small" type="primary" :loading="card.isNightRunLoading" :disabled="!card.canNightRun" @click="openAutoSequence(card)">夜间运行</a-button>
                 </span>
               </a-tooltip>
               <a-button v-if="canCompleteTask(card.task)" size="small" @click="handleCardAction(card, '释放仪器')">释放仪器</a-button>
@@ -143,7 +143,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { getScheduleRules, recordNightRun, reportTaskDelay, type MyTask } from '@/services/api'
 import dayjs from 'dayjs'
@@ -178,6 +178,7 @@ interface TodayTaskCard {
   nightRunSummary: string
   delayText: string
   canNightRun: boolean
+  isNightRunLoading: boolean
   nightRunDisabledReason: string
 }
 
@@ -214,7 +215,6 @@ const emit = defineEmits<{
 
 const NIGHT_RESERVE_END = '次日 08:30'
 const DEFAULT_NIGHT_START = '17:30'
-const DEFAULT_WORK_END = '20:00'
 const DEFAULT_SEQUENCE_DURATION_HOURS = 8
 const DEFAULT_DELAY_HOURS = 1
 const NIGHT_RUN_STORAGE_PREFIX = 'deepsched:today-night-run'
@@ -237,7 +237,8 @@ const delayForm = reactive<DelayForm>({
   reason: '',
 })
 const nightRunRevision = ref(0)
-const workdayEndTime = ref(DEFAULT_WORK_END)
+const workdayEndTime = ref<string | null>(null)
+const isWorkingHoursLoading = ref(true)
 
 const todayTasks = computed(() => props.tasks.filter(isTodayTask))
 
@@ -292,18 +293,19 @@ watch(
   },
 )
 
-onMounted(() => {
-  fetchWorkingHours()
-})
+fetchWorkingHours()
 
 async function fetchWorkingHours() {
+  isWorkingHoursLoading.value = true
   try {
     const rules = await getScheduleRules()
     const workingRule = rules.find(rule => rule.code === WORKING_HOURS_RULE_CODE)
     const dayEnd = workingRule?.params?.day_end
     workdayEndTime.value = normalizeWorkdayEndTime(dayEnd)
   } catch {
-    workdayEndTime.value = DEFAULT_WORK_END
+    workdayEndTime.value = null
+  } finally {
+    isWorkingHoursLoading.value = false
   }
 }
 
@@ -315,7 +317,7 @@ function normalizeWorkdayEndTime(value: unknown) {
     const minutes = (totalMinutes % 60).toString().padStart(2, '0')
     return `${hours}:${minutes}`
   }
-  return DEFAULT_WORK_END
+  return null
 }
 
 function formatHours(value: number) {
@@ -354,7 +356,8 @@ function canCompleteTask(task: MyTask) {
 
 function isExceptionConfirmTask(task: MyTask) {
   const isProblemStatus = ['blocked', 'interrupted'].includes(task.status)
-  const isOverdue = Boolean(task.plan_end) && dayjs(task.plan_end).isBefore(dayjs()) && !isTaskClosed(task)
+  const plannedEnd = task.task_plan_end || task.plan_end
+  const isOverdue = Boolean(plannedEnd) && dayjs(plannedEnd).isBefore(dayjs()) && !isTaskClosed(task)
   const hasDelayReport = Boolean(task.delay_reason) || Boolean(task.delay_hours)
   return isProblemStatus || isOverdue || hasDelayReport
 }
@@ -416,15 +419,19 @@ function isHalfHourDuration(value: unknown) {
 
 function canNightRunTask(task: MyTask, storedNightRun?: StoredAutoSequenceForm | null) {
   if (storedNightRun) return true
+  if (isWorkingHoursLoading.value) return false
   const nightEnd = nightRunEndTime(task)
-  if (!nightEnd) return false
-  return nightEnd.isSame(dayjs(), 'day') && nightEnd.format('HH:mm') === workdayEndTime.value
+  if (!nightEnd || !workdayEndTime.value) return false
+  const workdayEnd = parseNightClock(nightEnd, workdayEndTime.value)
+  return Boolean(workdayEnd) && nightEnd.isSame(dayjs(), 'day') && !nightEnd.isBefore(workdayEnd)
 }
 
 function nightRunDisabledReason(task: MyTask, storedNightRun?: StoredAutoSequenceForm | null) {
   if (canNightRunTask(task, storedNightRun)) return ''
   if (!task.plan_end) return '任务没有计划结束时间，不能继续夜间运行'
-  return `首次设置夜间运行时，任务当天计划结束时间需到达有效工作时段最晚时间 ${workdayEndTime.value}`
+  if (isWorkingHoursLoading.value) return '正在读取排程规则中的有效工作时段'
+  if (!workdayEndTime.value) return '未读取到排程规则中的有效工作时段，暂不能继续夜间运行'
+  return `首次设置夜间运行时，任务当天计划结束时间需不早于有效工作时段最晚时间 ${workdayEndTime.value}`
 }
 
 function statusLabel(status: string) {
@@ -441,8 +448,8 @@ function statusLabel(status: string) {
 }
 
 function scheduleText(task: MyTask) {
-  const startText = formatTaskDateTime(task.plan_start, '---- -- -- --:--')
-  const endText = formatTaskDateTime(task.plan_end, '---- -- -- --:--')
+  const startText = formatTaskDateTime(task.task_plan_start || task.plan_start, '---- -- -- --:--')
+  const endText = formatTaskDateTime(task.task_plan_end || task.plan_end, '---- -- -- --:--')
   return `${startText}–${endText}`
 }
 
@@ -477,7 +484,7 @@ function buildTodayCard(task: MyTask, category: TodayCardCategory): TodayTaskCar
     projectText: formatProjectText(task),
     taskText: task.task_name || '未命名任务',
     instrumentText: task.instrument_name || task.instrument_code || '未指定仪器',
-    ownerText: currentUserName(),
+    ownerText: task.assignee_name || currentUserName(),
     scheduleText: scheduleText(task),
     actualText: actualText(task),
     tagText: tagTextMap[category],
@@ -488,6 +495,7 @@ function buildTodayCard(task: MyTask, category: TodayCardCategory): TodayTaskCar
     nightRunSummary: storedNightRun ? formatNightRunSummary(storedNightRun) : '',
     delayText: getDelayText(task),
     canNightRun: canNightRunTask(task, storedNightRun),
+    isNightRunLoading: isWorkingHoursLoading.value,
     nightRunDisabledReason: nightRunDisabledReason(task, storedNightRun),
   }
 }

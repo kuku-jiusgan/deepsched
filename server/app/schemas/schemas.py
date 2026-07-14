@@ -90,6 +90,7 @@ class ProjectCreate(BaseModel):
     name: str
     code: str
     client_name: Optional[str] = None
+    estimated_hours: Optional[float] = Field(default=None, ge=0)
     priority: int = Field(default=3, ge=1, le=3)
     manager_id: Optional[int] = None
     start_date: Optional[datetime] = None
@@ -100,6 +101,7 @@ class ProjectOut(BaseModel):
     name: str
     code: str
     client_name: Optional[str]
+    estimated_hours: Optional[float] = None
     priority: int
     status: str
     manager_id: Optional[int] = None

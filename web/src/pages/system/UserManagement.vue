@@ -34,8 +34,17 @@
     </a-table>
 
     <!-- 添加/编辑用户 -->
-    <a-modal :title="editingId ? '编辑用户' : '添加用户'" v-model:open="modalOpen" @ok="handleSubmit" width="500" :okText="editingId ? '保存' : '添加'" destroyOnClose>
-      <a-form layout="vertical" style="margin-top: 16px">
+    <a-modal
+      :title="editingId ? '编辑用户' : '添加用户'"
+      v-model:open="modalOpen"
+      wrap-class-name="user-form-modal"
+      centered
+      width="520px"
+      :okText="editingId ? '保存' : '添加'"
+      destroyOnClose
+      @ok="handleSubmit"
+    >
+      <a-form layout="vertical" class="user-form">
         <a-form-item label="用户名" required><a-input v-model:value="form.username" placeholder="登录账号" :disabled="!!editingId" /></a-form-item>
         <a-form-item label="显示名称" required><a-input v-model:value="form.display_name" placeholder="如：张三" /></a-form-item>
         <a-form-item v-if="!editingId" label="登录密码" required :help="passwordHelp"><a-input-password v-model:value="form.password" placeholder="至少8位，包含字母和数字" /></a-form-item>
@@ -83,13 +92,13 @@ const confirmPassword = ref('')
 const roleOptions = [
   { label: '系统管理员', value: '系统管理员' },
   { label: '项目管理员', value: '项目管理员' },
-  { label: '项目负责人', value: '项目负责人' },
+  { label: '分析所所长', value: '分析所所长' },
   { label: '分析员', value: '分析员' },
 ]
 const roleColors: Record<string, string> = {
   '系统管理员': '#7c3aed',
   '项目管理员': '#2563eb',
-  '项目负责人': '#0891b2',
+  '分析所所长': '#0891b2',
   '分析员': '#16a34a',
 }
 
@@ -214,3 +223,30 @@ function getErrorDetail(error: unknown, fallback: string) {
 
 onMounted(fetchData)
 </script>
+
+<style scoped>
+.user-form {
+  margin-top: 8px;
+}
+
+.user-form :deep(.ant-form-item) {
+  margin-bottom: 14px;
+}
+
+:global(.user-form-modal .ant-modal) {
+  max-width: calc(100vw - 32px);
+  padding-bottom: 0;
+}
+
+:global(.user-form-modal .ant-modal-body) {
+  max-height: calc(100vh - 190px);
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+@media (max-height: 720px) {
+  :global(.user-form-modal .ant-modal-body) {
+    max-height: calc(100vh - 150px);
+  }
+}
+</style>

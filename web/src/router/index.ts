@@ -14,6 +14,7 @@ const routes = [
     children: [
       { path: '', redirect: '/dashboard' },
       { path: 'dashboard', component: () => import('@/pages/Dashboard.vue') },
+      { path: 'operations/lab-dashboard', component: () => import('@/pages/operations/LabOperationsDashboard.vue') },
       { path: 'operations/reports', component: () => import('@/pages/operations/DetailedReports.vue') },
       { path: 'operations/project-tasks', component: () => import('@/pages/operations/ProjectTaskDetail.vue') },
       { path: 'operations/lab-status', component: () => import('@/pages/operations/LabStatusScreen.vue') },
@@ -27,8 +28,7 @@ const routes = [
       { path: 'projects/process-dag', component: () => import('@/pages/ProjectDAG.vue') },
       { path: 'projects/resource-ledger', component: () => import('@/pages/projects/ResourceLedger.vue') },
       { path: 'schedule/rules', component: () => import('@/pages/schedule/ScheduleRules.vue') },
-      { path: 'schedule/engine', component: () => import('@/pages/ScheduleManager.vue') },
-      { path: 'schedule/reschedule', component: () => import('@/pages/schedule/RescheduleAdjust.vue') },
+      { path: 'schedule/engine', component: () => import('@/pages/ScheduleManager.vue'), meta: { requiresAdmin: true } },
       { path: 'schedule/insert-order', component: () => import('@/pages/schedule/InsertOrder.vue') },
       { path: 'system/alerts', component: () => import('@/pages/system/AlertPush.vue') },
       { path: 'system/external-sync', component: () => import('@/pages/system/ExternalSync.vue') },
@@ -41,6 +41,9 @@ const routes = [
 
 const router = createRouter({ history: createWebHistory(), routes })
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000
+const ANALYST_ROLE = '分析员'
+const ANALYST_ALLOWED_PATHS = ['/dashboard']
+const ANALYST_ALLOWED_PREFIXES = ['/operations/', '/tasks/', '/projects/']
 
 function clearSession() {
   localStorage.removeItem('token')
@@ -61,6 +64,8 @@ router.beforeEach((to, _from, next) => {
     next('/login')
   } else if (to.meta.requiresAdmin && getStoredUserRole() !== '系统管理员') {
     next('/dashboard')
+  } else if (isAnalystBlockedPath(to.path)) {
+    next('/dashboard')
   } else if (to.path === '/login' && token) {
     next('/dashboard')
   } else {
@@ -77,6 +82,12 @@ function getStoredUserRole() {
   } catch {
     return ''
   }
+}
+
+function isAnalystBlockedPath(path: string) {
+  if (getStoredUserRole() !== ANALYST_ROLE) return false
+  if (ANALYST_ALLOWED_PATHS.includes(path)) return false
+  return !ANALYST_ALLOWED_PREFIXES.some(prefix => path.startsWith(prefix))
 }
 
 export default router

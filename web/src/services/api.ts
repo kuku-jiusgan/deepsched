@@ -276,6 +276,14 @@ export const deleteUser = (id: number): Promise<void> =>
 export const keepSessionAlive = (): Promise<void> =>
   api.post('/users/keep-alive').then(() => undefined)
 
+export interface ChangeMyPasswordPayload {
+  old_password: string
+  new_password: string
+}
+
+export const changeMyPassword = (data: ChangeMyPasswordPayload): Promise<void> =>
+  api.post('/users/me/password', data).then(() => undefined)
+
 export const logout = (): Promise<void> =>
   api.post('/users/logout').then(() => undefined)
 // Schedule Rules
@@ -306,6 +314,7 @@ export const toggleScheduleRule = (id: number): Promise<ScheduleRule> =>
 // My Tasks
 export interface MyTask {
   slot_id: number; task_id: number; task_name: string | null; task_type: string | null
+  assignee_id: number | null; assignee_name: string | null
   project_id: number | null; project_name: string | null; project_code: string | null
   instrument_id: number; instrument_name: string | null; instrument_code: string | null
   plan_start: string | null; plan_end: string | null; actual_start: string | null; actual_end: string | null
@@ -323,11 +332,34 @@ export interface StatsRangeParams {
   end_date?: string
 }
 
+export interface LabStatusInstrument {
+  id: number
+  code: string
+  name: string
+  group: string
+  location: string | null
+  status: string
+  buffer_rate: number
+  label_x: number
+  label_y: number
+  current_task: string | null
+  current_project: string | null
+  current_user: string | null
+  progress: number | null
+  next_task: string | null
+  next_start: string | null
+  running_slot_id?: number | null
+  running_start?: string | null
+}
+
 export const getDashboard = (params?: StatsRangeParams): Promise<DashboardData> =>
   api.get<DashboardData>('/stats/dashboard', { params }).then(r => r.data);
 
 export const getUtilization = (params?: StatsRangeParams): Promise<UtilizationStats[]> =>
   api.get<UtilizationStats[]>('/stats/utilization', { params }).then(r => r.data);
+
+export const getLabStatus = (): Promise<LabStatusInstrument[]> =>
+  api.get<LabStatusInstrument[]>('/stats/lab-status').then(r => r.data);
 
 // Task Types
 export interface TaskTypeConfig {

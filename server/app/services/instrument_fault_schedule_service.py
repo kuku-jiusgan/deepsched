@@ -223,5 +223,6 @@ def _notify_project_managers(
             ),
             related_entity_type="task",
             related_entity_id=violation["task_id"],
+            context_roles=["项目负责人"],
         )
     return notified

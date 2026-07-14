@@ -14,6 +14,10 @@ from app.services.scheduler_objective import add_scheduler_objective
 from app.services.scheduler_split_tasks import add_split_task_variables
 from app.services.scheduler_diagnostics import frozen_schedule_message, unavailable_instrument_message
 from app.services.scheduler_data import load_scheduler_data
+from app.services.project_hours_validation_service import (
+    ProjectHoursExceededError,
+    validate_projects_estimated_hours,
+)
 from app.services.scheduler_helpers import (
     build_compatibility,
     build_dependencies,
@@ -41,6 +45,10 @@ class SchedulerService:
         tasks, instruments = load_scheduler_data(self.db, project_ids, task_ids)
         if not tasks:
             return {"status": "ok", "message": "没有待排仪器任务", "timeslots_created": 0}
+        try:
+            validate_projects_estimated_hours(self.db, {task.project_id for task in tasks})
+        except ProjectHoursExceededError as exc:
+            return {"status": "error", "message": str(exc)}
         if not instruments:
             return {"status": "error", "message": "没有可用仪器"}
 

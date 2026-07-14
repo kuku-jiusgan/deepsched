@@ -5,10 +5,18 @@ def ensure_runtime_schema(engine) -> None:
     inspector = inspect(engine)
     table_names = inspector.get_table_names()
 
+    if "user" in table_names:
+        with engine.begin() as connection:
+            connection.execute(text(
+                "UPDATE user SET role = '分析所所长' WHERE role = '项目负责人'"
+            ))
+
     if "project" in table_names:
         project_columns = {column["name"] for column in inspector.get_columns("project")}
         obsolete_columns = project_columns & {"sla_level", "profit_weight"}
         with engine.begin() as connection:
+            if "estimated_hours" not in project_columns:
+                connection.execute(text("ALTER TABLE project ADD COLUMN estimated_hours FLOAT"))
             for column_name in sorted(obsolete_columns):
                 connection.execute(text(f"ALTER TABLE project DROP COLUMN {column_name}"))
             connection.execute(text("UPDATE project SET priority = 1 WHERE priority IS NULL OR priority < 1"))

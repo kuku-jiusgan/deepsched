@@ -18,7 +18,11 @@ def load_fixed_slots(db, excluded_task_ids: set[int] | None = None) -> list[Time
     )
     if excluded_task_ids:
         query = query.filter(~TimeSlot.task_id.in_(excluded_task_ids))
-    return query.order_by(TimeSlot.instrument_id, TimeSlot.plan_start, TimeSlot.id).all()
+    slots = query.order_by(TimeSlot.instrument_id, TimeSlot.plan_start, TimeSlot.id).all()
+    return [
+        slot for slot in slots
+        if slot.status != "completed" or (slot.actual_start and slot.actual_end)
+    ]
 
 
 def add_instrument_capacity_constraints(
@@ -38,8 +42,10 @@ def add_instrument_capacity_constraints(
 ) -> None:
     fixed_by_instrument: dict[int, list[tuple[TimeSlot, int, int]]] = defaultdict(list)
     for slot in fixed_slots:
-        start_unit = datetime_to_units(slot.plan_start, horizon_start)
-        end_unit = datetime_to_units(slot.plan_end, horizon_start)
+        start_time = slot.actual_start if slot.status == "completed" else slot.plan_start
+        end_time = slot.actual_end if slot.status == "completed" else slot.plan_end
+        start_unit = datetime_to_units(start_time, horizon_start)
+        end_unit = datetime_to_units(end_time, horizon_start)
         if end_unit <= 0 or start_unit >= total_units:
             continue
         fixed_by_instrument[slot.instrument_id].append(

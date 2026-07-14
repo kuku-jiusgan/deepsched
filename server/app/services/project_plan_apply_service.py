@@ -10,6 +10,11 @@ from app.schemas.schemas import (
     ProjectPlanApplyResponse,
     ProjectPlanInsertConfirmRequest,
 )
+from app.services.project_hours_validation_service import (
+    ProjectHoursExceededError,
+    validate_project_estimated_hours,
+)
+from app.services.project_task_rollup_service import recalculate_project_parent_hours
 from app.services.schedule_insert_service import (
     _build_impacts,
     _load_lower_priority_movable_tasks,
@@ -31,6 +36,12 @@ class ProjectPlanInvalidError(Exception):
 
 
 def apply_project_plan(db, project_id: int) -> ProjectPlanApplyResponse:
+    recalculate_project_parent_hours(db, project_id)
+    db.flush()
+    try:
+        validate_project_estimated_hours(db, project_id)
+    except ProjectHoursExceededError as exc:
+        raise ProjectPlanInvalidError(str(exc))
     project, selected_tasks = _load_project_candidates(db, project_id)
     if not selected_tasks:
         return ProjectPlanApplyResponse(

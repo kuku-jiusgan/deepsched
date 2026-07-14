@@ -39,9 +39,42 @@ class ScheduleDelayTest(unittest.TestCase):
 
         self.db.refresh(current_slot)
         self.db.refresh(final_slot)
+        task_slots = self.db.query(TimeSlot).filter(
+            TimeSlot.task_id == task.id,
+        ).order_by(TimeSlot.plan_start).all()
         self.assertEqual(datetime(2026, 7, 13, 20, 0), current_slot.plan_end)
-        self.assertEqual(datetime(2026, 7, 14, 20, 30), final_slot.plan_end)
+        self.assertEqual(datetime(2026, 7, 14, 20, 0), final_slot.plan_end)
+        self.assertEqual(datetime(2026, 7, 15, 8, 30), task_slots[-1].plan_start)
+        self.assertEqual(datetime(2026, 7, 15, 9, 0), task_slots[-1].plan_end)
         self.assertEqual(final_slot.id, result["slot_id"])
+
+    def test_following_task_delay_respects_working_hours(self):
+        delayed_task = Task(project_id=1, name="delayed", task_type="test", status="scheduled")
+        following_task = Task(project_id=1, name="following", task_type="test", status="scheduled")
+        self.db.add_all([delayed_task, following_task])
+        self.db.flush()
+        delayed_slot = TimeSlot(
+            task_id=delayed_task.id, instrument_id=1,
+            plan_start=datetime(2026, 7, 13, 8, 30),
+            plan_end=datetime(2026, 7, 13, 18, 30), status="scheduled",
+        )
+        following_slot = TimeSlot(
+            task_id=following_task.id, instrument_id=1,
+            plan_start=datetime(2026, 7, 13, 18, 30),
+            plan_end=datetime(2026, 7, 13, 20, 0), status="scheduled",
+        )
+        self.db.add_all([delayed_slot, following_slot])
+        self.db.commit()
+
+        report_task_delay(self.db, delayed_slot.id, 2, "实验延迟")
+
+        shifted_slots = self.db.query(TimeSlot).filter(
+            TimeSlot.task_id == following_task.id,
+            TimeSlot.status == "scheduled",
+        ).order_by(TimeSlot.plan_start).all()
+        self.assertEqual(1, len(shifted_slots))
+        self.assertEqual(datetime(2026, 7, 14, 9, 0), shifted_slots[0].plan_start)
+        self.assertEqual(datetime(2026, 7, 14, 10, 30), shifted_slots[0].plan_end)
 
 
 if __name__ == "__main__":

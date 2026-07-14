@@ -17,29 +17,41 @@ def find_instrument_conflicts(db) -> list[dict]:
         TimeSlot.instrument_id.isnot(None),
         TimeSlot.status.in_(ACTIVE_SLOT_STATUSES),
     ).order_by(TimeSlot.instrument_id, TimeSlot.plan_start, TimeSlot.id).all()
-    by_instrument: dict[int, list[TimeSlot]] = defaultdict(list)
+    by_instrument: dict[int, list[tuple[TimeSlot, object, object]]] = defaultdict(list)
     for slot in slots:
-        by_instrument[slot.instrument_id].append(slot)
+        effective_range = _effective_slot_range(slot)
+        if effective_range:
+            by_instrument[slot.instrument_id].append((slot, *effective_range))
 
     conflicts = []
     for instrument_id, instrument_slots in by_instrument.items():
+        instrument_slots.sort(key=lambda item: (item[1], item[0].id))
         previous = None
-        for slot in instrument_slots:
-            if previous and slot.plan_start < previous.plan_end:
+        for slot, start, end in instrument_slots:
+            if previous and start < previous[2]:
+                previous_slot, _, previous_end = previous
                 conflicts.append({
                     "instrument_id": instrument_id,
-                    "first_slot_id": previous.id,
+                    "first_slot_id": previous_slot.id,
                     "second_slot_id": slot.id,
-                    "first_task_id": previous.task_id,
+                    "first_task_id": previous_slot.task_id,
                     "second_task_id": slot.task_id,
-                    "overlap_start": slot.plan_start.isoformat(),
-                    "overlap_end": min(previous.plan_end, slot.plan_end).isoformat(),
+                    "overlap_start": start.isoformat(),
+                    "overlap_end": min(previous_end, end).isoformat(),
                 })
-                if slot.plan_end > previous.plan_end:
-                    previous = slot
+                if end > previous_end:
+                    previous = (slot, start, end)
                 continue
-            previous = slot
+            previous = (slot, start, end)
     return conflicts
+
+
+def _effective_slot_range(slot: TimeSlot):
+    if slot.status != "completed":
+        return slot.plan_start, slot.plan_end
+    if slot.actual_start and slot.actual_end:
+        return slot.actual_start, slot.actual_end
+    return None
 
 
 def ensure_no_instrument_conflicts(db) -> None:

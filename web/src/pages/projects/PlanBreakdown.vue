@@ -249,7 +249,8 @@ function isParentTask(id: number): boolean { return allTasks.value.some(t => t.p
 const isEditingParent = computed(() => editingTask.value ? isParentTask(editingTask.value.id) : false)
 const canEditScheduleFields = computed(() => editingTask.value?.can_edit_schedule_fields !== false)
 const hasPendingPlanChanges = computed(() => allTasks.value.some(task =>
-  task.schedule_dirty || ['pending', 'ready'].includes(task.status),
+  !task.children?.length
+  && (task.schedule_dirty || ['pending', 'ready'].includes(task.status)),
 ))
 const parentTaskOptions = computed(() => allTasks.value.filter(t => !editingTask.value || t.id !== editingTask.value.id).map(t => ({ label: t.name, value: t.id })))
 const leafTaskOptions = computed(() => allTasks.value.filter(t => !t.children || t.children.length === 0).map(t => ({ label: t.name, value: t.id })))

@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Iterable, Set
 
 from app.models import AuditLog, Task, TimeSlot
+from app.services.schedule_rule_service import get_solver_constraints
+from app.services.scheduler_helpers import (
+    is_allowed_calendar_day,
+    load_calendar_days,
+    time_horizon,
+    working_time_bounds,
+)
 
 
 class ScheduleDelayNotFoundError(Exception):
@@ -42,12 +50,17 @@ def report_task_delay(db, slot_id: int, delay_hours: float, reason: str) -> dict
     cutoff = slot.plan_end
     affected_slot_ids = _affected_slot_ids(db, task, slot, cutoff)
 
-    slot.plan_end = slot.plan_end + delay
     if task.status != "running" and slot.status != "running":
         slot.status = "blocked"
         task.status = "blocked"
 
-    shifted_count = _shift_slots(db, affected_slot_ids - {slot.id}, delay)
+    shifted_count = _apply_delay_with_working_hours(
+        db,
+        slot,
+        affected_slot_ids - {slot.id},
+        delay,
+        cutoff,
+    )
     _write_audit_log(db, task.id, slot, delay_hours, clean_reason, shifted_count)
 
     db.commit()
@@ -102,13 +115,207 @@ def _same_instrument_slots(db, slot: TimeSlot, cutoff: datetime) -> Iterable[Tim
     ).all()
 
 
-def _shift_slots(db, slot_ids: Set[int], delay: timedelta) -> int:
-    shifted = 0
-    for future_slot in db.query(TimeSlot).filter(TimeSlot.id.in_(slot_ids)).all():
-        future_slot.plan_start = future_slot.plan_start + delay
-        future_slot.plan_end = future_slot.plan_end + delay
-        shifted += 1
-    return shifted
+def _apply_delay_with_working_hours(
+    db,
+    delayed_slot: TimeSlot,
+    slot_ids: Set[int],
+    delay: timedelta,
+    cutoff: datetime,
+) -> int:
+    slots = (
+        db.query(TimeSlot)
+        .filter(TimeSlot.id.in_(slot_ids))
+        .order_by(TimeSlot.plan_start, TimeSlot.id)
+        .all()
+        if slot_ids else []
+    )
+    snapshots_by_task = _group_slot_snapshots(slots)
+    if slot_ids:
+        db.query(TimeSlot).filter(TimeSlot.id.in_(slot_ids)).delete(synchronize_session="fetch")
+        db.flush()
+
+    options = _load_working_options(db, cutoff)
+    delay_minutes = int(delay.total_seconds() / 60)
+    _extend_delayed_task(db, delayed_slot, delay_minutes, options)
+
+    shifted_count = 0
+    for snapshots in snapshots_by_task.values():
+        first_slot = snapshots[0]
+        duration_minutes = sum(
+            int((snapshot["plan_end"] - snapshot["plan_start"]).total_seconds() / 60)
+            for snapshot in snapshots
+        )
+        shifted_start = _advance_working_minutes(
+            first_slot["plan_start"],
+            delay_minutes,
+            options,
+        )
+        ranges = _allocate_working_ranges(
+            db,
+            first_slot["instrument_id"],
+            duration_minutes,
+            shifted_start,
+            options,
+        )
+        if not ranges:
+            raise ScheduleDelayInvalidError("延期后的排程超出可规划范围")
+        for start, end in ranges:
+            db.add(TimeSlot(
+                task_id=first_slot["task_id"],
+                schedule_run_id=first_slot["schedule_run_id"],
+                instrument_id=first_slot["instrument_id"],
+                plan_start=start,
+                plan_end=end,
+                tier=first_slot["tier"],
+                status=first_slot["status"],
+            ))
+        db.flush()
+        shifted_count += len(snapshots)
+    return shifted_count
+
+
+def _extend_delayed_task(
+    db,
+    slot: TimeSlot,
+    delay_minutes: int,
+    options: dict,
+) -> None:
+    ranges = _allocate_working_ranges(
+        db,
+        slot.instrument_id,
+        delay_minutes,
+        slot.plan_end,
+        options,
+    )
+    if not ranges:
+        raise ScheduleDelayInvalidError("延期后的排程超出可规划范围")
+
+    first_start, first_end = ranges[0]
+    remaining_ranges = ranges
+    if first_start == slot.plan_end:
+        slot.plan_end = first_end
+        remaining_ranges = ranges[1:]
+    for start, end in remaining_ranges:
+        db.add(TimeSlot(
+            task_id=slot.task_id,
+            schedule_run_id=slot.schedule_run_id,
+            instrument_id=slot.instrument_id,
+            plan_start=start,
+            plan_end=end,
+            tier=slot.tier,
+            status=slot.status,
+        ))
+    db.flush()
+
+
+def _group_slot_snapshots(slots: list[TimeSlot]) -> dict[int, list[dict]]:
+    grouped: dict[int, list[dict]] = defaultdict(list)
+    for slot in slots:
+        grouped[slot.task_id].append({
+            "task_id": slot.task_id,
+            "schedule_run_id": slot.schedule_run_id,
+            "instrument_id": slot.instrument_id,
+            "plan_start": slot.plan_start,
+            "plan_end": slot.plan_end,
+            "tier": slot.tier,
+            "status": slot.status,
+        })
+    return dict(grouped)
+
+
+def _load_working_options(db, start: datetime) -> dict:
+    constraints = get_solver_constraints(db)
+    working_rule = constraints["working_hours"]
+    params = working_rule.params or {}
+    day_start_minutes, day_end_minutes = working_time_bounds(params)
+    include_weekends = bool(params.get("include_weekends", False))
+    include_holidays = bool(params.get("include_holidays", False))
+    if not working_rule.is_enabled:
+        day_start_minutes, day_end_minutes = 0, 24 * 60
+        include_weekends, include_holidays = True, True
+    _, horizon_end, _ = time_horizon()
+    return {
+        "day_start_minutes": day_start_minutes,
+        "day_end_minutes": day_end_minutes,
+        "include_weekends": include_weekends,
+        "include_holidays": include_holidays,
+        "horizon_end": horizon_end,
+        "calendar_days": load_calendar_days(db, start, horizon_end),
+    }
+
+
+def _advance_working_minutes(start: datetime, minutes: int, options: dict) -> datetime:
+    cursor = _ceil_to_half_hour(start)
+    remaining = minutes
+    while remaining > 0 and cursor < options["horizon_end"]:
+        next_cursor = cursor + timedelta(minutes=30)
+        if _is_working_unit(cursor, options):
+            remaining -= 30
+        cursor = next_cursor
+    return cursor
+
+
+def _allocate_working_ranges(
+    db,
+    instrument_id: int | None,
+    duration_minutes: int,
+    earliest_start: datetime,
+    options: dict,
+) -> list[tuple[datetime, datetime]]:
+    cursor = _ceil_to_half_hour(earliest_start)
+    remaining = duration_minutes
+    ranges: list[tuple[datetime, datetime]] = []
+    range_start: datetime | None = None
+    while remaining > 0 and cursor < options["horizon_end"]:
+        next_cursor = cursor + timedelta(minutes=30)
+        if _is_working_unit(cursor, options) and not _has_instrument_conflict(
+            db, instrument_id, cursor, next_cursor
+        ):
+            if range_start is None:
+                range_start = cursor
+            remaining -= 30
+        elif range_start is not None:
+            ranges.append((range_start, cursor))
+            range_start = None
+        cursor = next_cursor
+    if remaining <= 0 and range_start is not None:
+        ranges.append((range_start, cursor))
+    return ranges if remaining <= 0 else []
+
+
+def _is_working_unit(start: datetime, options: dict) -> bool:
+    current_minutes = start.hour * 60 + start.minute
+    return (
+        options["day_start_minutes"] <= current_minutes < options["day_end_minutes"]
+        and is_allowed_calendar_day(
+            start.date(),
+            options["calendar_days"],
+            options["include_weekends"],
+            options["include_holidays"],
+        )
+    )
+
+
+def _has_instrument_conflict(db, instrument_id: int | None, start: datetime, end: datetime) -> bool:
+    if instrument_id is None:
+        return False
+    slots = db.query(TimeSlot).filter(TimeSlot.instrument_id == instrument_id).all()
+    for slot in slots:
+        if slot.status == "completed":
+            if slot.actual_start and slot.actual_end and slot.actual_start < end and slot.actual_end > start:
+                return True
+            continue
+        if slot.plan_start < end and slot.plan_end > start:
+            return True
+    return False
+
+
+def _ceil_to_half_hour(value: datetime) -> datetime:
+    value = value.replace(second=0, microsecond=0)
+    remainder = value.minute % 30
+    if remainder == 0:
+        return value
+    return value + timedelta(minutes=30 - remainder)
 
 
 def _affected_task_count(db, slot_ids: Set[int]) -> int:

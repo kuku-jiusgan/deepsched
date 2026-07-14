@@ -12,6 +12,7 @@ from app.services.schedule_rule_service import get_solver_constraints
 from app.services.scheduler_helpers import (
     is_allowed_calendar_day,
     load_calendar_days,
+    natural_day_boundary,
     time_horizon,
     working_time_bounds,
 )
@@ -177,7 +178,7 @@ def _forward_shift_same_project_work(
                     instrument_id=slot_instrument_id,
                     plan_start=start,
                     plan_end=end,
-                    tier=_tier_for_start(start),
+                    tier=_tier_for_start(db, start),
                     status="scheduled",
                 )
             )
@@ -381,10 +382,13 @@ def _restore_slot_snapshots(db: Session, snapshots: list[dict]) -> None:
         db.add(TimeSlot(**slot))
 
 
-def _tier_for_start(start: datetime) -> str:
+def _tier_for_start(db: Session, start: datetime) -> str:
     settings = get_settings()
+    constraints = get_solver_constraints(db)
+    freezing_rule = constraints["freezing"]
+    freeze_days = int((freezing_rule.params or {}).get("freeze_days", settings.FROZEN_DAYS))
     now = datetime.now()
-    if start <= now + timedelta(days=settings.FROZEN_DAYS):
+    if start <= natural_day_boundary(now, freeze_days):
         return "frozen"
     if start <= now + timedelta(days=settings.CONFIRMED_DAYS):
         return "confirmed"

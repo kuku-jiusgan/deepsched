@@ -6,7 +6,7 @@
 
     <div class="action-bar">
 
-      <a-button type="primary" @click="openCreate"><PlusOutlined /> 新建项目</a-button>
+      <a-button v-if="canManageProjectInfo" type="primary" @click="openCreate"><PlusOutlined /> 新建项目</a-button>
 
       <a-input placeholder="项目编号" allowClear style="width: 150px" v-model:value="filterCode"><template #prefix><SearchOutlined /></template></a-input>
 
@@ -34,13 +34,15 @@
 
         <template v-else-if="column.key === 'status'">
 
-          <a-tag :color="record.status === 'active' ? '#16a34a' : record.status === 'completed' ? '#7c3aed' : '#94a3b8'">{{ statusLabels[record.status] || record.status }}</a-tag>
+          <a-tag :color="projectStatusColor(record.status)">{{ statusLabels[record.status] || record.status }}</a-tag>
 
         </template>
 
         <template v-else-if="column.key === 'client'">{{ record.client_name || '-' }}</template>
 
         <template v-else-if="column.key === 'manager'">{{ record.manager_name || '-' }}</template>
+
+        <template v-else-if="column.key === 'estimated_hours'">{{ record.estimated_hours ?? '-' }}</template>
 
         <template v-else-if="column.key === 'start'">{{ record.start_date ? dayjs(record.start_date).format('YYYY-MM-DD') : '-' }}</template>
 
@@ -58,7 +60,7 @@
 
             <a-button type="link" size="small" @click="handleViewDetail(record.id)">详情</a-button>
 
-            <a-button type="link" size="small" @click="openEditFromTable(record)"><EditOutlined /> 编辑</a-button>
+            <a-button v-if="canManageProjectInfo" type="link" size="small" @click="openEditFromTable(record)"><EditOutlined /> 编辑</a-button>
 
             <a-popconfirm title="确定删除该项目及其所有任务？" @confirm="handleDeleteProject(record.id)">
 
@@ -83,6 +85,10 @@
         <a-form-item label="项目编号" required><a-input v-model:value="cf.code" placeholder="如：GT-2026-001" /></a-form-item>
 
         <a-form-item label="客户名称"><a-input v-model:value="cf.client_name" placeholder="如：某制药公司" /></a-form-item>
+
+        <a-form-item label="预计工时(小时)">
+          <a-input-number v-model:value="cf.estimated_hours" :min="0" :step="0.5" style="width: 180px" placeholder="整个项目预计工时" />
+        </a-form-item>
 
         <a-form-item label="项目负责人">
           <a-select v-model:value="cf.manager_id" placeholder="选择项目负责人" allowClear :options="userOptions" />
@@ -114,6 +120,10 @@
 
         <a-form-item label="客户名称"><a-input v-model:value="ef.client_name" /></a-form-item>
 
+        <a-form-item label="预计工时(小时)">
+          <a-input-number v-model:value="ef.estimated_hours" :min="0" :step="0.5" style="width: 180px" placeholder="整个项目预计工时" />
+        </a-form-item>
+
         <a-form-item label="项目负责人">
           <a-select v-model:value="ef.manager_id" placeholder="选择项目负责人" allowClear :options="userOptions" />
         </a-form-item>
@@ -136,11 +146,24 @@
 
     <a-drawer :title="selectedProject?.name || '项目详情'" v-model:open="detailOpen" width="720">
 
-      <template #extra><a-button @click="openEditProject"><EditOutlined /> 编辑项目</a-button></template>
+      <template #extra><a-button v-if="canManageProjectInfo" @click="openEditProject"><EditOutlined /> 编辑项目</a-button></template>
 
       <a-tabs v-if="selectedProject" defaultActiveKey="tasks">
 
         <a-tab-pane key="tasks" tab="任务列表">
+
+          <a-descriptions size="small" bordered :column="2" style="margin-bottom: 12px">
+            <a-descriptions-item label="项目编号">{{ selectedProject.code }}</a-descriptions-item>
+            <a-descriptions-item label="状态">
+              <a-tag :color="projectStatusColor(selectedProject.status)">{{ statusLabels[selectedProject.status] || selectedProject.status }}</a-tag>
+            </a-descriptions-item>
+            <a-descriptions-item label="客户">{{ selectedProject.client_name || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="负责人">{{ selectedProject.manager_name || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="预计工时(h)">{{ selectedProject.estimated_hours ?? '-' }}</a-descriptions-item>
+            <a-descriptions-item label="优先级">{{ priorityLabel(selectedProject.priority) }}</a-descriptions-item>
+            <a-descriptions-item label="项目开始日期">{{ selectedProject.start_date ? dayjs(selectedProject.start_date).format('YYYY-MM-DD') : '-' }}</a-descriptions-item>
+            <a-descriptions-item label="项目结题日期">{{ selectedProject.end_date ? dayjs(selectedProject.end_date).format('YYYY-MM-DD') : '-' }}</a-descriptions-item>
+          </a-descriptions>
 
           <a-table :dataSource="selectedProject.tasks || []" rowKey="id" size="small" :pagination="false">
 
@@ -311,22 +334,28 @@ const filterName = ref('')
 
 const filterClient = ref('')
 
+const projectCodeCollator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
+
 const filterDateRange = ref<any>(null)
 
 
 
 const router = useRouter()
 
-const cf = reactive({ name: '', code: '', client_name: '', manager_id: null as number | null, priority: 3, start_date: null as any, end_date: null as any })
+const PROJECT_INFO_WRITE_ROLES = new Set(['系统管理员', '项目管理员', '分析所所长'])
 
-const ef = reactive({ name: '', code: '', client_name: '', manager_id: null as number | null, priority: 3, start_date: null as any, end_date: null as any })
+const canManageProjectInfo = computed(() => PROJECT_INFO_WRITE_ROLES.has(getStoredUserRole()))
+
+const cf = reactive({ name: '', code: '', client_name: '', estimated_hours: null as number | null, manager_id: null as number | null, priority: 3, start_date: null as any, end_date: null as any })
+
+const ef = reactive({ name: '', code: '', client_name: '', estimated_hours: null as number | null, manager_id: null as number | null, priority: 3, start_date: null as any, end_date: null as any })
 
 const tf = reactive({ name: '', task_type: '', est_duration_hours: 8, switchover_hours: 0.5, predecessor_ids: [] as number[], instrument_ids: [] as number[], assignee_id: null as number | null })
 
 
 
 
-const statusLabels: Record<string, string> = { active: '进行中', completed: '已完成', pending: '待启动', suspended: '已暂停', cancelled: '已取消', draft: '草稿' }
+const statusLabels: Record<string, string> = { active: '进行中', completed: '已完成', pending: '未开始', suspended: '已暂停', cancelled: '已取消', draft: '草稿' }
 const priorityOptions = [
   { label: '一级（最高）', value: 1 },
   { label: '二级', value: 2 },
@@ -341,6 +370,18 @@ function priorityColor(priority: number) {
   if (priority === 1) return '#dc2626'
   if (priority === 2) return '#ea580c'
   return '#2563eb'
+}
+
+function projectStatusColor(status: string) {
+  const colors: Record<string, string> = {
+    pending: '#94a3b8',
+    active: '#16a34a',
+    completed: '#7c3aed',
+    suspended: '#f59e0b',
+    cancelled: '#64748b',
+    draft: '#94a3b8',
+  }
+  return colors[status] || '#94a3b8'
 }
 
 
@@ -377,7 +418,9 @@ const filtered = computed(() => projects.value.filter(p => {
 
   return true
 
-}))
+}).sort((left, right) =>
+  projectCodeCollator.compare(right.code, left.code) || right.id - left.id,
+))
 
 
 
@@ -390,6 +433,8 @@ const columns = [
   { title: '客户', dataIndex: 'client_name', key: 'client', width: 140 },
 
   { title: '负责人', dataIndex: 'manager', key: 'manager', width: 90 },
+
+  { title: '预计工时(h)', dataIndex: 'estimated_hours', key: 'estimated_hours', width: 110 },
 
   { title: '计划开始', dataIndex: 'start_date', key: 'start', width: 110 },
 
@@ -409,11 +454,15 @@ async function fetchProjects() { loading.value = true; try { projects.value = aw
 
 
 
-function openCreate() { Object.assign(cf, { name: '', code: '', client_name: '', manager_id: null, priority: 3, start_date: null, end_date: null }); createOpen.value = true }
+function openCreate() {
+  if (!ensureCanManageProjectInfo()) return
+  Object.assign(cf, { name: '', code: '', client_name: '', estimated_hours: null, manager_id: null, priority: 3, start_date: null, end_date: null }); createOpen.value = true
+}
 
 
 
 async function handleCreate() {
+  if (!ensureCanManageProjectInfo()) return
 
   try {
 
@@ -421,7 +470,7 @@ async function handleCreate() {
 
     message.success('项目创建成功'); createOpen.value = false; fetchProjects()
 
-  } catch { message.error('创建失败') }
+  } catch (error: unknown) { message.error(errorDetail(error, '创建失败')) }
 
 }
 
@@ -430,6 +479,7 @@ async function handleCreate() {
 async function handleUpdateProject() {
 
   if (!selectedProject.value) return
+  if (!ensureCanManageProjectInfo()) return
 
   try {
 
@@ -448,6 +498,23 @@ function errorDetail(error: unknown, fallback: string) {
   return fallback
 }
 
+function ensureCanManageProjectInfo() {
+  if (canManageProjectInfo.value) return true
+  message.warning('当前角色无权新建或编辑项目信息')
+  return false
+}
+
+function getStoredUserRole() {
+  const raw = localStorage.getItem('user')
+  if (!raw) return ''
+  try {
+    const parsed = JSON.parse(raw) as { role?: unknown }
+    return typeof parsed.role === 'string' ? parsed.role : ''
+  } catch {
+    return ''
+  }
+}
+
 function handleViewDetail(id: number) {
 
   router.push(`/projects/plan-breakdown?id=${id}`)
@@ -463,10 +530,11 @@ function openEditFromTable(record: Project) { selectedProject.value = record; op
 function openEditProject() {
 
   if (!selectedProject.value) return
+  if (!ensureCanManageProjectInfo()) return
 
   const p = selectedProject.value
 
-  Object.assign(ef, { name: p.name, code: p.code, client_name: p.client_name || '', manager_id: p.manager_id || null, priority: p.priority, start_date: p.start_date ? dayjs(p.start_date) : null, end_date: p.end_date ? dayjs(p.end_date) : null })
+  Object.assign(ef, { name: p.name, code: p.code, client_name: p.client_name || '', estimated_hours: p.estimated_hours ?? null, manager_id: p.manager_id || null, priority: p.priority, start_date: p.start_date ? dayjs(p.start_date) : null, end_date: p.end_date ? dayjs(p.end_date) : null })
 
   editOpen.value = true
 
@@ -560,7 +628,7 @@ async function handleAddInline() {
 
     selectedProject.value = p; dagData.value = d
 
-  } catch { message.error('添加失败') }
+  } catch (error: unknown) { message.error(errorDetail(error, '添加失败')) }
 
 }
 
@@ -674,7 +742,7 @@ async function handleTaskSubmit() {
 
     selectedProject.value = p; dagData.value = d
 
-  } catch { message.error('操作失败') }
+  } catch (error: unknown) { message.error(errorDetail(error, '操作失败')) }
 
 }
 

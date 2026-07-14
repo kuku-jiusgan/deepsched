@@ -1,0 +1,843 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>仪器排程系统原型图</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --surface: #ffffff;
+      --surface-2: #f8fafc;
+      --ink: #152033;
+      --muted: #58677d;
+      --soft: #8a98aa;
+      --line: #dbe3ee;
+      --line-2: #edf1f6;
+      --blue: #2264d1;
+      --blue-2: #e8f1ff;
+      --green: #11845b;
+      --green-2: #e8f7f0;
+      --orange: #b86316;
+      --orange-2: #fff2df;
+      --red: #c43d3d;
+      --red-2: #fff0f0;
+      --purple: #7557c2;
+      --purple-2: #f1edff;
+      --radius: 8px;
+      --shadow: 0 8px 22px rgba(21, 32, 51, 0.08);
+      font-family: Inter, "Microsoft YaHei", "PingFang SC", system-ui, -apple-system, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; line-height: 1.48; }
+    a { color: inherit; text-decoration: none; }
+    .page { max-width: 1440px; margin: 0 auto; padding: 28px; }
+    .cover {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 28px;
+      align-items: end;
+      margin-bottom: 20px;
+      padding: 24px 28px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+    }
+    .cover h1 { margin: 0; font-size: 28px; letter-spacing: 0; }
+    .cover p { max-width: 780px; margin: 8px 0 0; color: var(--muted); font-size: 14px; }
+    .cover-meta { display: grid; grid-template-columns: repeat(3, max-content); gap: 8px; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 28px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+    .nav {
+      position: sticky;
+      top: 16px;
+      padding: 14px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+    }
+    .nav-title { margin: 4px 6px 12px; color: var(--soft); font-size: 12px; }
+    .nav a {
+      display: flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 7px 9px;
+      border-radius: 7px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .nav a:hover { background: var(--blue-2); color: var(--blue); }
+    .content { display: grid; gap: 18px; }
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 18px 22px;
+      border-bottom: 1px solid var(--line-2);
+    }
+    .section h2 { margin: 0; font-size: 20px; }
+    .section-desc { margin-top: 4px; color: var(--muted); font-size: 13px; }
+    .section-body { padding: 22px; }
+
+    .ia-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+    .ia-col {
+      min-height: 184px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+      overflow: hidden;
+    }
+    .ia-col strong {
+      display: block;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      background: #eef4fb;
+      font-size: 13px;
+    }
+    .ia-col span {
+      display: block;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--line-2);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .ia-col span:last-child { border-bottom: 0; }
+
+    .browser {
+      border: 1px solid #cfd8e5;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #f7f9fc;
+    }
+    .browser-bar {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      height: 34px;
+      padding: 0 12px;
+      border-bottom: 1px solid #dbe3ee;
+      background: #eef3f8;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #c8d2df; }
+    .screen {
+      display: grid;
+      grid-template-columns: 70px minmax(0, 1fr);
+      min-height: 660px;
+      background: #eef3f8;
+    }
+    .rail {
+      padding: 12px 9px;
+      background: #263447;
+      color: #dce6f2;
+    }
+    .rail-logo {
+      width: 42px;
+      height: 42px;
+      margin: 0 auto 18px;
+      border-radius: 8px;
+      background: #fff;
+      color: #2264d1;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+    }
+    .rail-item {
+      height: 43px;
+      margin-bottom: 8px;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      font-size: 17px;
+      color: #aab8c7;
+    }
+    .rail-item.active { background: #ffffff; color: var(--blue); }
+    .workspace { display: grid; grid-template-rows: 56px minmax(0, 1fr); min-width: 0; }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+    }
+    .crumb { color: var(--muted); font-size: 13px; }
+    .top-actions { display: flex; align-items: center; gap: 8px; }
+    .avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--blue-2);
+      color: var(--blue);
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .main { padding: 18px; min-width: 0; }
+    .title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+    .title-row h3 { margin: 0; font-size: 18px; }
+    .title-row p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 31px;
+      padding: 0 11px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .button.primary { border-color: var(--blue); background: var(--blue); color: #fff; }
+    .button.danger { border-color: var(--red); color: var(--red); background: var(--red-2); }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .input {
+      height: 31px;
+      min-width: 128px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--soft);
+      font-size: 12px;
+      display: inline-flex;
+      align-items: center;
+    }
+    .segmented {
+      display: inline-grid;
+      grid-auto-flow: column;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface);
+    }
+    .segmented span { padding: 7px 10px; border-right: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+    .segmented span:last-child { border-right: 0; }
+    .segmented .on { background: var(--blue); color: #fff; }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .metric {
+      min-height: 76px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+    .metric label { display: block; color: var(--soft); font-size: 12px; }
+    .metric strong { display: block; margin-top: 6px; font-size: 24px; line-height: 1; }
+    .metric em { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; font-style: normal; }
+    .split { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.7fr); gap: 12px; }
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line-2);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .panel-body { padding: 12px; }
+    .chart-bars { display: grid; gap: 9px; }
+    .bar-row { display: grid; grid-template-columns: 92px 1fr 40px; gap: 9px; align-items: center; font-size: 12px; color: var(--muted); }
+    .bar-track { height: 10px; border-radius: 999px; background: #e9eef5; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 999px; background: var(--blue); }
+    .bar-fill.green { background: var(--green); }
+    .bar-fill.orange { background: var(--orange); }
+    .bar-fill.red { background: var(--red); }
+    .list { display: grid; gap: 8px; }
+    .list-item {
+      display: grid;
+      gap: 5px;
+      padding: 9px 10px;
+      border: 1px solid var(--line-2);
+      border-radius: 7px;
+      background: var(--surface-2);
+      font-size: 12px;
+    }
+    .list-item strong { font-size: 13px; }
+    .muted { color: var(--muted); }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      height: 22px;
+      padding: 0 7px;
+      border-radius: 5px;
+      background: var(--blue-2);
+      color: var(--blue);
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .tag.green { background: var(--green-2); color: var(--green); }
+    .tag.orange { background: var(--orange-2); color: var(--orange); }
+    .tag.red { background: var(--red-2); color: var(--red); }
+    .tag.purple { background: var(--purple-2); color: var(--purple); }
+
+    .table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .table th {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface-2);
+      color: var(--soft);
+      text-align: left;
+      font-weight: 700;
+    }
+    .table td { padding: 9px 10px; border-bottom: 1px solid var(--line-2); color: var(--muted); }
+    .table td strong { color: var(--ink); }
+    .table tr:last-child td { border-bottom: 0; }
+
+    .timeline { overflow: auto; }
+    .timeline-grid {
+      min-width: 920px;
+      display: grid;
+      grid-template-columns: 150px repeat(12, 1fr);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--surface);
+    }
+    .time-head, .resource-name, .time-cell {
+      min-height: 42px;
+      border-right: 1px solid var(--line-2);
+      border-bottom: 1px solid var(--line-2);
+      padding: 9px;
+      font-size: 12px;
+    }
+    .time-head { background: var(--surface-2); color: var(--soft); font-weight: 700; text-align: center; }
+    .resource-name { color: var(--ink); font-weight: 700; }
+    .time-cell { position: relative; background: #fff; }
+    .slot {
+      position: absolute;
+      top: 9px;
+      bottom: 9px;
+      border-radius: 6px;
+      padding: 5px 7px;
+      overflow: hidden;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .slot.blue { background: #3478d9; }
+    .slot.green { background: #23916c; }
+    .slot.orange { background: #cf7a24; }
+    .slot.red { background: #cf4d4d; }
+    .slot.purple { background: #7557c2; }
+    .marker { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--red); opacity: .75; }
+
+    .engine-grid { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 12px; }
+    .stepper { display: grid; gap: 8px; }
+    .step {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+    .step b {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: var(--blue-2);
+      color: var(--blue);
+      font-size: 12px;
+    }
+    .step strong { display: block; font-size: 13px; }
+    .step span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+
+    .tree { display: grid; gap: 7px; font-size: 12px; }
+    .tree-row {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) 110px 90px 120px 140px;
+      gap: 8px;
+      align-items: center;
+      min-height: 36px;
+      padding: 0 10px;
+      border: 1px solid var(--line-2);
+      border-radius: 6px;
+      background: var(--surface);
+    }
+    .tree-row.group { background: #f7fbff; border-color: #d7e6fb; font-weight: 700; }
+    .tree-row .indent { padding-left: 22px; }
+    .tree-row .indent-2 { padding-left: 44px; }
+
+    .task-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .task-card {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      min-height: 150px;
+    }
+    .task-card strong { font-size: 14px; }
+    .task-meta { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; color: var(--muted); font-size: 12px; }
+    .task-actions { display: flex; flex-wrap: wrap; gap: 6px; align-self: end; }
+
+    .fault-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .fault {
+      padding: 12px;
+      border: 1px solid #f1c5c5;
+      border-radius: var(--radius);
+      background: #fffafa;
+    }
+    .fault-head { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+    .impact-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      padding: 8px;
+      border: 1px solid var(--line-2);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 6px;
+    }
+
+    .notes {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+    .note {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+    }
+    .note strong { display: block; margin-bottom: 6px; font-size: 13px; }
+    .note p { margin: 0; color: var(--muted); font-size: 12px; }
+
+    @media (max-width: 1120px) {
+      .layout { grid-template-columns: 1fr; }
+      .nav { position: static; }
+      .nav a { display: inline-flex; margin-right: 4px; }
+      .ia-grid { grid-template-columns: repeat(3, 1fr); }
+      .screen { grid-template-columns: 1fr; }
+      .rail { display: none; }
+      .split, .engine-grid, .fault-grid { grid-template-columns: 1fr; }
+      .metrics, .task-board, .notes { grid-template-columns: repeat(2, 1fr); }
+      .cover { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 760px) {
+      .page { padding: 14px; }
+      .cover-meta, .ia-grid, .metrics, .task-board, .notes { grid-template-columns: 1fr; }
+      .topbar, .title-row { align-items: flex-start; flex-direction: column; }
+      .tree-row { grid-template-columns: 1fr; padding: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="cover">
+      <div>
+        <h1>仪器排程系统原型图</h1>
+        <p>基于当前功能重新组织的信息架构与页面原型。设计方向不沿用现有页面格式，改为“任务流优先”的排程指挥台：左侧轻导航，顶部状态与通知，主区围绕排程决策、异常处理、项目计划和个人执行展开。</p>
+      </div>
+      <div class="cover-meta">
+        <span class="pill">适用角色：排程管理员</span>
+        <span class="pill">适用角色：项目经理</span>
+        <span class="pill">适用角色：实验室主管</span>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="nav">
+        <div class="nav-title">原型目录</div>
+        <a href="#ia">信息架构</a>
+        <a href="#dashboard">01 排程驾驶舱</a>
+        <a href="#engine">02 自动排程引擎</a>
+        <a href="#gantt">03 仪器甘特看板</a>
+        <a href="#plan">04 项目计划拆解</a>
+        <a href="#workspace">05 个人工作台</a>
+        <a href="#faults">06 故障与预警</a>
+        <a href="#rules">交互与状态说明</a>
+      </aside>
+
+      <div class="content">
+        <section id="ia" class="section">
+          <div class="section-head">
+            <div>
+              <h2>信息架构</h2>
+              <div class="section-desc">把现有功能重新归为六个工作域，导航不再强调“菜单树”，而是突出用户当天需要处理的排程问题。</div>
+            </div>
+            <span class="tag">建议首页：排程驾驶舱</span>
+          </div>
+          <div class="section-body">
+            <div class="ia-grid">
+              <div class="ia-col"><strong>运营总览</strong><span>核心 KPI</span><span>仪器利用率</span><span>精细报表</span><span>实验室状态</span></div>
+              <div class="ia-col"><strong>排程决策</strong><span>自动排程</span><span>局部修复</span><span>项目级重排</span><span>插单代价</span></div>
+              <div class="ia-col"><strong>可视看板</strong><span>仪器甘特</span><span>项目甘特</span><span>人力甘特</span><span>全屏监控</span></div>
+              <div class="ia-col"><strong>项目计划</strong><span>项目台账</span><span>计划拆解</span><span>工序依赖</span><span>资源台账</span></div>
+              <div class="ia-col"><strong>执行反馈</strong><span>我的任务</span><span>开始/完成</span><span>夜间运行</span><span>延期反馈</span></div>
+              <div class="ia-col"><strong>基础配置</strong><span>排程规则</span><span>预警推送</span><span>用户权限</span><span>工作日历</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="dashboard" class="section">
+          <div class="section-head">
+            <div>
+              <h2>01 排程驾驶舱</h2>
+              <div class="section-desc">替代普通仪表盘：首页直接告诉管理员“今天哪里堵、哪些仪器闲、哪些项目危险”。</div>
+            </div>
+            <span class="tag green">核心入口</span>
+          </div>
+          <div class="section-body">
+            <div class="browser">
+              <div class="browser-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+              <div class="screen">
+                <aside class="rail">
+                  <div class="rail-logo">DS</div>
+                  <div class="rail-item active">⌁</div><div class="rail-item">▤</div><div class="rail-item">▦</div><div class="rail-item">◇</div><div class="rail-item">⚙</div>
+                </aside>
+                <div class="workspace">
+                  <div class="topbar"><div class="crumb">首页 / 排程驾驶舱</div><div class="top-actions"><span class="pill">未读 6</span><span class="avatar">张</span></div></div>
+                  <div class="main">
+                    <div class="title-row">
+                      <div><h3>今日排程状态</h3><p>按计划窗口、实际执行、仪器状态和延期风险汇总</p></div>
+                      <div class="toolbar"><span class="input">2026-07-13 至 2026-07-20</span><span class="button primary">查询</span><span class="button">最近 7 天</span></div>
+                    </div>
+                    <div class="metrics">
+                      <div class="metric"><label>仪器在线</label><strong>28/31</strong><em>3 台故障或维护</em></div>
+                      <div class="metric"><label>平均利用率</label><strong>76%</strong><em>较上周 +8%</em></div>
+                      <div class="metric"><label>延期任务</label><strong>9</strong><em>4 项影响里程碑</em></div>
+                      <div class="metric"><label>待处理插单</label><strong>3</strong><em>需确认代价</em></div>
+                    </div>
+                    <div class="split">
+                      <div class="panel">
+                        <div class="panel-head"><span>仪器利用率排行</span><span class="tag">计划 / 实际</span></div>
+                        <div class="panel-body chart-bars">
+                          <div class="bar-row"><span>LC-MS-01</span><div class="bar-track"><div class="bar-fill" style="width: 92%"></div></div><span>92%</span></div>
+                          <div class="bar-row"><span>HPLC-03</span><div class="bar-track"><div class="bar-fill green" style="width: 81%"></div></div><span>81%</span></div>
+                          <div class="bar-row"><span>GC-MS-02</span><div class="bar-track"><div class="bar-fill orange" style="width: 68%"></div></div><span>68%</span></div>
+                          <div class="bar-row"><span>UPLC-05</span><div class="bar-track"><div class="bar-fill red" style="width: 31%"></div></div><span>31%</span></div>
+                        </div>
+                      </div>
+                      <div class="panel">
+                        <div class="panel-head"><span>风险队列</span><span class="tag orange">需处理</span></div>
+                        <div class="panel-body list">
+                          <div class="list-item"><strong>GT-2026-014 方法验证可能延期</strong><span class="muted">里程碑：方法学验证报告，预计超期 18h</span></div>
+                          <div class="list-item"><strong>LC-MS-01 维修影响 5 个任务</strong><span class="muted">建议执行局部修复，保持冻结期内任务不动</span></div>
+                          <div class="list-item"><strong>插单项目 P1 等级待确认</strong><span class="muted">预计总延期 22h，影响 3 个项目</span></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="engine" class="section">
+          <div class="section-head">
+            <div>
+              <h2>02 自动排程引擎</h2>
+              <div class="section-desc">把“生成、插单、局部修复、项目级重排、全局重排、每日滚动”整合为一个可解释的排程控制台。</div>
+            </div>
+            <span class="tag purple">决策流</span>
+          </div>
+          <div class="section-body">
+            <div class="browser">
+              <div class="browser-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+              <div class="screen">
+                <aside class="rail"><div class="rail-logo">DS</div><div class="rail-item">⌁</div><div class="rail-item active">⚡</div><div class="rail-item">▦</div><div class="rail-item">◇</div></aside>
+                <div class="workspace">
+                  <div class="topbar"><div class="crumb">排程决策 / 自动排程引擎</div><div class="top-actions"><span class="pill">规则版本 R-2026.07</span><span class="avatar">王</span></div></div>
+                  <div class="main">
+                    <div class="title-row">
+                      <div><h3>排程运行控制台</h3><p>每次运行先预检约束，再生成结果，最后展示影响范围</p></div>
+                      <div class="toolbar"><span class="button primary">生成排程</span><span class="button">局部修复</span><span class="button">项目级重排</span><span class="button danger">全局重排</span></div>
+                    </div>
+                    <div class="engine-grid">
+                      <div class="panel">
+                        <div class="panel-head">运行向导</div>
+                        <div class="panel-body stepper">
+                          <div class="step"><b>1</b><div><strong>选择排程范围</strong><span>全部项目 / 指定项目 / 故障影响任务</span></div></div>
+                          <div class="step"><b>2</b><div><strong>约束预检</strong><span>工作日历、冻结期、仪器能力、人力负责人</span></div></div>
+                          <div class="step"><b>3</b><div><strong>求解器运行</strong><span>最小化延期、提升利用率、保留已执行任务</span></div></div>
+                          <div class="step"><b>4</b><div><strong>结果确认</strong><span>生成排程槽位，通知受影响人员</span></div></div>
+                        </div>
+                      </div>
+                      <div class="panel">
+                        <div class="panel-head"><span>最近排程结果</span><span class="tag green">运行成功</span></div>
+                        <div class="panel-body">
+                          <table class="table">
+                            <thead><tr><th>任务</th><th>项目</th><th>仪器</th><th>计划时间</th><th>状态</th></tr></thead>
+                            <tbody>
+                              <tr><td><strong>LC-MS 方法开发</strong></td><td>GT-2026-001</td><td>LC-MS-01</td><td>07-14 08:30 - 16:30</td><td><span class="tag green">已排程</span></td></tr>
+                              <tr><td><strong>样品前处理</strong></td><td>QC-2026-011</td><td>人力任务</td><td>07-14 09:00 - 12:00</td><td><span class="tag">待开始</span></td></tr>
+                              <tr><td><strong>有关物质检测</strong></td><td>GT-2026-014</td><td>HPLC-03</td><td>07-15 13:00 - 20:00</td><td><span class="tag orange">有风险</span></td></tr>
+                              <tr><td><strong>报告整理</strong></td><td>FF-2026-008</td><td>人力任务</td><td>07-16 09:00 - 11:00</td><td><span class="tag">待开始</span></td></tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="gantt" class="section">
+          <div class="section-head">
+            <div>
+              <h2>03 仪器甘特看板</h2>
+              <div class="section-desc">保留日/周/月、今天、刷新、全屏能力，但界面以资源行和异常标记为中心。</div>
+            </div>
+            <span class="tag">可全屏</span>
+          </div>
+          <div class="section-body">
+            <div class="browser">
+              <div class="browser-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+              <div class="screen">
+                <aside class="rail"><div class="rail-logo">DS</div><div class="rail-item">⌁</div><div class="rail-item">⚡</div><div class="rail-item active">▦</div><div class="rail-item">◇</div></aside>
+                <div class="workspace">
+                  <div class="topbar"><div class="crumb">可视看板 / 仪器甘特</div><div class="top-actions"><span class="pill">自动刷新 15s</span><span class="avatar">李</span></div></div>
+                  <div class="main">
+                    <div class="title-row">
+                      <div><h3>仪器占用时间轴</h3><p>按资源查看计划、实际执行、故障停机和冻结期</p></div>
+                      <div class="toolbar"><span class="segmented"><span class="on">日</span><span>周</span><span>月</span></span><span class="button">‹</span><span class="button">今天</span><span class="button">›</span><span class="button">全屏</span></div>
+                    </div>
+                    <div class="timeline">
+                      <div class="timeline-grid">
+                        <div class="time-head">仪器 / 时间</div><div class="time-head">08</div><div class="time-head">09</div><div class="time-head">10</div><div class="time-head">11</div><div class="time-head">12</div><div class="time-head">13</div><div class="time-head">14</div><div class="time-head">15</div><div class="time-head">16</div><div class="time-head">17</div><div class="time-head">18</div><div class="time-head">19</div>
+                        <div class="resource-name">LC-MS-01<br><span class="muted">液质联用</span></div>
+                        <div class="time-cell" style="grid-column: span 4"><span class="slot blue" style="left: 6px; right: 8px">GT-001 方法开发</span></div>
+                        <div class="time-cell" style="grid-column: span 2"></div>
+                        <div class="time-cell" style="grid-column: span 4"><span class="slot orange" style="left: 8px; right: 8px">QC-011 检测</span></div>
+                        <div class="time-cell" style="grid-column: span 2"></div>
+                        <div class="resource-name">HPLC-03<br><span class="muted">高效液相</span></div>
+                        <div class="time-cell" style="grid-column: span 2"></div>
+                        <div class="time-cell" style="grid-column: span 3"><span class="slot green" style="left: 8px; right: 8px">有关物质</span></div>
+                        <div class="time-cell" style="grid-column: span 3"><span class="slot red" style="left: 8px; right: 8px">维护停机</span></div>
+                        <div class="time-cell" style="grid-column: span 4"></div>
+                        <div class="resource-name">GC-MS-02<br><span class="muted">气质联用</span></div>
+                        <div class="time-cell" style="grid-column: span 3"></div>
+                        <div class="time-cell" style="grid-column: span 4"><span class="slot purple" style="left: 8px; right: 8px">残留溶剂</span></div>
+                        <div class="time-cell" style="grid-column: span 5"><span class="marker" style="left: 40%"></span></div>
+                      </div>
+                    </div>
+                    <div class="toolbar" style="margin-top: 12px"><span class="tag">蓝：计划任务</span><span class="tag green">绿：进行中</span><span class="tag orange">橙：延期风险</span><span class="tag red">红：故障/停机</span><span class="tag purple">紫：夜间运行</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="plan" class="section">
+          <div class="section-head">
+            <div>
+              <h2>04 项目计划拆解</h2>
+              <div class="section-desc">项目经理在一个页面维护任务树、依赖、负责人、仪器资源，并看到“是否需要重新排程”。</div>
+            </div>
+            <span class="tag orange">计划变更会触发影响预览</span>
+          </div>
+          <div class="section-body">
+            <div class="browser">
+              <div class="browser-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+              <div class="screen">
+                <aside class="rail"><div class="rail-logo">DS</div><div class="rail-item">⌁</div><div class="rail-item">⚡</div><div class="rail-item">▦</div><div class="rail-item active">◇</div></aside>
+                <div class="workspace">
+                  <div class="topbar"><div class="crumb">项目计划 / 计划拆解</div><div class="top-actions"><span class="pill">GT-2026-001</span><span class="avatar">赵</span></div></div>
+                  <div class="main">
+                    <div class="title-row">
+                      <div><h3>某注射剂基因毒杂质研究</h3><p>客户：某制药公司 · 负责人：赵经理 · 结题：2026-08-30</p></div>
+                      <div class="toolbar"><span class="button">返回台账</span><span class="button primary">保存并开始排程</span></div>
+                    </div>
+                    <div class="panel">
+                      <div class="panel-head"><span>任务树与资源约束</span><span class="tag orange">3 项待重新排程</span></div>
+                      <div class="panel-body tree">
+                        <div class="tree-row group"><span>▾ 方法开发阶段</span><span>汇总 24h</span><span>-</span><span>-</span><span>操作</span></div>
+                        <div class="tree-row"><span class="indent">LC-MS 方法开发</span><span>LC-MS-01</span><span>8h</span><span>王工</span><span><span class="tag orange">待重排</span></span></div>
+                        <div class="tree-row"><span class="indent">样品前处理</span><span>人力任务</span><span>4h</span><span>李工</span><span><span class="tag">可编辑</span></span></div>
+                        <div class="tree-row"><span class="indent">方法确认</span><span>LC-MS-01</span><span>12h</span><span>王工</span><span><span class="tag">依赖前处理</span></span></div>
+                        <div class="tree-row group"><span>▾ 验证阶段</span><span>汇总 38h</span><span>-</span><span>-</span><span>操作</span></div>
+                        <div class="tree-row"><span class="indent">精密度验证</span><span>HPLC-03</span><span>10h</span><span>陈工</span><span><span class="tag green">已排程</span></span></div>
+                        <div class="tree-row"><span class="indent">稳定性考察</span><span>HPLC-03</span><span>20h</span><span>陈工</span><span><span class="tag orange">待重排</span></span></div>
+                        <div class="tree-row"><span class="indent">数据处理与报告</span><span>人力任务</span><span>8h</span><span>赵经理</span><span><span class="tag">叶子任务</span></span></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="workspace" class="section">
+          <div class="section-head">
+            <div>
+              <h2>05 个人工作台</h2>
+              <div class="section-desc">面向实验人员：今天做什么、现在能开始什么、什么时候释放仪器、是否夜间运行。</div>
+            </div>
+            <span class="tag green">执行闭环</span>
+          </div>
+          <div class="section-body">
+            <div class="browser">
+              <div class="browser-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+              <div class="screen">
+                <aside class="rail"><div class="rail-logo">DS</div><div class="rail-item">⌁</div><div class="rail-item">⚡</div><div class="rail-item active">✓</div><div class="rail-item">◇</div></aside>
+                <div class="workspace">
+                  <div class="topbar"><div class="crumb">执行反馈 / 个人工作台</div><div class="top-actions"><span class="pill">当前用户：王工</span><span class="avatar">王</span></div></div>
+                  <div class="main">
+                    <div class="title-row">
+                      <div><h3>我的任务</h3><p>按进行中、待开始、已完成分组；关键动作放在任务卡片上</p></div>
+                      <div class="toolbar"><span class="segmented"><span class="on">进行中</span><span>待开始</span><span>已完成</span></span><span class="button">刷新</span></div>
+                    </div>
+                    <div class="task-board">
+                      <div class="task-card">
+                        <div><strong>LC-MS 方法开发</strong><div class="muted">GT-2026-001 · LC-MS-01</div></div>
+                        <div class="task-meta"><span>计划 08:30-16:30</span><span>已运行 3.5h</span><span>负责人 王工</span><span>优先级 P1</span></div>
+                        <div class="task-actions"><span class="button primary">确认完成</span><span class="button">释放仪器</span><span class="button danger">延期使用</span></div>
+                      </div>
+                      <div class="task-card">
+                        <div><strong>残留溶剂序列运行</strong><div class="muted">FF-2026-008 · GC-MS-02</div></div>
+                        <div class="task-meta"><span>计划 18:00-次日 02:00</span><span>可夜间运行</span><span>需人在场启动</span><span>缓冲 2h</span></div>
+                        <div class="task-actions"><span class="button primary">夜间运行</span><span class="button">开始任务</span></div>
+                      </div>
+                      <div class="task-card">
+                        <div><strong>样品前处理</strong><div class="muted">QC-2026-011 · 人力任务</div></div>
+                        <div class="task-meta"><span>计划 13:00-16:00</span><span>等待前置任务</span><span>负责人 王工</span><span>无仪器占用</span></div>
+                        <div class="task-actions"><span class="button">查看详情</span><span class="button" style="opacity:.55">未到开始时间</span></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="faults" class="section">
+          <div class="section-head">
+            <div>
+              <h2>06 故障与预警</h2>
+              <div class="section-desc">故障提报后直接展示受影响任务、可后移情况、通知结果，并提供维修完成动作。</div>
+            </div>
+            <span class="tag red">异常处理</span>
+          </div>
+          <div class="section-body">
+            <div class="browser">
+              <div class="browser-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+              <div class="screen">
+                <aside class="rail"><div class="rail-logo">DS</div><div class="rail-item">⌁</div><div class="rail-item">⚡</div><div class="rail-item">▦</div><div class="rail-item active">!</div></aside>
+                <div class="workspace">
+                  <div class="topbar"><div class="crumb">执行反馈 / 故障与预警</div><div class="top-actions"><span class="pill">企业微信已启用</span><span class="avatar">孙</span></div></div>
+                  <div class="main">
+                    <div class="title-row">
+                      <div><h3>当前故障</h3><p>故障提报、影响分析、维修完成、推送记录合并查看</p></div>
+                      <div class="toolbar"><span class="button danger">故障提报</span><span class="button">刷新</span><span class="segmented"><span class="on">当前故障</span><span>维修记录</span></span></div>
+                    </div>
+                    <div class="fault-grid">
+                      <div class="fault">
+                        <div class="fault-head"><div><strong>LC-MS-01 · 液质联用仪</strong><div class="muted">离子源异常，需停机检修</div></div><span class="tag red">故障停机</span></div>
+                        <div class="metrics" style="grid-template-columns: repeat(3,1fr); margin-bottom: 10px">
+                          <div class="metric"><label>预计完成</label><strong style="font-size:17px">07-14 12:00</strong></div>
+                          <div class="metric"><label>影响任务</label><strong style="font-size:17px">5</strong></div>
+                          <div class="metric"><label>已通知</label><strong style="font-size:17px">8人</strong></div>
+                        </div>
+                        <div class="impact-row"><span>GT-2026-001 方法开发：08:30 → 13:00</span><span class="tag">可后移</span></div>
+                        <div class="impact-row"><span>QC-2026-011 检测任务：超出项目结题日期</span><span class="tag red">超期</span></div>
+                        <div class="toolbar" style="margin-top: 10px"><span class="button primary">维修完成</span><span class="button">查看影响详情</span></div>
+                      </div>
+                      <div class="panel">
+                        <div class="panel-head"><span>预警规则摘要</span><span class="tag">4/4 启用</span></div>
+                        <div class="panel-body list">
+                          <div class="list-item"><strong>任务开始延迟</strong><span class="muted">超过 30 分钟推送给负责人、项目经理</span></div>
+                          <div class="list-item"><strong>任务结束延期</strong><span class="muted">预计影响后续排程时推送给排程管理员</span></div>
+                          <div class="list-item"><strong>排程变更</strong><span class="muted">重排后通知受影响任务负责人</span></div>
+                          <div class="list-item"><strong>工时超标</strong><span class="muted">实际工时超过计划 20% 触发提醒</span></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="rules" class="section">
+          <div class="section-head">
+            <div>
+              <h2>交互与状态说明</h2>
+              <div class="section-desc">给后续落地开发使用的原型说明，避免只看图时遗漏业务逻辑。</div>
+            </div>
+          </div>
+          <div class="section-body">
+            <div class="notes">
+              <div class="note"><strong>关键动作必须二次确认</strong><p>全局重排、确认插单、删除项目/任务、释放仪器需要明确影响范围，并在提交后展示成功或失败反馈。</p></div>
+              <div class="note"><strong>异常优先于普通信息</strong><p>故障、延期、里程碑风险、插单待确认应进入首页风险队列，并支持跳转到对应处理页面。</p></div>
+              <div class="note"><strong>时间轴是核心心智模型</strong><p>仪器、项目、人力三类甘特图保持同一套图例、筛选、日周月切换和全屏操作。</p></div>
+              <div class="note"><strong>计划变更要可追踪</strong><p>项目计划拆解中所有影响排程的字段变更都标记“待重新排程”，提交前先展示插单影响预览。</p></div>
+              <div class="note"><strong>执行端减少跳转</strong><p>个人工作台把开始、完成、释放仪器、夜间运行、延期反馈放到任务卡片，不要求实验人员进入复杂甘特图。</p></div>
+              <div class="note"><strong>配置页保持表格化</strong><p>排程规则、预警推送、用户、日历等配置页面延续高密度表格与内联编辑，避免用大卡片稀释信息。</p></div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
