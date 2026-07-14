@@ -168,6 +168,8 @@ def lab_status(db: Session = Depends(get_db)):
 
         current_task = None
         current_project = None
+        current_project_code = None
+        current_task_end = None
         current_user = None
         progress = None
         if running:
@@ -176,6 +178,17 @@ def lab_status(db: Session = Depends(get_db)):
                 proj = db.query(Project).filter(Project.id == task.project_id).first()
                 current_task = task.name
                 current_project = proj.name if proj else None
+                current_project_code = proj.code if proj else None
+                task_plan_end = (
+                    db.query(TimeSlot.plan_end)
+                    .filter(
+                        TimeSlot.task_id == running.task_id,
+                        TimeSlot.status.in_(["scheduled", "running", "interrupted", "blocked", "completed"]),
+                    )
+                    .order_by(TimeSlot.plan_end.desc())
+                    .first()
+                )
+                current_task_end = task_plan_end[0].isoformat() if task_plan_end and task_plan_end[0] else None
                 current_user = task.assignee_name
                 progress_start = running.actual_start or running.plan_start
                 if progress_start and running.plan_end:
@@ -209,6 +222,8 @@ def lab_status(db: Session = Depends(get_db)):
             "label_y": inst.label_y or 0,
             "current_task": current_task,
             "current_project": current_project,
+            "current_project_code": current_project_code,
+            "current_task_end": current_task_end,
             "current_user": current_user,
             "progress": progress,
             "next_task": next_task,

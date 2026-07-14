@@ -1,4 +1,6 @@
-INFO:     Started server process [32708]
+INFO:     Started server process [32304]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+D:\仪器排程系统\server\app\api\schedules.py:203: SAWarning: Coercing Subquery object into a select() for use in IN(); please pass a select() construct explicitly
+  not_(Task.id.in_(parent_ids)),
