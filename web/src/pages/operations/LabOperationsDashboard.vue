@@ -39,8 +39,8 @@
           </div>
           <div v-if="item.current_task" class="task-block">
             <span>当前任务</span>
-            <strong>{{ item.current_task }}</strong>
-            <em>{{ item.current_project || '未关联项目' }} · {{ item.current_user || '未分配' }}</em>
+            <strong>{{ taskOwnerText(item.current_task, item.current_user, '未占用') }}</strong>
+            <em>{{ item.current_project || '未关联项目' }}</em>
             <a-progress
               :percent="Math.round(item.progress || 0)"
               :show-info="false"
@@ -50,8 +50,8 @@
           </div>
           <div v-else class="task-block is-idle">
             <span>下一任务</span>
-            <strong>{{ item.next_task || '暂无待执行任务' }}</strong>
-            <em>{{ item.next_project || '未关联项目' }} · {{ item.next_user || '未分配' }}</em>
+            <strong>{{ taskOwnerText(item.next_task, item.next_user, '暂无待执行任务') }}</strong>
+            <em>{{ item.next_project || '未关联项目' }}</em>
             <small>{{ formatNextStart(item.next_start) }}</small>
             <div class="progress-placeholder"></div>
           </div>
@@ -78,13 +78,11 @@
                 <div><dt>位置分组</dt><dd>{{ selectedInstrument.location || '-' }} · {{ groupText(selectedInstrument.group) }}</dd></div>
                 <div><dt>当前项目</dt><dd>{{ selectedInstrument.current_project || '暂无运行项目' }}</dd></div>
                 <div><dt>项目编号</dt><dd>{{ selectedInstrument.current_project_code || '-' }}</dd></div>
-                <div><dt>当前任务</dt><dd>{{ selectedInstrument.current_task || '未占用' }}</dd></div>
+                <div><dt>当前任务</dt><dd>{{ taskOwnerText(selectedInstrument.current_task, selectedInstrument.current_user, '未占用') }}</dd></div>
                 <div><dt>预计完成</dt><dd>{{ formatExpectedEnd(selectedInstrument.current_task_end) }}</dd></div>
-                <div><dt>负责人</dt><dd>{{ selectedInstrument.current_user || '未分配' }}</dd></div>
                 <div><dt>下一项目</dt><dd>{{ selectedInstrument.next_project || '暂无待执行项目' }}</dd></div>
                 <div><dt>下一项目编号</dt><dd>{{ selectedInstrument.next_project_code || '-' }}</dd></div>
-                <div><dt>下一任务</dt><dd>{{ selectedInstrument.next_task || '暂无待执行任务' }}</dd></div>
-                <div><dt>下一负责人</dt><dd>{{ selectedInstrument.next_user || '未分配' }}</dd></div>
+                <div><dt>下一任务</dt><dd>{{ taskOwnerText(selectedInstrument.next_task, selectedInstrument.next_user, '暂无待执行任务') }}</dd></div>
                 <div><dt>预计开始</dt><dd>{{ formatNextStart(selectedInstrument.next_start) }}</dd></div>
                 <div><dt>仪器利用率</dt><dd>{{ utilizationText(selectedInstrument.id) }}</dd></div>
               </dl>
@@ -110,13 +108,11 @@
                     <div><dt>位置分组</dt><dd>{{ item.location || '-' }} · {{ groupText(item.group) }}</dd></div>
                     <div><dt>当前项目</dt><dd>{{ item.current_project || '暂无运行项目' }}</dd></div>
                     <div><dt>项目编号</dt><dd>{{ item.current_project_code || '-' }}</dd></div>
-                    <div><dt>当前任务</dt><dd>{{ item.current_task || '未占用' }}</dd></div>
+                    <div><dt>当前任务</dt><dd>{{ taskOwnerText(item.current_task, item.current_user, '未占用') }}</dd></div>
                     <div><dt>预计完成</dt><dd>{{ formatExpectedEnd(item.current_task_end) }}</dd></div>
-                    <div><dt>负责人</dt><dd>{{ item.current_user || '未分配' }}</dd></div>
                     <div><dt>下一项目</dt><dd>{{ item.next_project || '暂无待执行项目' }}</dd></div>
                     <div><dt>下一项目编号</dt><dd>{{ item.next_project_code || '-' }}</dd></div>
-                    <div><dt>下一任务</dt><dd>{{ item.next_task || '暂无待执行任务' }}</dd></div>
-                    <div><dt>下一负责人</dt><dd>{{ item.next_user || '未分配' }}</dd></div>
+                    <div><dt>下一任务</dt><dd>{{ taskOwnerText(item.next_task, item.next_user, '暂无待执行任务') }}</dd></div>
                     <div><dt>预计开始</dt><dd>{{ formatNextStart(item.next_start) }}</dd></div>
                     <div><dt>仪器利用率</dt><dd>{{ utilizationText(item.id) }}</dd></div>
                   </dl>
@@ -269,6 +265,10 @@ function groupText(group: string) {
 
 function specText(instrument: DashboardInstrument) {
   return instrument.model || '未填写型号'
+}
+
+function taskOwnerText(task: string | null | undefined, owner: string | null | undefined, fallback: string) {
+  return task ? `${task} · ${owner || '未分配'}` : fallback
 }
 
 function progressColor(instrument: DashboardInstrument) {

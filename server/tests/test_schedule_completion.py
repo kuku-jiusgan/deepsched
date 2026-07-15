@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -7,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.database import Base
 from app.models import Task, TaskDependency, TimeSlot
 from app.services.schedule_completion_service import (
+    _forward_shift_instrument_queue,
     _mark_task_slots_completed,
     _select_completed_slot,
 )
@@ -109,19 +111,7 @@ class ScheduleCompletionTest(unittest.TestCase):
         ])
         self.db.commit()
 
-        from app.services import schedule_completion_service as service
-
-        service._load_working_options = lambda db, released_at: {
-            "day_start_minutes": 8 * 60 + 30,
-            "day_end_minutes": 20 * 60,
-            "include_weekends": True,
-            "include_holidays": True,
-            "horizon_end": datetime(2026, 7, 20),
-            "calendar_days": {},
-        }
-        result = service._forward_shift_same_project_work(
-            self.db, completed, 1, datetime(2026, 7, 13, 12, 0)
-        )
+        result = self._forward_shift(1, datetime(2026, 7, 13, 12, 0))
 
         moved_slot = self.db.query(TimeSlot).filter(
             TimeSlot.task_id == next_task.id,
@@ -130,6 +120,132 @@ class ScheduleCompletionTest(unittest.TestCase):
         self.assertEqual(1, result["moved_tasks"])
         self.assertEqual(datetime(2026, 7, 13, 12, 0), moved_slot.plan_start)
         self.assertEqual(datetime(2026, 7, 13, 14, 0), moved_slot.plan_end)
+
+    def test_forward_shift_compacts_instrument_queue_across_projects(self):
+        first = Task(project_id=2, name="project-b", task_type="test", status="scheduled")
+        second = Task(project_id=3, name="project-c", task_type="test", status="scheduled")
+        self.db.add_all([first, second])
+        self.db.flush()
+        self.db.add_all([
+            TimeSlot(
+                task_id=first.id, instrument_id=1,
+                plan_start=datetime(2026, 7, 13, 15, 0),
+                plan_end=datetime(2026, 7, 13, 17, 0), status="scheduled",
+            ),
+            TimeSlot(
+                task_id=second.id, instrument_id=1,
+                plan_start=datetime(2026, 7, 13, 17, 0),
+                plan_end=datetime(2026, 7, 13, 19, 0), status="scheduled",
+            ),
+        ])
+        self.db.commit()
+
+        result = self._forward_shift(1, datetime(2026, 7, 13, 12, 0))
+
+        slots = self.db.query(TimeSlot).order_by(TimeSlot.plan_start).all()
+        self.assertEqual(2, result["moved_tasks"])
+        self.assertEqual([first.id, second.id], [slot.task_id for slot in slots])
+        self.assertEqual(datetime(2026, 7, 13, 12, 0), slots[0].plan_start)
+        self.assertEqual(datetime(2026, 7, 13, 14, 0), slots[1].plan_start)
+
+    def test_forward_shift_ignores_manual_and_frozen_tasks(self):
+        manual = Task(project_id=1, name="manual", task_type="test", status="scheduled")
+        frozen = Task(project_id=2, name="frozen", task_type="test", status="scheduled")
+        partly_running = Task(
+            project_id=3, name="partly-running", task_type="test", status="scheduled",
+        )
+        self.db.add_all([manual, frozen, partly_running])
+        self.db.flush()
+        original_start = datetime(2026, 7, 13, 16, 0)
+        self.db.add_all([
+            TimeSlot(
+                task_id=manual.id, instrument_id=None,
+                plan_start=datetime(2026, 7, 13, 14, 0),
+                plan_end=datetime(2026, 7, 13, 15, 0), status="scheduled",
+            ),
+            TimeSlot(
+                task_id=frozen.id, instrument_id=1,
+                plan_start=original_start,
+                plan_end=datetime(2026, 7, 13, 18, 0),
+                tier="frozen", status="scheduled",
+            ),
+            TimeSlot(
+                task_id=partly_running.id, instrument_id=1,
+                plan_start=datetime(2026, 7, 13, 10, 0),
+                plan_end=datetime(2026, 7, 13, 12, 0), status="running",
+            ),
+            TimeSlot(
+                task_id=partly_running.id, instrument_id=1,
+                plan_start=datetime(2026, 7, 13, 18, 0),
+                plan_end=datetime(2026, 7, 13, 19, 0), status="scheduled",
+            ),
+        ])
+        self.db.commit()
+
+        result = self._forward_shift(1, datetime(2026, 7, 13, 12, 0))
+
+        frozen_slot = self.db.query(TimeSlot).filter(TimeSlot.task_id == frozen.id).one()
+        self.assertEqual(0, result["moved_tasks"])
+        self.assertEqual(original_start, frozen_slot.plan_start)
+        self.assertEqual(1, self.db.query(TimeSlot).filter(TimeSlot.task_id == manual.id).count())
+        self.assertEqual(
+            2,
+            self.db.query(TimeSlot).filter(TimeSlot.task_id == partly_running.id).count(),
+        )
+
+    def test_forward_shift_respects_dependency_and_human_availability(self):
+        predecessor = Task(project_id=1, name="predecessor", task_type="test", status="scheduled")
+        candidate = Task(
+            project_id=2, name="candidate", task_type="test", status="scheduled",
+            requires_human=True, assignee_id=7,
+        )
+        other_work = Task(
+            project_id=3, name="other-work", task_type="test", status="scheduled",
+            requires_human=True, assignee_id=7,
+        )
+        self.db.add_all([predecessor, candidate, other_work])
+        self.db.flush()
+        self.db.add(TaskDependency(task_id=candidate.id, predecessor_id=predecessor.id))
+        self.db.add_all([
+            TimeSlot(
+                task_id=predecessor.id, instrument_id=None,
+                plan_start=datetime(2026, 7, 13, 11, 0),
+                plan_end=datetime(2026, 7, 13, 14, 0), status="scheduled",
+            ),
+            TimeSlot(
+                task_id=other_work.id, instrument_id=2,
+                plan_start=datetime(2026, 7, 13, 14, 0),
+                plan_end=datetime(2026, 7, 13, 15, 0), status="scheduled",
+            ),
+            TimeSlot(
+                task_id=candidate.id, instrument_id=1,
+                plan_start=datetime(2026, 7, 13, 17, 0),
+                plan_end=datetime(2026, 7, 13, 19, 0), status="scheduled",
+            ),
+        ])
+        self.db.commit()
+
+        result = self._forward_shift(1, datetime(2026, 7, 13, 12, 0))
+
+        moved_slot = self.db.query(TimeSlot).filter(TimeSlot.task_id == candidate.id).one()
+        self.assertEqual(1, result["moved_tasks"])
+        self.assertEqual(datetime(2026, 7, 13, 15, 0), moved_slot.plan_start)
+        self.assertEqual(datetime(2026, 7, 13, 17, 0), moved_slot.plan_end)
+
+    def _forward_shift(self, instrument_id: int, released_at: datetime) -> dict:
+        working_options = {
+            "day_start_minutes": 8 * 60 + 30,
+            "day_end_minutes": 20 * 60,
+            "include_weekends": True,
+            "include_holidays": True,
+            "horizon_end": datetime(2026, 7, 20),
+            "calendar_days": {},
+        }
+        with patch(
+            "app.services.schedule_completion_service._load_working_options",
+            return_value=working_options,
+        ):
+            return _forward_shift_instrument_queue(self.db, instrument_id, released_at)
 
 
 if __name__ == "__main__":

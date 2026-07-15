@@ -30,11 +30,13 @@ class TaskExecutionServiceTest(unittest.TestCase):
             project_id=1,
             name="方案撰写",
             task_type="QCFA_001",
+            requires_instrument=True,
             status="scheduled",
         )
         self.slot = TimeSlot(
             id=1,
             task_id=2,
+            instrument_id=1,
             plan_start=datetime.now() - timedelta(minutes=30),
             plan_end=datetime.now() + timedelta(minutes=30),
             status="scheduled",
@@ -64,13 +66,63 @@ class TaskExecutionServiceTest(unittest.TestCase):
         self.assertEqual("running", self.db.get(TimeSlot, self.slot.id).status)
         self.assertIsNotNone(self.db.get(TimeSlot, self.slot.id).actual_start)
 
-    def test_task_cannot_start_before_planned_time(self):
+    def test_instrument_task_can_start_early_when_instrument_is_idle(self):
         self.predecessor.status = "done"
         self.slot.plan_start = datetime.now() + timedelta(hours=1)
         self.slot.plan_end = datetime.now() + timedelta(hours=2)
         self.db.commit()
 
-        with self.assertRaisesRegex(TaskExecutionInvalidError, "不能提前启动"):
+        result = start_task_execution(self.db, self.slot.id)
+
+        self.assertEqual("ok", result["status"])
+        self.assertEqual("running", self.db.get(Task, self.task.id).status)
+
+    def test_human_task_can_start_early(self):
+        self.predecessor.status = "done"
+        self.task.requires_instrument = False
+        self.slot.instrument_id = None
+        self.slot.plan_start = datetime.now() + timedelta(hours=1)
+        self.slot.plan_end = datetime.now() + timedelta(hours=2)
+        self.db.commit()
+
+        result = start_task_execution(self.db, self.slot.id)
+
+        self.assertEqual("ok", result["status"])
+        self.assertEqual("running", self.db.get(Task, self.task.id).status)
+
+    def test_instrument_task_cannot_start_early_when_instrument_is_occupied(self):
+        self.predecessor.status = "done"
+        self.slot.plan_start = datetime.now() + timedelta(hours=1)
+        self.slot.plan_end = datetime.now() + timedelta(hours=2)
+        occupying_task = Task(
+            id=3,
+            project_id=1,
+            name="当前方法验证",
+            task_type="FFYZ_001",
+            requires_instrument=True,
+            status="scheduled",
+        )
+        occupying_slot = TimeSlot(
+            id=2,
+            task_id=3,
+            instrument_id=1,
+            plan_start=datetime.now() - timedelta(hours=1),
+            plan_end=datetime.now() + timedelta(minutes=30),
+            status="scheduled",
+            tier="confirmed",
+        )
+        self.db.add_all([occupying_task, occupying_slot])
+        self.db.commit()
+
+        with self.assertRaisesRegex(TaskExecutionInvalidError, "当前方法验证.*不能提前启动"):
+            start_task_execution(self.db, self.slot.id)
+
+    def test_predecessor_is_checked_before_early_start_rule(self):
+        self.slot.plan_start = datetime.now() + timedelta(hours=1)
+        self.slot.plan_end = datetime.now() + timedelta(hours=2)
+        self.db.commit()
+
+        with self.assertRaisesRegex(TaskExecutionInvalidError, "方法开发.*尚未完成"):
             start_task_execution(self.db, self.slot.id)
 
     def test_started_task_cannot_start_twice(self):

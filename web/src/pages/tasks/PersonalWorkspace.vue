@@ -5,8 +5,7 @@
     </div>
 
     <div class="action-bar">
-      <a-button @click="fetchData"><ReloadOutlined /> 刷新</a-button>
-      <a-tabs v-model:activeKey="activeTab" size="small" style="flex: 1; margin: 0 16px">
+      <a-tabs v-model:activeKey="activeTab" size="small" style="flex: 1">
         <a-tab-pane key="active" tab="进行中" />
         <a-tab-pane key="pending" tab="待开始" />
         <a-tab-pane key="completed" tab="已完成" />
@@ -109,7 +108,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
-import { CheckCircleOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { CheckCircleOutlined, PlayCircleOutlined } from '@ant-design/icons-vue'
 import {
   getApprovalGates, getMyTasks, startTask, completeTask, getTaskTypes, type MyTask,
 } from '@/services/api'

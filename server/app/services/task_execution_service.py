@@ -4,6 +4,7 @@ from datetime import datetime
 
 from app.models import Task, TimeSlot
 from app.services.instrument_status_service import mark_instrument_running
+from app.services.instrument_occupancy_service import current_occupying_slot
 
 
 COMPLETED_TASK_STATUSES = {"done", "completed"}
@@ -26,7 +27,7 @@ def start_task_execution(db, slot_id: int) -> dict[str, str]:
     task = db.query(Task).filter(Task.id == slot.task_id).first()
     if not task:
         raise TaskExecutionNotFoundError("任务不存在")
-    _ensure_can_start(task, slot)
+    _ensure_can_start(db, task, slot)
 
     started_at = datetime.now()
     task.status = "running"
@@ -52,7 +53,7 @@ def ensure_predecessors_completed(task: Task) -> None:
         raise TaskExecutionInvalidError(f"前置任务【{names}】尚未完成，不能操作【{task.name}】")
 
 
-def _ensure_can_start(task: Task, slot: TimeSlot) -> None:
+def _ensure_can_start(db, task: Task, slot: TimeSlot) -> None:
     if task.status in COMPLETED_TASK_STATUSES or slot.status == "completed":
         raise TaskExecutionInvalidError("任务已经完成，不能重复开始")
     if task.status == "running" or any(
@@ -62,11 +63,22 @@ def _ensure_can_start(task: Task, slot: TimeSlot) -> None:
         raise TaskExecutionInvalidError("任务已经开始，不能重复操作")
     if slot.status not in STARTABLE_SLOT_STATUSES:
         raise TaskExecutionInvalidError("当前任务状态不能开始")
-    if slot.plan_start and datetime.now() < slot.plan_start:
-        raise TaskExecutionInvalidError(
-            f"任务计划于 {slot.plan_start:%Y-%m-%d %H:%M} 开始，当前不能提前启动"
-        )
     ensure_predecessors_completed(task)
+    now = datetime.now()
+    if not slot.plan_start or now >= slot.plan_start or not task.requires_instrument:
+        return
+    if not slot.instrument_id:
+        raise TaskExecutionInvalidError("仪器任务尚未分配仪器，不能提前启动")
+    occupying_slot = current_occupying_slot(
+        db,
+        slot.instrument_id,
+        now,
+        excluded_task_id=task.id,
+    )
+    if occupying_slot and occupying_slot.task:
+        raise TaskExecutionInvalidError(
+            f"仪器当前任务【{occupying_slot.task.name}】尚未结束，不能提前启动【{task.name}】"
+        )
 
 
 def _continuous_slots(db, start_slot: TimeSlot) -> list[TimeSlot]:

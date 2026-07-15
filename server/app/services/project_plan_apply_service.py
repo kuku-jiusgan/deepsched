@@ -164,7 +164,7 @@ def _execute_replan(
 
     response = ProjectPlanApplyResponse(
         status="applied",
-        message=f"排程完成，创建 {int(solver_result.get('timeslots_created', 0))} 个时间槽",
+        message=f"排程完成",
         project_id=project.id,
         schedule_run_id=schedule_run_id,
         timeslots_created=int(solver_result.get("timeslots_created", 0)),

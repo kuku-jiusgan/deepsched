@@ -2,24 +2,21 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, func, or_
+from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
 from app.models import Task, TimeSlot
 from app.services.instrument_status_service import refresh_instrument_status
+from app.services.schedule_forward_slot_service import build_forward_slots
 from app.services.schedule_rule_service import get_solver_constraints
 from app.services.scheduler_helpers import (
-    is_allowed_calendar_day,
     load_calendar_days,
     natural_day_boundary,
     time_horizon,
     working_time_bounds,
 )
 from app.services.project_status_service import calculate_project_status
-
-SCHEDULE_UNIT_MINUTES = 30
-
 
 def complete_task_and_shift(
     db: Session,
@@ -60,7 +57,7 @@ def complete_task_and_shift(
             "moved_tasks": 0,
             "released_instrument": False,
         }
-    result = _forward_shift_same_project_work(db, task, completed_slot.instrument_id, end_time)
+    result = _forward_shift_instrument_queue(db, completed_slot.instrument_id, end_time)
     result["released_instrument"] = True
     return result
 
@@ -104,23 +101,29 @@ def _mark_task_slots_completed(
         slot.actual_end = end_time if slot.id == completed_slot.id else min(slot.plan_end, end_time)
 
 
-def _forward_shift_same_project_work(
+def _forward_shift_instrument_queue(
     db: Session,
-    completed_task: Task,
     instrument_id: int | None,
     released_at: datetime,
 ) -> dict:
     if not instrument_id:
-        return {"status": "ok", "message": "任务已完成，无绑定仪器，无需前移排程"}
+        return {
+            "status": "ok",
+            "message": "任务已完成，无绑定仪器，无需前移排程",
+            "moved_tasks": 0,
+        }
 
     candidate_tasks = _load_forward_shift_candidates(
         db,
-        completed_task.project_id,
         instrument_id,
         released_at,
     )
     if not candidate_tasks:
-        return {"status": "ok", "message": "任务已完成，无同项目同仪器后续任务可前移"}
+        return {
+            "status": "ok",
+            "message": "任务已完成，该仪器无后续任务可前移",
+            "moved_tasks": 0,
+        }
 
     working_options = _load_working_options(db, released_at)
     original_slots = {
@@ -158,10 +161,15 @@ def _forward_shift_same_project_work(
             for slot in snapshots
         )
         slot_instrument_id = snapshots[0]["instrument_id"]
-        dependency_ready = _dependency_ready_time(db, task, released_at)
-        earliest_start = max(cursor, dependency_ready)
-        new_slots = _build_forward_slots(
+        earliest_start = max(
+            cursor,
+            _dependency_ready_time(db, task, released_at),
+            task.earliest_start or released_at,
+            task.project.start_date if task.project and task.project.start_date else released_at,
+        )
+        new_slots = build_forward_slots(
             db,
+            task,
             slot_instrument_id,
             duration_minutes,
             earliest_start,
@@ -191,14 +199,13 @@ def _forward_shift_same_project_work(
     db.commit()
     return {
         "status": "ok",
-        "message": f"任务已完成，同项目同仪器前移 {moved} 个任务",
+        "message": f"任务已完成，该仪器跨项目前移 {moved} 个任务",
         "moved_tasks": moved,
     }
 
 
 def _load_forward_shift_candidates(
     db: Session,
-    project_id: int,
     instrument_id: int,
     released_at: datetime,
 ) -> list[Task]:
@@ -207,17 +214,13 @@ def _load_forward_shift_candidates(
         db.query(Task.id, first_start)
         .join(TimeSlot, TimeSlot.task_id == Task.id)
         .filter(
-            Task.project_id == project_id,
             Task.status == "scheduled",
-            or_(
-                TimeSlot.instrument_id == instrument_id,
-                TimeSlot.instrument_id.is_(None),
-            ),
+            TimeSlot.instrument_id == instrument_id,
             TimeSlot.status == "scheduled",
             TimeSlot.plan_start >= released_at,
         )
         .group_by(Task.id)
-        .order_by(first_start)
+        .order_by(first_start, Task.id)
         .all()
     )
     candidate_ids = [row[0] for row in candidate_rows]
@@ -228,7 +231,29 @@ def _load_forward_shift_candidates(
         .filter(Task.id.in_(candidate_ids))
         .all()
     }
-    return [tasks_by_id[task_id] for task_id in candidate_ids if task_id in tasks_by_id]
+    return [
+        tasks_by_id[task_id]
+        for task_id in candidate_ids
+        if task_id in tasks_by_id
+        and _is_movable_instrument_task(db, tasks_by_id[task_id], instrument_id, released_at)
+    ]
+
+
+def _is_movable_instrument_task(
+    db: Session,
+    task: Task,
+    instrument_id: int,
+    released_at: datetime,
+) -> bool:
+    slots = db.query(TimeSlot).filter(TimeSlot.task_id == task.id).all()
+    return bool(slots) and all(
+        slot.status == "scheduled"
+        and slot.instrument_id == instrument_id
+        and slot.plan_start >= released_at
+        and slot.actual_start is None
+        and slot.tier != "frozen"
+        for slot in slots
+    )
 
 
 def _load_working_options(db: Session, released_at: datetime) -> dict:
@@ -281,91 +306,6 @@ def _predecessor_ready_time(db: Session, task_id: int) -> datetime | None:
         .filter(TimeSlot.task_id == task_id)
         .scalar()
     )
-
-
-def _build_forward_slots(
-    db: Session,
-    instrument_id: int | None,
-    duration_minutes: int,
-    earliest_start: datetime,
-    working_options: dict,
-) -> list[tuple[datetime, datetime]]:
-    remaining = duration_minutes
-    slots: list[tuple[datetime, datetime]] = []
-    chunk_start: datetime | None = None
-    cursor = _ceil_to_schedule_unit(earliest_start)
-
-    while remaining > 0 and cursor < working_options["horizon_end"]:
-        next_cursor = cursor + timedelta(minutes=SCHEDULE_UNIT_MINUTES)
-        if _can_use_unit(db, instrument_id, cursor, next_cursor, working_options):
-            if chunk_start is None:
-                chunk_start = cursor
-            remaining -= SCHEDULE_UNIT_MINUTES
-        else:
-            if chunk_start is not None:
-                slots.append((chunk_start, cursor))
-                chunk_start = None
-        cursor = next_cursor
-
-    if remaining <= 0 and chunk_start is not None:
-        slots.append((chunk_start, cursor))
-    if remaining > 0:
-        return []
-    return slots
-
-
-def _can_use_unit(
-    db: Session,
-    instrument_id: int | None,
-    start: datetime,
-    end: datetime,
-    working_options: dict,
-) -> bool:
-    current_minutes = start.hour * 60 + start.minute
-    if (
-        current_minutes < working_options["day_start_minutes"]
-        or current_minutes >= working_options["day_end_minutes"]
-        or not is_allowed_calendar_day(
-            start.date(),
-            working_options["calendar_days"],
-            working_options["include_weekends"],
-            working_options["include_holidays"],
-        )
-    ):
-        return False
-    if instrument_id is None:
-        return True
-    conflict = (
-        db.query(TimeSlot.id)
-        .filter(
-            TimeSlot.instrument_id == instrument_id,
-            or_(
-                and_(
-                    TimeSlot.status == "completed",
-                    TimeSlot.actual_start.isnot(None),
-                    TimeSlot.actual_end.isnot(None),
-                    TimeSlot.actual_start < end,
-                    TimeSlot.actual_end > start,
-                ),
-                and_(
-                    TimeSlot.status != "completed",
-                    TimeSlot.plan_start < end,
-                    TimeSlot.plan_end > start,
-                ),
-            ),
-        )
-        .first()
-    )
-    return conflict is None
-
-
-def _ceil_to_schedule_unit(value: datetime) -> datetime:
-    value = value.replace(second=0, microsecond=0)
-    remainder = value.minute % SCHEDULE_UNIT_MINUTES
-    if remainder == 0:
-        return value
-    value += timedelta(minutes=SCHEDULE_UNIT_MINUTES - remainder)
-    return value.replace(second=0, microsecond=0)
 
 
 def _snapshot_slot(slot: TimeSlot) -> dict:

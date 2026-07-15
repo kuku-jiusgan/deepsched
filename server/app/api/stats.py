@@ -10,6 +10,7 @@ from app.core.database import get_db
 from app.models import Instrument, TimeSlot, Task, Project, InstrumentFault
 from app.schemas.schemas import DashboardData, UtilizationStats
 from app.services.project_status_service import calculate_project_status
+from app.services.lab_status_service import list_lab_status
 
 router = APIRouter(prefix="/api/v1/stats", tags=["stats"])
 
@@ -164,101 +165,4 @@ def _overlap_hours(start_time: datetime, end_time: datetime, window_start: datet
 
 @router.get("/lab-status")
 def lab_status(db: Session = Depends(get_db)):
-    instruments = db.query(Instrument).filter(Instrument.availability_status == "available").all()
-    now = datetime.now()
-    result = []
-    for inst in instruments:
-        running = _current_running_slot(db, inst.id, now)
-
-        current_task = None
-        current_project = None
-        current_project_code = None
-        current_task_end = None
-        current_user = None
-        progress = None
-        if running:
-            task = db.query(Task).filter(Task.id == running.task_id).first()
-            if task:
-                proj = db.query(Project).filter(Project.id == task.project_id).first()
-                current_task = task.name
-                current_project = proj.name if proj else None
-                current_project_code = proj.code if proj else None
-                task_plan_end = (
-                    db.query(TimeSlot.plan_end)
-                    .filter(
-                        TimeSlot.task_id == running.task_id,
-                        TimeSlot.status.in_(["scheduled", "running", "interrupted", "blocked", "completed"]),
-                    )
-                    .order_by(TimeSlot.plan_end.desc())
-                    .first()
-                )
-                current_task_end = task_plan_end[0].isoformat() if task_plan_end and task_plan_end[0] else None
-                current_user = task.assignee_name
-                progress_start = running.actual_start or running.plan_start
-                if progress_start and running.plan_end:
-                    elapsed = (now - progress_start).total_seconds()
-                    total = (running.plan_end - running.plan_start).total_seconds()
-                    if total > 0:
-                        progress = min(max(round(elapsed / total * 100, 1), 0), 100)
-
-        upcoming = db.query(TimeSlot).filter(
-            TimeSlot.instrument_id == inst.id,
-            TimeSlot.status == "scheduled",
-            TimeSlot.plan_start > now,
-        ).order_by(TimeSlot.plan_start).first()
-        next_task = None
-        next_start = None
-        next_project = None
-        next_project_code = None
-        next_user = None
-        if upcoming:
-            task = db.query(Task).filter(Task.id == upcoming.task_id).first()
-            if task:
-                project = db.query(Project).filter(Project.id == task.project_id).first()
-                next_task = task.name
-                next_start = upcoming.plan_start.isoformat()
-                next_project = project.name if project else None
-                next_project_code = project.code if project else None
-                next_user = task.assignee_name
-
-        result.append({
-            "id": inst.id,
-            "code": inst.code,
-            "name": inst.name,
-            "group": inst.instrument_group,
-            "location": inst.location,
-            "status": inst.status,
-            "buffer_rate": inst.buffer_rate,
-            "label_x": inst.label_x or 0,
-            "label_y": inst.label_y or 0,
-            "current_task": current_task,
-            "current_project": current_project,
-            "current_project_code": current_project_code,
-            "current_task_end": current_task_end,
-            "current_user": current_user,
-            "progress": progress,
-            "next_task": next_task,
-            "next_start": next_start,
-            "next_project": next_project,
-            "next_project_code": next_project_code,
-            "next_user": next_user,
-            "running_slot_id": running.id if running else None,
-            "running_start": running.actual_start.isoformat() if running and running.actual_start else None,
-        })
-    return result
-
-
-def _current_running_slot(db: Session, instrument_id: int, now: datetime) -> TimeSlot | None:
-    active_slot = db.query(TimeSlot).filter(
-        TimeSlot.instrument_id == instrument_id,
-        TimeSlot.status == "running",
-        TimeSlot.plan_start <= now,
-        TimeSlot.plan_end >= now,
-    ).order_by(TimeSlot.plan_start, TimeSlot.id).first()
-    if active_slot:
-        return active_slot
-
-    return db.query(TimeSlot).filter(
-        TimeSlot.instrument_id == instrument_id,
-        TimeSlot.status == "running",
-    ).order_by(TimeSlot.plan_end.desc(), TimeSlot.id.desc()).first()
+    return list_lab_status(db)

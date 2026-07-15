@@ -312,12 +312,12 @@ class SchedulerService:
 
                     # Collect cross-project co-presence for penalty
                     both_present = model.NewBoolVar(f"both_{tA_id}_{tB_id}_on_{inst.id}")
-                    
+
                     # Proper AND: both_present = pA AND pB
                     model.AddImplication(both_present, pA)
                     model.AddImplication(both_present, pB)
                     model.AddBoolOr([pA.Not(), pB.Not()]).OnlyEnforceIf(both_present.Not())
-                    
+
                     switch_penalties.append(both_present)
 
         # Precedence constraints (DAG)
@@ -449,7 +449,7 @@ class SchedulerService:
 
         return {
             "status": "ok",
-            "message": f"排程完成，创建 {created} 个时间槽",
+            "message": f"排程完成",
             "timeslots_created": created,
             "schedule_run_id": schedule_run_id,
             "solver_status": "OPTIMAL" if status == cp_model.OPTIMAL else "FEASIBLE",
