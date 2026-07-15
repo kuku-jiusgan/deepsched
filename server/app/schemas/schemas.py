@@ -235,6 +235,9 @@ class TaskStatusUpdate(BaseModel):
     status: str
     actual_time: Optional[datetime] = None
 
+class TaskActionResponse(BaseModel):
+    status: str
+
 # ---- Schedule ----
 class ScheduleGenerateRequest(BaseModel):
     project_ids: Optional[List[int]] = None

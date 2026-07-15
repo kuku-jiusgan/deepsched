@@ -133,7 +133,7 @@ const EARLY_RELEASE_THRESHOLD_MINUTES = 30
 
 const cardTasks = computed(() => {
   if (activeTab.value === 'active') {
-    return tasks.value.filter(task => task.status === 'running' || isTodayPendingTask(task))
+    return tasks.value.filter(task => ['running', 'blocked', 'interrupted'].includes(task.status) || isTodayPendingTask(task))
   }
   if (activeTab.value === 'pending') {
     return tasks.value.filter(task => ['pending', 'scheduled'].includes(task.status) && !isTodayPendingTask(task))
@@ -216,7 +216,7 @@ async function fetchData() {
   try {
     const [taskResult, approvalResult] = await Promise.all([
       getMyTasks(),
-      getApprovalGates({ page_size: 500 }),
+      getApprovalGates({ page_size: 500, workspace_only: true }),
     ])
     tasks.value = taskResult
     approvalGates.value = approvalResult.items
@@ -234,7 +234,7 @@ async function handleStart(record: MyTask) {
     await startTask(record.slot_id)
     message.success('任务已开始')
     fetchData()
-  } catch { message.error('操作失败') }
+  } catch (error: unknown) { message.error(errorDetail(error, '开始任务失败')) }
   finally { actingId.value = null }
 }
 
@@ -296,6 +296,11 @@ function completionMessage(result: { message?: string; moved_tasks?: number }, r
   if (!releaseInstrument) return '任务已完成，后续排程保持不变'
   if (result.moved_tasks && result.moved_tasks > 0) return `任务已完成，已前移 ${result.moved_tasks} 个后续任务`
   return '任务已完成'
+}
+
+function errorDetail(error: unknown, fallback: string) {
+  const candidate = error as { response?: { data?: { detail?: string } } }
+  return candidate.response?.data?.detail || fallback
 }
 
 onMounted(fetchData)

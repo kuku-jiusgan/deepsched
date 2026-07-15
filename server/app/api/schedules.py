@@ -10,7 +10,7 @@ from app.schemas.schemas import (
     TimeSlotOut, TimeSlotUpdate, TaskStatusUpdate,
     ScheduleGenerateRequest, InsertOrderRequest, InsertOrderPreview, InsertOrderResult,
     RescheduleRequest, TaskDelayRequest, TaskDelayResponse,
-    NightRunRequest, TaskCompleteRequest, TaskCompleteResponse
+    NightRunRequest, TaskActionResponse, TaskCompleteRequest, TaskCompleteResponse
 )
 from app.services.scheduler import SchedulerService
 from app.services.schedule_delay_service import (
@@ -19,7 +19,7 @@ from app.services.schedule_delay_service import (
     report_task_delay,
 )
 from app.services.schedule_completion_service import complete_task_and_shift
-from app.services.instrument_status_service import mark_instrument_running, refresh_instrument_status
+from app.services.instrument_status_service import refresh_instrument_status
 from app.services.schedule_insert_service import (
     ScheduleInsertInvalidError,
     ScheduleInsertNotFoundError,
@@ -34,6 +34,11 @@ from app.services.schedule_night_run_service import (
 from app.services.schedule_reschedule_service import reschedule as reschedule_service
 from app.services.schedule_tier_service import roll_schedule_tiers
 from app.services.approval_gate_service import scan_approval_deadlines
+from app.services.task_execution_service import (
+    TaskExecutionInvalidError,
+    TaskExecutionNotFoundError,
+    start_task_execution,
+)
 from app.api.users import auth_token
 
 router = APIRouter(prefix="/api/v1/schedules", tags=["schedules"])
@@ -82,23 +87,14 @@ def update_timeslot(slot_id: int, data: TimeSlotUpdate, db: Session = Depends(ge
     db.refresh(slot)
     return _enrich_slot(slot, db)
 
-@router.post("/timeslots/{slot_id}/start")
+@router.post("/timeslots/{slot_id}/start", response_model=TaskActionResponse)
 def start_task(slot_id: int, db: Session = Depends(get_db)):
-    slot = db.query(TimeSlot).filter(TimeSlot.id == slot_id).first()
-    if not slot:
-        raise HTTPException(status_code=404, detail="时间槽不存在")
-    task = db.query(Task).filter(Task.id == slot.task_id).first()
-    task.status = "running"
-    if task.project:
-        task.project.status = "active"
-    started_at = datetime.now()
-    for running_slot in _continuous_running_slots(db, slot):
-        running_slot.status = "running"
-        if running_slot.id == slot.id:
-            running_slot.actual_start = started_at
-        mark_instrument_running(db, running_slot.instrument_id)
-    db.commit()
-    return {"status": "ok"}
+    try:
+        return start_task_execution(db, slot_id)
+    except TaskExecutionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except TaskExecutionInvalidError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
 @router.post("/timeslots/{slot_id}/complete", response_model=TaskCompleteResponse)
 def complete_task(
@@ -190,7 +186,7 @@ def my_tasks(token: str = Depends(auth_token), db: Session = Depends(get_db)):
 
     # Auto-delay: mark overdue tasks as blocked (no reschedule triggered)
     now = datetime.now()
-    overdue_tasks_query = db.query(Task).filter(Task.status.in_(["scheduled", "running"]))
+    overdue_tasks_query = db.query(Task).filter(Task.status == "scheduled")
     overdue_tasks_query = _filter_workspace_tasks_by_user(overdue_tasks_query, user)
     overdue_tasks = overdue_tasks_query.all()
     for t in overdue_tasks:
@@ -272,20 +268,6 @@ def _filter_workspace_tasks_by_user(query, user):
     if user.role in WORKSPACE_ALL_TASK_ROLES:
         return query
     return query.filter(Task.assignee_id == user.id)
-
-RUNNING_CONTINUATION_STATUSES = {"scheduled", "running"}
-
-def _continuous_running_slots(db: Session, start_slot: TimeSlot) -> list[TimeSlot]:
-    return (
-        db.query(TimeSlot)
-        .filter(
-            TimeSlot.task_id == start_slot.task_id,
-            TimeSlot.plan_end >= start_slot.plan_start,
-            TimeSlot.status.in_(RUNNING_CONTINUATION_STATUSES),
-        )
-        .order_by(TimeSlot.plan_start, TimeSlot.id)
-        .all()
-    )
 
 def _select_workspace_slot(slots: list[TimeSlot], now: datetime) -> Optional[TimeSlot]:
     running_slot = next(

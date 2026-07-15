@@ -14,9 +14,11 @@ from app.schemas.approval_gate_schemas import (
 from app.schemas.schemas import ProjectPlanInsertConfirmRequest
 from app.services.project_access_service import FULL_PROJECT_ACCESS_ROLES, can_view_project
 from app.services.push_notification_service import push_by_rule
+from app.services.task_execution_service import TaskExecutionInvalidError, ensure_predecessors_completed
 
 
 APPROVAL_WRITE_ROLES = FULL_PROJECT_ACCESS_ROLES
+SYSTEM_ADMIN_ROLE = "系统管理员"
 MOVABLE_SLOT_STATUSES = ["scheduled", "blocked"]
 
 
@@ -61,6 +63,7 @@ def create_approval_gate(db, project_id: int, data: ApprovalGateCreate, user: Us
         requires_human=False,
         est_duration_hours=None,
         switchover_hours=0,
+        assignee_id=project.manager_id,
         status="waiting_external",
         is_external_gate=True,
         gate_status="not_submitted",
@@ -97,11 +100,18 @@ def list_approval_gates(
     expected_to: datetime | None = None,
     page: int = 1,
     page_size: int = 20,
+    workspace_only: bool = False,
 ) -> ApprovalGateListOut:
     gates = db.query(Task).filter(Task.is_external_gate.is_(True)).order_by(
         Task.submitted_at.desc(), Task.id.desc()
     ).all()
-    visible = [gate for gate in gates if gate.project and can_view_project(gate.project, user)]
+    if workspace_only:
+        visible = [
+            gate for gate in gates
+            if gate.project and (user.role == SYSTEM_ADMIN_ROLE or gate.assignee_id == user.id)
+        ]
+    else:
+        visible = [gate for gate in gates if gate.project and can_view_project(gate.project, user)]
     all_items = [_gate_out(db, gate, user) for gate in visible]
     pending_count = sum(item.gate_status != "approved" for item in all_items)
     approved_count = sum(item.gate_status == "approved" for item in all_items)
@@ -147,7 +157,7 @@ def list_approval_gates(
 
 def get_approval_gate(db, gate_id: int, user: User) -> ApprovalGateOut:
     gate = _gate_or_404(db, gate_id)
-    if not can_view_project(gate.project, user):
+    if gate.assignee_id != user.id and not can_view_project(gate.project, user):
         raise ApprovalGateNotFoundError("签批方案不存在或无权查看")
     return _gate_out(db, gate, user)
 
@@ -159,7 +169,8 @@ def submit_approval_gate(
     user: User,
 ) -> ApprovalGateActionOut:
     gate = _gate_or_404(db, gate_id)
-    _ensure_can_operate(gate.project, user)
+    _ensure_can_operate_gate(gate, user)
+    _ensure_gate_predecessors_completed(gate)
     if gate.gate_status == "approved":
         raise ApprovalGateInvalidError("该方案已经签批")
     expected_at = _naive_datetime(data.expected_approval_at)
@@ -190,7 +201,8 @@ def submit_approval_gate(
 
 def approve_approval_gate(db, gate_id: int, note: str | None, user: User) -> ApprovalGateActionOut:
     gate = _gate_or_404(db, gate_id)
-    _ensure_can_operate(gate.project, user)
+    _ensure_can_operate_gate(gate, user)
+    _ensure_gate_predecessors_completed(gate)
     if gate.gate_status not in {"not_submitted", "waiting_approval"}:
         raise ApprovalGateInvalidError("该方案已经完成签批")
     previous_status = gate.gate_status
@@ -222,7 +234,7 @@ def approve_approval_gate(db, gate_id: int, note: str | None, user: User) -> App
 
 def confirm_approval_schedule(db, gate_id: int, preview_token: str, user: User) -> ApprovalGateActionOut:
     gate = _gate_or_404(db, gate_id)
-    _ensure_can_operate(gate.project, user)
+    _ensure_can_operate_gate(gate, user)
     if gate.approval_schedule_status != "confirmation_required":
         raise ApprovalGateInvalidError("当前签批没有待确认的跨项目排程")
     from app.services.project_plan_apply_service import confirm_project_plan_insert
@@ -369,6 +381,8 @@ def _gate_out(db, gate: Task, user: User) -> ApprovalGateOut:
         client_name=project.client_name,
         project_manager_id=project.manager_id,
         project_manager_name=project.manager.display_name if project.manager else None,
+        assignee_id=gate.assignee_id,
+        assignee_name=gate.assignee.display_name if gate.assignee else None,
         project_end_date=project.end_date,
         name=gate.name,
         gate_status=gate.gate_status or "not_submitted",
@@ -387,7 +401,7 @@ def _gate_out(db, gate: Task, user: User) -> ApprovalGateOut:
         preview_token=gate.approval_preview_token,
         moved_tasks=gate.approval_moved_tasks or 0,
         project_expected_completion=expected_completion,
-        can_operate=_can_operate(project, user),
+        can_operate=_can_operate(project, user) or gate.assignee_id == user.id,
     )
 
 
@@ -491,6 +505,18 @@ def _ensure_can_operate(project: Project, user: User) -> None:
         raise ApprovalGatePermissionError("无权操作该项目的方案签批")
 
 
+def _ensure_can_operate_gate(gate: Task, user: User) -> None:
+    if gate.assignee_id != user.id and not _can_operate(gate.project, user):
+        raise ApprovalGatePermissionError("无权操作该方案签批任务")
+
+
+def _ensure_gate_predecessors_completed(gate: Task) -> None:
+    try:
+        ensure_predecessors_completed(gate)
+    except TaskExecutionInvalidError as exc:
+        raise ApprovalGateInvalidError(str(exc))
+
+
 def _audit(db, user: User, action: str, gate: Task, detail: dict) -> None:
     db.add(AuditLog(
         user_name=user.display_name or user.username,
@@ -505,7 +531,7 @@ def _notify(db, gate: Task, rule_type: str, title: str, content: str) -> int:
     users = db.query(User).filter(User.is_active.is_(True)).all()
     recipients = [
         user for user in users
-        if user.id == gate.project.manager_id or user.role in APPROVAL_WRITE_ROLES
+        if user.id == gate.assignee_id or user.role in APPROVAL_WRITE_ROLES
     ]
     return push_by_rule(
         db,
@@ -515,7 +541,7 @@ def _notify(db, gate: Task, rule_type: str, title: str, content: str) -> int:
         content,
         related_entity_type="approval_gate",
         related_entity_id=gate.id,
-        context_roles=["项目负责人"],
+        context_roles=["任务负责人"],
     )
 
 

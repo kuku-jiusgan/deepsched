@@ -9,6 +9,7 @@ from app.core.database import Base
 from app.models import Project, Task, TaskDependency, TimeSlot, User
 from app.schemas.approval_gate_schemas import ApprovalGateCreate, ApprovalGateSubmit
 from app.services.approval_gate_service import (
+    ApprovalGateInvalidError,
     ApprovalGatePermissionError,
     approve_approval_gate,
     create_approval_gate,
@@ -25,10 +26,15 @@ class ApprovalGateServiceTest(unittest.TestCase):
         self.db = sessionmaker(bind=engine)()
         self.manager = User(id=1, username="manager", display_name="项目负责人", role="分析员")
         self.viewer = User(id=2, username="viewer", display_name="其他分析员", role="分析员")
+        self.project_admin = User(id=3, username="project-admin", display_name="项目管理员", role="项目管理员")
+        self.system_admin = User(id=4, username="system-admin", display_name="系统管理员", role="系统管理员")
         self.project = Project(id=1, name="项目一", code="P-001", manager_id=1, end_date=datetime(2026, 8, 1, 18, 0))
         self.plan = Task(id=1, project_id=1, name="方案编写", task_type="manual", requires_instrument=False, assignee_id=1, status="pending")
         self.validation = Task(id=2, project_id=1, name="方法验证", task_type="instrument", requires_instrument=True, assignee_id=1, status="pending")
-        self.db.add_all([self.manager, self.viewer, self.project, self.plan, self.validation])
+        self.db.add_all([
+            self.manager, self.viewer, self.project_admin, self.system_admin,
+            self.project, self.plan, self.validation,
+        ])
         self.db.add(TaskDependency(task_id=2, predecessor_id=1))
         self.db.commit()
 
@@ -51,6 +57,9 @@ class ApprovalGateServiceTest(unittest.TestCase):
         self.assertEqual({1}, {item.predecessor_id for item in dependencies if item.task_id == stored.id})
         self.assertEqual({2}, {item.task_id for item in dependencies if item.predecessor_id == stored.id})
         self.assertEqual("waiting_external", self.db.get(Task, 2).status)
+        self.assertEqual(self.manager.id, stored.assignee_id)
+        self.assertEqual(self.manager.id, gate.assignee_id)
+        self.assertEqual(self.manager.display_name, gate.assignee_name)
         self.assertEqual(0, self.db.query(TimeSlot).count())
 
     def test_non_manager_cannot_operate_gate(self):
@@ -94,6 +103,8 @@ class ApprovalGateServiceTest(unittest.TestCase):
             ApprovalGateCreate(predecessor_task_id=1, unlock_task_ids=[2]),
             self.manager,
         )
+        self.plan.status = "done"
+        self.db.commit()
         result = submit_approval_gate(
             self.db,
             gate.id,
@@ -104,6 +115,25 @@ class ApprovalGateServiceTest(unittest.TestCase):
         self.assertEqual("waiting_approval", result.gate.gate_status)
         self.assertEqual("forecast", result.schedule_status)
         self.assertIsNotNone(result.gate.expected_approval_at)
+
+    @patch("app.services.project_plan_apply_service.apply_project_plan")
+    def test_submit_rejects_incomplete_predecessor(self, apply_project_plan):
+        gate = create_approval_gate(
+            self.db,
+            1,
+            ApprovalGateCreate(predecessor_task_id=1, unlock_task_ids=[2]),
+            self.manager,
+        )
+
+        with self.assertRaisesRegex(ApprovalGateInvalidError, "方案编写.*尚未完成"):
+            submit_approval_gate(
+                self.db,
+                gate.id,
+                ApprovalGateSubmit(expected_approval_at=datetime.now() + timedelta(days=3)),
+                self.manager,
+            )
+
+        apply_project_plan.assert_not_called()
 
     def test_list_pending_and_approved_counts(self):
         create_approval_gate(
@@ -118,6 +148,29 @@ class ApprovalGateServiceTest(unittest.TestCase):
         self.assertEqual(1, result.total)
         self.assertEqual(1, result.pending_count)
         self.assertEqual(0, result.approved_count)
+
+    def test_workspace_cards_only_include_assignee_or_system_admin(self):
+        gate_out = create_approval_gate(
+            self.db,
+            1,
+            ApprovalGateCreate(predecessor_task_id=1, unlock_task_ids=[2]),
+            self.manager,
+        )
+        gate = self.db.get(Task, gate_out.id)
+        gate.assignee_id = self.viewer.id
+        self.db.commit()
+
+        manager_result = list_approval_gates(self.db, self.manager, workspace_only=True)
+        assignee_result = list_approval_gates(self.db, self.viewer, workspace_only=True)
+        project_admin_result = list_approval_gates(self.db, self.project_admin, workspace_only=True)
+        system_admin_result = list_approval_gates(self.db, self.system_admin, workspace_only=True)
+
+        self.assertEqual(0, manager_result.total)
+        self.assertEqual(1, assignee_result.total)
+        self.assertTrue(assignee_result.items[0].can_operate)
+        self.assertEqual(self.viewer.id, assignee_result.items[0].assignee_id)
+        self.assertEqual(0, project_admin_result.total)
+        self.assertEqual(1, system_admin_result.total)
 
     @patch("app.services.project_plan_apply_service.apply_project_plan")
     def test_approved_gate_uses_actual_time_and_is_not_forecast(self, apply_project_plan):
@@ -135,6 +188,7 @@ class ApprovalGateServiceTest(unittest.TestCase):
         gate.gate_status = "waiting_approval"
         gate.status = "waiting_approval"
         gate.expected_approval_at = datetime.now() + timedelta(days=3)
+        self.plan.status = "done"
         self.db.commit()
 
         result = approve_approval_gate(self.db, gate.id, None, self.manager)
@@ -157,6 +211,8 @@ class ApprovalGateServiceTest(unittest.TestCase):
             ApprovalGateCreate(predecessor_task_id=1, unlock_task_ids=[2]),
             self.manager,
         )
+        self.plan.status = "done"
+        self.db.commit()
 
         result = approve_approval_gate(self.db, gate.id, None, self.manager)
 

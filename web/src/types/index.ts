@@ -63,6 +63,8 @@ export interface ApprovalGate {
   client_name?: string | null;
   project_manager_id?: number | null;
   project_manager_name?: string | null;
+  assignee_id?: number | null;
+  assignee_name?: string | null;
   project_end_date?: string | null;
   name: string;
   gate_status: ApprovalGateStatus;

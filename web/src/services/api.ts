@@ -131,6 +131,7 @@ export interface ApprovalGateQuery {
   risk?: string
   expected_from?: string
   expected_to?: string
+  workspace_only?: boolean
   page?: number
   page_size?: number
 }

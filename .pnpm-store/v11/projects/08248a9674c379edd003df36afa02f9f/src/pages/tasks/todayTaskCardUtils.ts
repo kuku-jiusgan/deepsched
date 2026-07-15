@@ -44,11 +44,11 @@ export function isTaskClosed(task: MyTask) {
 }
 
 export function canStartTask(task: MyTask) {
-  return ['pending', 'scheduled'].includes(task.status) && Boolean(task.slot_id)
+  return ['pending', 'scheduled', 'blocked'].includes(task.status) && !task.actual_start && Boolean(task.slot_id)
 }
 
 export function canCompleteTask(task: MyTask) {
-  return task.status === 'running' && Boolean(task.slot_id)
+  return (task.status === 'running' || (task.status === 'blocked' && Boolean(task.actual_start))) && Boolean(task.slot_id)
 }
 
 export function isExceptionConfirmTask(task: MyTask) {

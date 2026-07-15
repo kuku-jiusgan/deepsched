@@ -46,6 +46,11 @@ def ensure_runtime_schema(engine) -> None:
                     connection.execute(text(
                         f"ALTER TABLE task ADD COLUMN {column_name} {column_type}"
                     ))
+            connection.execute(text(
+                "UPDATE task SET assignee_id = ("
+                "SELECT project.manager_id FROM project WHERE project.id = task.project_id"
+                ") WHERE is_external_gate = 1 AND assignee_id IS NULL"
+            ))
 
     if "instrument_fault" in table_names:
         fault_columns = {column["name"] for column in inspector.get_columns("instrument_fault")}

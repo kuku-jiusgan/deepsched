@@ -56,7 +56,7 @@ def commit_project_plan_drafts(
             requires_human=False if item.is_external_gate else item.requires_human,
             est_duration_hours=None if item.is_external_gate else item.estimated_hours,
             switchover_hours=0 if item.is_external_gate else item.switchover_hours,
-            assignee_id=None if item.is_external_gate else item.assignee_id,
+            assignee_id=project.manager_id if item.is_external_gate else item.assignee_id,
             parent_id=None,
             instrument_ids=[] if item.is_external_gate else item.instrument_ids,
             is_external_gate=item.is_external_gate,

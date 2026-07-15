@@ -84,6 +84,7 @@ def import_standard_plan(db, project_id: int, user: User) -> StandardPlanImportO
         requires_human=False,
         est_duration_hours=None,
         switchover_hours=0,
+        assignee_id=project.manager_id,
         status="waiting_external",
         is_external_gate=True,
         gate_status="not_submitted",

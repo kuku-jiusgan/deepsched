@@ -43,12 +43,13 @@ def list_gates(
     risk: str | None = None,
     expected_from: datetime | None = None,
     expected_to: datetime | None = None,
+    workspace_only: bool = False,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=500),
     token: str = Depends(auth_token),
     db: Session = Depends(get_db),
 ):
-    return list_approval_gates(db, get_current_user(token, db), status, keyword, project_id, manager_id, risk, expected_from, expected_to, page, page_size)
+    return list_approval_gates(db, get_current_user(token, db), status, keyword, project_id, manager_id, risk, expected_from, expected_to, page, page_size, workspace_only)
 
 
 @router.get("/approval-gates/{gate_id}", response_model=ApprovalGateOut)

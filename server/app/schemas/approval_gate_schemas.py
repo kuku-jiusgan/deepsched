@@ -37,6 +37,8 @@ class ApprovalGateOut(BaseModel):
     client_name: str | None = None
     project_manager_id: int | None = None
     project_manager_name: str | None = None
+    assignee_id: int | None = None
+    assignee_name: str | None = None
     project_end_date: datetime | None = None
     name: str
     gate_status: GateStatus

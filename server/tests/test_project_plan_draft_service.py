@@ -50,6 +50,7 @@ class ProjectPlanDraftServiceTest(unittest.TestCase):
         self.assertEqual("waiting_external", by_name["方法验证"].status)
         self.assertEqual("waiting_external", by_name["报告撰写"].status)
         self.assertTrue(by_name["方案签批"].is_external_gate)
+        self.assertEqual(self.project.manager_id, by_name["方案签批"].assignee_id)
         saved_gate = _task_to_out(by_name["方案签批"], self.db)
         self.assertTrue(saved_gate.is_external_gate)
         self.assertEqual("approval_gate", saved_gate.task_type)

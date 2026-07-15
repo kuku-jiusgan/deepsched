@@ -55,6 +55,7 @@ class ProjectPlanTemplateServiceTest(unittest.TestCase):
         self.assertAlmostEqual(123.45, sum(task.est_duration_hours or 0 for task in work_tasks))
         self.assertEqual([70.0, 5.0, 20.0, 5.0], [task.percentage for task in result.tasks[:4]])
         self.assertIsNone(by_name["方案签批"].est_duration_hours)
+        self.assertEqual(self.project.manager_id, by_name["方案签批"].assignee_id)
         self.assertEqual("waiting_external", by_name["方法验证"].status)
         self.assertEqual("waiting_external", by_name["报告撰写"].status)
         self.assertIn((by_name["方法开发"].id, by_name["方案撰写"].id), dependencies)

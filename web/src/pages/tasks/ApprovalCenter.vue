@@ -36,7 +36,7 @@
       table-layout="fixed"
       @change="handleTableChange"
     >
-      <a-table-column title="项目" width="360">
+      <a-table-column title="项目" width="38%" class-name="project-column">
         <template #default="{ record }">
           <a-tooltip :title="record.project_name"><div class="primary-text row-ellipsis">{{ record.project_name }}</div></a-tooltip>
           <a-tooltip :title="`${record.project_code} · ${record.client_name || '未填写客户'}`">
@@ -44,17 +44,17 @@
           </a-tooltip>
         </template>
       </a-table-column>
-      <a-table-column title="负责人" dataIndex="project_manager_name" width="26" ellipsis />
-      <a-table-column title="预计签批" width="118">
-        <template #default="{ record }">{{ formatDateTime(record.expected_approval_at) }}</template>
+      <a-table-column title="负责人" dataIndex="assignee_name" width="6%" class-name="manager-column" ellipsis />
+      <a-table-column title="预计签批" width="11%" class-name="compact-time-column">
+        <template #default="{ record }">{{ formatCompactDateTime(record.expected_approval_at) }}</template>
       </a-table-column>
-      <a-table-column v-if="activeTab === 'pending'" title="最迟签批" width="118">
-        <template #default="{ record }">{{ formatDateTime(record.latest_approval_at) }}</template>
+      <a-table-column v-if="activeTab === 'pending'" title="最迟签批" width="11%" class-name="compact-time-column">
+        <template #default="{ record }">{{ formatCompactDateTime(record.latest_approval_at) }}</template>
       </a-table-column>
-      <a-table-column v-else title="实际签批" width="118">
-        <template #default="{ record }">{{ formatDateTime(record.approved_at) }}</template>
+      <a-table-column v-else title="实际签批" width="11%" class-name="compact-time-column">
+        <template #default="{ record }">{{ formatCompactDateTime(record.approved_at) }}</template>
       </a-table-column>
-      <a-table-column title="风险/结果" width="135">
+      <a-table-column title="风险/结果" width="14%">
         <template #default="{ record }">
           <div class="risk-result-cell">
             <a-tag :color="riskMeta(record.risk_status).color">{{ riskMeta(record.risk_status).label }}</a-tag>
@@ -64,18 +64,18 @@
           </div>
         </template>
       </a-table-column>
-      <a-table-column title="状态" width="54">
+      <a-table-column title="状态" width="7%" class-name="status-column">
         <template #default="{ record }"><a-tag :color="gateMeta(record.gate_status).color">{{ gateMeta(record.gate_status).label }}</a-tag></template>
       </a-table-column>
-      <a-table-column title="操作" :width="activeTab === 'pending' ? 190 : 52">
+      <a-table-column title="操作" width="13%">
         <template #default="{ record }">
           <a-space :size="4">
-            <a-button v-if="activeTab === 'pending' && record.can_operate" type="link" size="small" @click="confirmApprove(record)">确认签批完成</a-button>
-            <a-button v-if="record.schedule_status === 'confirmation_required' && record.can_operate" type="link" size="small" danger @click="confirmImpact(record)">确认排程影响</a-button>
+            <a-button v-if="activeTab === 'pending' && record.can_operate" type="link" size="small" @click="confirmApprove(record)">签批完成</a-button>
             <a-dropdown :trigger="['click']">
               <a-button type="text" size="small" title="更多操作"><EllipsisOutlined /></a-button>
               <template #overlay>
                 <a-menu>
+                  <a-menu-item v-if="record.schedule_status === 'confirmation_required' && record.can_operate" danger @click="confirmImpact(record)">确认排程影响</a-menu-item>
                   <a-menu-item @click="openDetail(record)">查看详情</a-menu-item>
                   <a-menu-item v-if="activeTab === 'pending'" @click="viewProject(record.project_id)">项目计划</a-menu-item>
                   <a-menu-item v-else @click="viewGantt(record.project_id)">项目甘特图</a-menu-item>
@@ -92,6 +92,7 @@
       <a-descriptions v-if="detailGate" :column="1" bordered size="small">
         <a-descriptions-item label="项目">{{ detailGate.project_code }} · {{ detailGate.project_name }}</a-descriptions-item>
         <a-descriptions-item label="客户">{{ detailGate.client_name || '-' }}</a-descriptions-item>
+        <a-descriptions-item label="负责人">{{ detailGate.assignee_name || '-' }}</a-descriptions-item>
         <a-descriptions-item label="方案">{{ detailGate.name }}</a-descriptions-item>
         <a-descriptions-item label="前置任务">{{ taskNames(detailGate.predecessor_tasks) }}</a-descriptions-item>
         <a-descriptions-item label="解锁任务">{{ taskNames(detailGate.unlock_tasks) }}</a-descriptions-item>
@@ -209,6 +210,7 @@ function viewGantt(projectId: number) { router.push({ path: '/kanban/project-gan
 function openDetail(gate: ApprovalGate) { detailGate.value = gate; detailOpen.value = true }
 function taskNames(tasks: ApprovalGateTaskRef[]) { return tasks.map(task => task.name).join('、') || '-' }
 function formatDateTime(value?: string | null) { return value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '-' }
+function formatCompactDateTime(value?: string | null) { return value ? dayjs(value).format('MM-DD HH:mm') : '-' }
 function gateMeta(status: ApprovalGateStatus) {
   return { not_submitted: { label: '待提交', color: 'default' }, waiting_approval: { label: '等待客户', color: 'blue' }, approved: { label: '已签批', color: 'green' } }[status]
 }
@@ -252,6 +254,10 @@ onMounted(async () => {
 .risk-result-cell .ant-tag { flex-shrink: 0; margin-inline-end: 0; }
 .schedule-result { color: var(--color-text-tertiary); font-size: 11px; }
 .approval-page :deep(.ant-table-cell) { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.approval-page :deep(.manager-column),
+.approval-page :deep(.status-column),
+.approval-page :deep(.compact-time-column) { padding-inline: 6px !important; }
+.approval-page :deep(.status-column .ant-tag) { max-width: 100%; margin-inline-end: 0; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 900px) {
   .summary-strip > div { flex: 1 1 50%; border-bottom: 1px solid var(--color-border-light); }
   .filter-bar > * { width: 100% !important; }
