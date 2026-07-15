@@ -7,8 +7,16 @@ from ortools.sat.python import cp_model
 from app.models import Task, TimeSlot
 from app.core.config import get_settings
 from app.services.schedule_rule_service import get_solver_constraints
-from app.services.schedule_conflict_service import ScheduleConflictError, ensure_no_instrument_conflicts
-from app.services.scheduler_fixed_slots import add_instrument_capacity_constraints, load_fixed_slots
+from app.services.schedule_conflict_service import (
+    ScheduleConflictError,
+    ensure_no_human_conflicts,
+    ensure_no_instrument_conflicts,
+)
+from app.services.scheduler_fixed_slots import (
+    add_human_capacity_constraints,
+    add_instrument_capacity_constraints,
+    load_fixed_slots,
+)
 from app.services.scheduler_persistence import persist_slots
 from app.services.scheduler_objective import add_scheduler_objective
 from app.services.scheduler_split_tasks import add_split_task_variables
@@ -29,6 +37,7 @@ from app.services.scheduler_helpers import (
     to_units,
     working_time_bounds,
 )
+from app.services.approval_gate_service import unapproved_gate_context
 
 
 class SchedulerService:
@@ -45,6 +54,16 @@ class SchedulerService:
         tasks, instruments = load_scheduler_data(self.db, project_ids, task_ids)
         if not tasks:
             return {"status": "ok", "message": "没有待排仪器任务", "timeslots_created": 0}
+        unassigned_human_tasks = [
+            task for task in tasks if task.requires_human and not task.assignee_id
+        ]
+        if unassigned_human_tasks:
+            names = "、".join(task.name for task in unassigned_human_tasks[:3])
+            suffix = "等" if len(unassigned_human_tasks) > 3 else ""
+            return {
+                "status": "error",
+                "message": f"排程失败：人工任务【{names}{suffix}】未指定负责人。",
+            }
         try:
             validate_projects_estimated_hours(self.db, {task.project_id for task in tasks})
         except ProjectHoursExceededError as exc:
@@ -54,6 +73,7 @@ class SchedulerService:
 
         constraints = get_solver_constraints(self.db)
         horizon_start, horizon_end, total_units = time_horizon()
+        approval_bounds, forecast_task_ids = unapproved_gate_context(self.db, tasks)
 
         freezing_rule = constraints["freezing"]
         freeze_days = (freezing_rule.params or {}).get(
@@ -106,6 +126,7 @@ class SchedulerService:
         inst_ends: Dict[Tuple[int, int], cp_model.IntVar] = {}
         task_starts: Dict[int, cp_model.IntVar] = {}
         task_ends: Dict[int, cp_model.IntVar] = {}
+        task_intervals: Dict[int, cp_model.IntervalVar] = {}
         task_tardiness: Dict[int, cp_model.IntVar] = {}
         split_unit_presences: Dict[Tuple[int, int, int], cp_model.IntVar] = {}
         for instrument in instruments:
@@ -126,6 +147,12 @@ class SchedulerService:
                 if t.project.end_date:
                     p_end_u = datetime_to_units(t.project.end_date, horizon_start)
                     p_end_unit = min(total_units, p_end_u)
+            approval_bound = approval_bounds.get(t.id)
+            if approval_bound:
+                p_start_unit = max(
+                    p_start_unit,
+                    datetime_to_units(approval_bound, horizon_start),
+                )
 
             # Guard: task duration exceeds available project window
             if p_start_unit + dur > p_end_unit:
@@ -143,6 +170,7 @@ class SchedulerService:
             task_interval = model.NewIntervalVar(
                 task_starts[t.id], task_span, task_ends[t.id], f"task_iv_t{t.id}"
             )
+            task_intervals[t.id] = task_interval
 
             candidates = compat.get(t.id, [])
             if not candidates:
@@ -238,6 +266,14 @@ class SchedulerService:
             total_units,
             constraints["non_overlap"].is_enabled,
             CROSS_PROJECT_SETUP_UNITS,
+        )
+        add_human_capacity_constraints(
+            model,
+            tasks,
+            task_intervals,
+            fixed_slots,
+            horizon_start,
+            total_units,
         )
         switch_penalties = []
         tasks_by_id = {t.id: t for t in tasks}
@@ -399,10 +435,12 @@ class SchedulerService:
             schedule_run_id,
             commit=False,
             split_unit_presences=split_unit_presences,
+            forecast_task_ids=forecast_task_ids,
         )
 
         try:
             ensure_no_instrument_conflicts(self.db)
+            ensure_no_human_conflicts(self.db)
         except ScheduleConflictError as exc:
             self.db.rollback()
             return {"status": "error", "message": str(exc), "timeslots_created": 0}

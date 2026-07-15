@@ -3,12 +3,13 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.models import Instrument, TimeSlot, Task, Project, InstrumentFault
 from app.schemas.schemas import DashboardData, UtilizationStats
+from app.services.project_status_service import calculate_project_status
 
 router = APIRouter(prefix="/api/v1/stats", tags=["stats"])
 
@@ -34,8 +35,11 @@ def dashboard(
         or_(Project.start_date.is_(None), Project.start_date < window_end),
         or_(Project.end_date.is_(None), Project.end_date > window_start),
     )
-    total_proj = db.query(Project).filter(*project_window_filter).count()
-    active_proj = db.query(Project).filter(Project.status == "active", *project_window_filter).count()
+    projects = db.query(Project).filter(*project_window_filter).options(
+        selectinload(Project.tasks).selectinload(Task.time_slots)
+    ).all()
+    total_proj = len(projects)
+    active_proj = sum(calculate_project_status(project) == "active" for project in projects)
     delayed = (
         db.query(Task.id)
         .join(TimeSlot, TimeSlot.task_id == Task.id)
@@ -204,11 +208,18 @@ def lab_status(db: Session = Depends(get_db)):
         ).order_by(TimeSlot.plan_start).first()
         next_task = None
         next_start = None
+        next_project = None
+        next_project_code = None
+        next_user = None
         if upcoming:
             task = db.query(Task).filter(Task.id == upcoming.task_id).first()
             if task:
+                project = db.query(Project).filter(Project.id == task.project_id).first()
                 next_task = task.name
                 next_start = upcoming.plan_start.isoformat()
+                next_project = project.name if project else None
+                next_project_code = project.code if project else None
+                next_user = task.assignee_name
 
         result.append({
             "id": inst.id,
@@ -228,6 +239,9 @@ def lab_status(db: Session = Depends(get_db)):
             "progress": progress,
             "next_task": next_task,
             "next_start": next_start,
+            "next_project": next_project,
+            "next_project_code": next_project_code,
+            "next_user": next_user,
             "running_slot_id": running.id if running else None,
             "running_start": running.actual_start.isoformat() if running and running.actual_start else None,
         })

@@ -5,11 +5,15 @@
     </div>
 
     <div class="today-card-grid">
-      <div v-for="group in todayCardGroups" :key="group.key" class="today-card-group">
+      <div
+        v-for="group in todayCardGroups"
+        :key="group.key"
+        class="today-card-group"
+        :class="'today-card-group-' + group.key"
+      >
         <div class="today-card-group-title">
           <span class="today-card-dot" :class="'today-card-dot-' + group.key" />
           <span>{{ group.title }}</span>
-          <a-tag>{{ group.cards.length }}</a-tag>
         </div>
 
         <div v-if="group.cards.length" class="today-card-stack">
@@ -37,18 +41,18 @@
               <a-button
                 v-if="canStartTask(card.task)"
                 size="small"
-                type="primary"
+                class="workspace-action-button workspace-action-button-primary"
                 @click="emit('start', card.task)"
               >
                 开始任务
               </a-button>
-              <a-button v-if="canCompleteTask(card.task)" size="small" class="task-action-button-complete" @click="emit('complete', card.task)">确认完成</a-button>
+              <a-button v-if="canCompleteTask(card.task)" size="small" class="workspace-action-button workspace-action-button-success" @click="emit('complete', card.task)">确认完成</a-button>
               <a-tooltip :title="card.nightRunDisabledReason">
                 <span>
-                  <a-button size="small" type="primary" :loading="card.isNightRunLoading" :disabled="!card.canNightRun" @click="openAutoSequence(card)">夜间运行</a-button>
+                  <a-button size="small" class="workspace-action-button workspace-action-button-primary" :loading="card.isNightRunLoading" :disabled="!card.canNightRun" @click="openAutoSequence(card)">夜间运行</a-button>
                 </span>
               </a-tooltip>
-              <a-button size="small" danger @click="openDelayReport(card)">延期使用</a-button>
+              <a-button size="small" class="workspace-action-button workspace-action-button-danger" @click="openDelayReport(card)">延期使用</a-button>
             </div>
           </article>
         </div>
@@ -57,6 +61,7 @@
           暂无{{ group.title }}事项
         </div>
       </div>
+      <slot name="additional-group" />
     </div>
 
     <a-modal
@@ -146,17 +151,18 @@ import { computed, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { getScheduleRules, recordNightRun, reportTaskDelay, type MyTask } from '@/services/api'
 import dayjs from 'dayjs'
+import {
+  actualText, canCompleteTask, canStartTask, currentUserName, formatHours,
+  formatInstrumentText, formatProjectText, formatTaskTime, getDelayText,
+  isExceptionConfirmTask, isHalfHourDuration, isTodayTask, maxNightRunHours,
+  nightRunEndTime, normalizeWorkdayEndTime, parseNightClock, scheduleText, statusLabel,
+} from './todayTaskCardUtils'
 
 type TodayCardCategory = 'completion' | 'exception'
 type TodayCardGroupKey = TodayCardCategory
 
 interface Props {
   tasks: MyTask[]
-}
-
-interface StoredUser {
-  display_name?: string
-  username?: string
 }
 
 interface TodayTaskCard {
@@ -308,114 +314,6 @@ async function fetchWorkingHours() {
   }
 }
 
-function normalizeWorkdayEndTime(value: unknown) {
-  if (typeof value === 'string' && /^\d{2}:\d{2}$/.test(value)) return value
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    const totalMinutes = Math.round(value * 60)
-    const hours = Math.floor(totalMinutes / 60).toString().padStart(2, '0')
-    const minutes = (totalMinutes % 60).toString().padStart(2, '0')
-    return `${hours}:${minutes}`
-  }
-  return null
-}
-
-function formatHours(value: number) {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1)
-}
-
-function currentUserName() {
-  const rawUser = localStorage.getItem('user')
-  if (!rawUser) return '当前用户'
-  try {
-    const user = JSON.parse(rawUser) as StoredUser
-    return user.display_name || user.username || '当前用户'
-  } catch {
-    return '当前用户'
-  }
-}
-
-function isTodayTask(task: MyTask) {
-  if (isTaskClosed(task)) return false
-  if (task.status === 'running') return true
-  if (!task.plan_start) return false
-  return dayjs(task.plan_start).isBefore(dayjs().endOf('day')) || dayjs(task.plan_start).isSame(dayjs().endOf('day'))
-}
-
-function isTaskClosed(task: MyTask) {
-  return ['done', 'completed'].includes(task.status)
-}
-
-function canStartTask(task: MyTask) {
-  return ['pending', 'scheduled'].includes(task.status) && Boolean(task.slot_id)
-}
-
-function canCompleteTask(task: MyTask) {
-  return task.status === 'running' && Boolean(task.slot_id)
-}
-
-function isExceptionConfirmTask(task: MyTask) {
-  const isProblemStatus = ['blocked', 'interrupted'].includes(task.status)
-  const plannedEnd = task.task_plan_end || task.plan_end
-  const isOverdue = Boolean(plannedEnd) && dayjs(plannedEnd).isBefore(dayjs()) && !isTaskClosed(task)
-  const hasDelayReport = Boolean(task.delay_reason) || Boolean(task.delay_hours)
-  return isProblemStatus || isOverdue || hasDelayReport
-}
-
-function formatTaskTime(value: string | dayjs.Dayjs | null, fallback: string) {
-  return value ? dayjs(value).format('HH:mm') : fallback
-}
-
-function formatTaskDateTime(value: string | dayjs.Dayjs | null, fallback: string) {
-  return value ? dayjs(value).format('YYYY-MM-DD HH:mm') : fallback
-}
-
-function nightRunEndTime(task: MyTask) {
-  if (!task.plan_end) return null
-  const planEnd = dayjs(task.plan_end)
-  if (task.status === 'running' && task.actual_start) {
-    const actualStart = dayjs(task.actual_start)
-    return actualStart
-      .hour(planEnd.hour())
-      .minute(planEnd.minute())
-      .second(0)
-      .millisecond(0)
-  }
-  return planEnd
-}
-
-function parseNightClock(baseTime: dayjs.Dayjs, value: string) {
-  if (!value) return null
-  const cleanValue = value.trim()
-  const isNextDay = cleanValue.startsWith('次日')
-  const timeText = cleanValue.replace('次日', '').trim()
-  const match = timeText.match(/^(\d{1,2}):(\d{2})$/)
-  if (!match) return null
-
-  const hour = Number(match[1])
-  const minute = Number(match[2])
-  if (hour > 23 || minute > 59) return null
-
-  let parsedTime = baseTime.hour(hour).minute(minute).second(0).millisecond(0)
-  if (isNextDay || parsedTime.isBefore(baseTime)) {
-    parsedTime = parsedTime.add(1, 'day')
-  }
-  return parsedTime
-}
-
-function maxNightRunHours(earliestStart: string, latestEnd: string) {
-  const start = parseNightClock(dayjs(), earliestStart)
-  if (!start) return 0
-  const end = parseNightClock(start, latestEnd)
-  if (!end || !end.isAfter(start)) return 0
-
-  const halfHourUnits = Math.floor(end.diff(start, 'minute') / 30)
-  return halfHourUnits * 0.5
-}
-
-function isHalfHourDuration(value: unknown) {
-  return typeof value === 'number' && Number.isInteger(value * 2)
-}
-
 function canNightRunTask(task: MyTask, storedNightRun?: StoredAutoSequenceForm | null) {
   if (storedNightRun) return true
   if (isWorkingHoursLoading.value) return false
@@ -431,36 +329,6 @@ function nightRunDisabledReason(task: MyTask, storedNightRun?: StoredAutoSequenc
   if (isWorkingHoursLoading.value) return '正在读取排程规则中的有效工作时段'
   if (!workdayEndTime.value) return '未读取到排程规则中的有效工作时段，暂不能继续夜间运行'
   return `首次设置夜间运行时，任务当天计划结束时间需不早于有效工作时段最晚时间 ${workdayEndTime.value}`
-}
-
-function statusLabel(status: string) {
-  const labels: Record<string, string> = {
-    pending: '待处理',
-    scheduled: '待执行',
-    running: '运行中',
-    completed: '已完成',
-    done: '已完成',
-    blocked: '已延期',
-    interrupted: '已中断',
-  }
-  return labels[status] || status
-}
-
-function scheduleText(task: MyTask) {
-  const startText = formatTaskDateTime(task.task_plan_start || task.plan_start, '---- -- -- --:--')
-  const endText = formatTaskDateTime(task.task_plan_end || task.plan_end, '---- -- -- --:--')
-  return `${startText}–${endText}`
-}
-
-function actualText(task: MyTask) {
-  const startText = formatTaskDateTime(task.actual_start, '---- -- -- --:--')
-  const endText = formatTaskDateTime(task.actual_end, '---- -- -- --:--')
-  return `${startText}–${endText}`
-}
-
-function formatProjectText(task: MyTask) {
-  const parts = [task.project_code, task.project_name].filter(Boolean)
-  return parts.length ? parts.join(' · ') : '未关联项目'
 }
 
 function buildTodayCard(task: MyTask, category: TodayCardCategory): TodayTaskCard {
@@ -482,7 +350,7 @@ function buildTodayCard(task: MyTask, category: TodayCardCategory): TodayTaskCar
     task,
     projectText: formatProjectText(task),
     taskText: task.task_name || '未命名任务',
-    instrumentText: task.instrument_name || task.instrument_code || '未指定仪器',
+    instrumentText: formatInstrumentText(task),
     ownerText: task.assignee_name || currentUserName(),
     scheduleText: scheduleText(task),
     actualText: actualText(task),
@@ -497,12 +365,6 @@ function buildTodayCard(task: MyTask, category: TodayCardCategory): TodayTaskCar
     isNightRunLoading: isWorkingHoursLoading.value,
     nightRunDisabledReason: nightRunDisabledReason(task, storedNightRun),
   }
-}
-
-function getDelayText(task: MyTask) {
-  if (!task.delay_reason && !task.delay_hours) return ''
-  const hoursText = task.delay_hours ? `${task.delay_hours}h` : ''
-  return [hoursText, task.delay_reason || '未填写原因'].filter(Boolean).join(' · ')
 }
 
 function openAutoSequence(card: TodayTaskCard) {
@@ -693,158 +555,4 @@ async function submitDelayReport() {
 }
 </script>
 
-<style scoped>
-.today-work {
-  margin-bottom: var(--space-lg);
-  padding: var(--space-md);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-}
-
-.today-work-header {
-  margin-bottom: var(--space-md);
-}
-
-.today-work-header h3 {
-  margin-bottom: 2px;
-  color: var(--color-text-primary);
-}
-
-.today-card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: var(--space-md);
-}
-
-.today-card-group {
-  min-width: 0;
-  padding: var(--space-sm);
-  background: var(--color-bg);
-  border: 1px solid var(--color-border-light);
-  border-radius: var(--radius-md);
-}
-
-.today-card-group-title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  margin-bottom: var(--space-sm);
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.today-card-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--color-accent);
-}
-
-.today-card-dot-completion {
-  background: var(--color-success);
-}
-
-.today-card-dot-exception {
-  background: var(--color-danger);
-}
-
-.today-card-stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-}
-
-.today-card {
-  padding: var(--space-md);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-}
-
-.today-card-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  margin-bottom: var(--space-sm);
-  color: var(--color-text-tertiary);
-  font-size: 0.78rem;
-}
-
-.today-card-lines {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  color: var(--color-text-primary);
-  font-size: 0.84rem;
-  line-height: 1.55;
-}
-
-.today-card-lines span {
-  color: var(--color-text-secondary);
-}
-
-.today-card-choice {
-  margin-top: var(--space-sm);
-  margin-bottom: var(--space-xs);
-  color: var(--color-text-secondary);
-  font-size: 0.78rem;
-}
-
-.today-card-night-summary {
-  margin-bottom: var(--space-xs);
-  padding: 6px 8px;
-  color: #166534;
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  border-radius: var(--radius-sm);
-  font-size: 0.78rem;
-  line-height: 1.45;
-}
-
-.today-card-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-xs);
-}
-
-.today-card-empty {
-  min-height: 120px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-tertiary);
-  background: var(--color-surface);
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-sm);
-  font-size: 0.82rem;
-}
-
-.modal-task-summary,
-.delay-hint {
-  margin-bottom: var(--space-md);
-  padding: var(--space-sm) var(--space-md);
-  color: var(--color-text-secondary);
-  background: var(--color-bg);
-  border: 1px solid var(--color-border-light);
-  border-radius: var(--radius-sm);
-  font-size: 0.84rem;
-}
-
-.night-run-time-hint {
-  margin-top: 6px;
-  color: var(--color-accent);
-  font-size: 0.82rem;
-  font-weight: 600;
-}
-
-.delay-hint {
-  margin-bottom: 0;
-}
-
-.task-action-button-complete {
-  color: #ffffff !important;
-  background: var(--color-success) !important;
-  border-color: var(--color-success) !important;
-}
-</style>
+<style scoped src="./todayTaskCards.css"></style>

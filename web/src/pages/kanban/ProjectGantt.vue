@@ -76,11 +76,13 @@
     <div v-if="hoveredSlot" class="gantt-tooltip" :style="tooltipStyle">
       <div class="tooltip-title">{{ hoveredSlot.task_name }}</div>
       <div class="tooltip-row"><span>工序</span>{{ getTaskTypeLabel(hoveredSlot.task_type) }}</div>
-      <div class="tooltip-row"><span>所需仪器</span>{{ getBarInstrumentText(hoveredSlot) }}</div>
-      <div class="tooltip-row"><span>负责人</span>{{ hoveredSlot.assignee_name || '-' }}</div>
+      <div v-if="hoveredSlot.task_type !== 'approval_gate'" class="tooltip-row"><span>所需仪器</span>{{ getBarInstrumentText(hoveredSlot) }}</div>
+      <div v-if="hoveredSlot.task_type !== 'approval_gate'" class="tooltip-row"><span>负责人</span>{{ hoveredSlot.assignee_name || '-' }}</div>
       <div class="tooltip-row"><span>开始</span>{{ dayjs(hoveredSlot.plan_start).format('MM-DD HH:mm') }}</div>
       <div class="tooltip-row"><span>结束</span>{{ dayjs(hoveredSlot.plan_end).format('MM-DD HH:mm') }}</div>
       <div class="tooltip-row"><span>状态</span>{{ statusLabel(hoveredSlot.status) }}</div>
+      <div v-if="hoveredSlot.task_type === 'approval_gate'" class="tooltip-row"><span>最迟签批</span>{{ hoveredSlot.approval_latest_at ? dayjs(hoveredSlot.approval_latest_at).format('MM-DD HH:mm') : '-' }}</div>
+      <div v-if="hoveredSlot.task_type === 'approval_gate'" class="tooltip-row"><span>解锁任务</span>{{ hoveredSlot.approval_unlock_tasks?.map(task => task.name).join('、') || '-' }}</div>
       <div v-if="hasDelay(hoveredSlot)" class="tooltip-row is-delay"><span>延期</span>{{ getDelayText(hoveredSlot) }}</div>
     </div>
   </div>
@@ -88,14 +90,16 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { useRoute } from 'vue-router'
 import type { CSSProperties } from 'vue'
 import { message } from 'ant-design-vue'
 import { LeftOutlined, RightOutlined, ReloadOutlined, FullscreenOutlined, FullscreenExitOutlined, ExperimentOutlined, EditOutlined, CheckSquareOutlined, DotChartOutlined, FileTextOutlined } from '@ant-design/icons-vue'
-import { getProjects, getTimeslots, getTaskTypes, type TaskTypeConfig } from '@/services/api'
-import type { Project, TimeSlot } from '@/types'
+import { getApprovalGates, getProjects, getTimeslots, getTaskTypes, type TaskTypeConfig } from '@/services/api'
+import type { ApprovalGate, Project, TimeSlot } from '@/types'
 import dayjs from 'dayjs'
 
 const loading = ref(true)
+const route = useRoute()
 const projects = ref<Project[]>([])
 const slots = ref<TimeSlot[]>([])
 const viewMode = ref<'day' | 'week' | 'month'>('week')
@@ -339,9 +343,11 @@ const taskIconMap: Record<string, any> = {
 function getTaskIcon(code: string | null | undefined) { return code ? (taskIconMap[code] || null) : null }
 function getTaskTypeLabel(code: string | null | undefined) { return code ? (taskTypeMap.value[code] || code) : '' }
 function getBarInstrumentText(slot: TimeSlot) {
+  if (slot.task_type === 'approval_gate') return '方案签批'
   return slot.instrument_code || slot.instrument_name || '未指定仪器'
 }
 function getBarTaskText(slot: TimeSlot) {
+  if (slot.task_type === 'approval_gate') return statusLabel(slot.status)
   const taskName = slot.task_name || '-'
   const ownerName = slot.assignee_name || '-'
   const delayText = hasDelay(slot) ? ` · 延期${slot.delay_hours || ''}h` : ''
@@ -415,8 +421,37 @@ function getDelayText(slot: TimeSlot) {
 }
 
 function statusLabel(s: string) {
-  const m: Record<string, string> = { scheduled: '待处理', pending: '待处理', running: '运行中', completed: '已完成', blocked: '已延期', interrupted: '已延期' }
+  const m: Record<string, string> = { scheduled: '待处理', pending: '待处理', running: '运行中', completed: '已完成', blocked: '已延期', interrupted: '已延期', approval_waiting: '等待客户签批', approval_approved: '客户已同意', approval_risk: '签批已影响结题' }
   return m[s] || s
+}
+
+function approvalGateSlot(gate: ApprovalGate): TimeSlot | null {
+  if (!gate.submitted_at) return null
+  const end = gate.approved_at || gate.expected_approval_at
+  if (!end || !dayjs(end).isAfter(dayjs(gate.submitted_at))) return null
+  const status = gate.risk_status === 'deadline_risk' || gate.risk_status === 'overdue'
+    ? 'approval_risk'
+    : gate.gate_status === 'approved' ? 'approval_approved' : 'approval_waiting'
+  return {
+    id: -gate.id,
+    task_id: gate.id,
+    instrument_id: 0,
+    plan_start: gate.submitted_at,
+    plan_end: end,
+    tier: 'forecast',
+    status,
+    task_name: gate.name,
+    task_type: 'approval_gate',
+    project_code: gate.project_code,
+    project_name: gate.project_name,
+    project_id: gate.project_id,
+    assignee_id: gate.project_manager_id || null,
+    assignee_name: gate.project_manager_name || undefined,
+    approval_gate_status: gate.gate_status,
+    approval_risk_status: gate.risk_status,
+    approval_latest_at: gate.latest_approval_at,
+    approval_unlock_tasks: gate.unlock_tasks,
+  }
 }
 
 function showTooltip(slot: TimeSlot, e: MouseEvent) {
@@ -487,11 +522,18 @@ function recalc() {
 async function fetchData(silent = false) {
   if (!silent) loading.value = true
   try {
-    const [insts, timeslots, types] = await Promise.all([getProjects(), getTimeslots(), getTaskTypes()])
+    const [insts, timeslots, types, gatePage] = await Promise.all([getProjects(), getTimeslots(), getTaskTypes(), getApprovalGates({ page_size: 500 })])
     projects.value = insts
-    slots.value = timeslots.filter((s: TimeSlot) => typeof s.project_id === 'number' && s.project_id > 0)
+    const requestedProjectId = Number(route.query.project_id)
+    if (requestedProjectId) {
+      const requestedProject = insts.find(project => project.id === requestedProjectId)
+      if (requestedProject) filterKeyword.value = requestedProject.code
+    }
+    const gateSlots = gatePage.items.map(approvalGateSlot).filter((slot): slot is TimeSlot => slot !== null)
+    slots.value = [...timeslots, ...gateSlots].filter((s: TimeSlot) => typeof s.project_id === 'number' && s.project_id > 0)
     const map: Record<string, string> = {}
     types.forEach((t: TaskTypeConfig) => { map[t.code] = t.name })
+    map.approval_gate = '方案签批'
     taskTypeMap.value = map
   } catch { if (!silent) message.error('加载数据失败') }
   finally {
@@ -544,89 +586,4 @@ onUnmounted(() => {
 })
 </script>
 
-<style scoped>
-.gantt-page { display: flex; flex-direction: column; height: calc(100vh - 64px); }
-.gantt-page.is-fullscreen {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  height: 100vh;
-  padding: 16px;
-  background: #f6f8fb;
-}
-.gantt-page.is-fullscreen .page-header { display: none; }
-.gantt-page.is-fullscreen .action-bar { margin-bottom: 0; padding-bottom: 12px; }
-.gantt-page.is-fullscreen .gantt-container { flex: 1; min-height: 0; margin-top: 0; }
-.action-bar.is-screen-toolbar { align-items: center; }
-
-.gantt-container { display: flex; flex: 1; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; margin-top: 12px; min-height: 0; }
-
-.gantt-left { width: 160px; min-width: 160px; background: #f8fafc; border-right: 1px solid #e5e7eb; overflow-y: auto; overflow-x: hidden; }
-.gantt-left::-webkit-scrollbar { width: 0; }
-.gantt-header-cell { height: 50px; display: flex; align-items: center; padding: 0 12px; font-weight: 600; font-size: 13px; color: #475569; border-bottom: 2px solid #c0c7cf; background: #f1f5f9; }
-.gantt-left-row { display: flex; flex-direction: column; justify-content: center; padding: 0 12px; border-bottom: none; overflow: hidden; }
-.gantt-left-row.is-last { border-bottom: 2px solid #b0bec5; }
-.proj-name { font-size: 13px; font-weight: 500; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.proj-code { font-size: 11px; color: #94a3b8; }
-
-.gantt-right { flex: 1; overflow: auto; }
-.gantt-right::-webkit-scrollbar { width: 6px; height: 6px; }
-.gantt-right::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-.gantt-timeline-header { display: flex; height: 50px; border-bottom: 2px solid #c0c7cf; position: sticky; top: 0; background: #f1f5f9; z-index: 2; }
-.gantt-col-header { display: flex; flex-direction: column; align-items: center; justify-content: center; border-right: 1px solid #c0c7cf; font-size: 12px; color: #64748b; flex-shrink: 0; box-sizing: border-box; }
-.gantt-col-header.is-weekend { background: #fef2f2; }
-.gantt-col-header.is-today { background: #dbeafe; }
-.col-label-primary { font-weight: 600; font-size: 13px; }
-.col-label-sub { font-size: 10px; color: #94a3b8; }
-
-.gantt-timeline-body { position: relative; background: #fff; }
-.gantt-entity-row { position: relative; display: flex; border-bottom: none; }
-.gantt-entity-row.is-subrow { border-top: none; border-bottom: none; background: #fdfdfe; }
-.gantt-entity-row.is-last { border-bottom: 2px solid #b0bec5; }
-.gantt-entity-row.is-last .gantt-grid-cell { border-bottom: none; }
-.gantt-entity-row.is-subrow:nth-child(even) { background: #f5f6f8; }
-.gantt-entity-row:nth-child(even):not(.is-subrow) { background: #f8fafc; }
-.gantt-grid-cell { border-right: 1px solid #c0c7cf; border-bottom: 1px solid #c0c7cf; flex-shrink: 0; box-sizing: border-box; }
-.gantt-grid-cell.is-weekend { background: #fef2f2; }
-.gantt-grid-cell.is-today { background: #eff6ff; }
-
-.gantt-bar { position: absolute; border-radius: 3px; display: flex; align-items: center; padding: 0 5px; cursor: pointer; overflow: hidden; transition: box-shadow 0.15s; z-index: 1; box-sizing: border-box; gap: 3px; min-width: 0; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
-.gantt-bar:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 3; }
-.bar-delay-segment { position: absolute; top: 0; bottom: 0; z-index: 1; border: 2px solid #dc2626; border-radius: 3px; box-sizing: border-box; background: rgba(220, 38, 38, 0.08); pointer-events: none; }
-.bar-delay-segment::after { content: ""; position: absolute; right: -2px; top: -2px; border-top: 12px solid #dc2626; border-left: 12px solid transparent; }
-.bar-tag { position: relative; z-index: 2; flex-shrink: 0; width: 18px; height: 18px; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; background: rgba(0,0,0,0.12); color: inherit; }
-.bar-label { position: relative; z-index: 2; display: flex; flex-direction: column; justify-content: center; gap: 1px; overflow: hidden; min-width: 0; color: inherit; line-height: 1.15; }
-.bar-instrument, .bar-task { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bar-instrument { font-size: 11px; font-weight: 700; }
-.bar-task { font-size: 10px; font-weight: 500; opacity: 0.92; }
-.bar-delay-badge { position: absolute; right: 0; top: 0; z-index: 2; width: 14px; height: 14px; border-radius: 2px; display: flex; align-items: center; justify-content: center; background: #dc2626; color: #fff; font-size: 10px; font-weight: 700; line-height: 1; pointer-events: none; }
-
-/* Status colors */
-.status-scheduled, .status-pending {
-  background: #FF9800; color: #FFFFFF; border: 1px solid #F57C00;
-  box-shadow: 0 2px 6px rgba(255, 152, 0, 0.3);
-}
-.status-running {
-  background: #4CAF50; color: #FFFFFF; border: 1px solid #388E3C;
-  box-shadow: 0 2px 6px rgba(76, 175, 80, 0.3);
-}
-.status-running::after {
-  content: ""; position: absolute; left: 100%; top: 0; bottom: 0;
-  width: 20px; background: #E8F5E9; border-radius: 0 3px 3px 0;
-  pointer-events: none;
-}
-.status-completed {
-  background: #2196F3; color: #FFFFFF; border: 1px solid #1976D2;
-  box-shadow: 0 2px 6px rgba(33, 150, 243, 0.3);
-}
-.status-blocked, .status-interrupted {
-  background: #E53935; color: #FFFFFF; border: 1px solid #C62828;
-  box-shadow: 0 2px 6px rgba(229, 57, 53, 0.3);
-}
-
-.gantt-tooltip { position: fixed; background: #1e293b; color: #fff; padding: 12px 16px; border-radius: 8px; font-size: 12px; z-index: 1000; pointer-events: none; min-width: 180px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
-.tooltip-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
-.tooltip-row { display: flex; justify-content: space-between; padding: 2px 0; }
-.tooltip-row span { color: #94a3b8; }
-.tooltip-row.is-delay { color: #fecaca; }
-</style>
+<style scoped src="./ProjectGantt.css"></style>

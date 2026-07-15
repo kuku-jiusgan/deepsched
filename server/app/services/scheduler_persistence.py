@@ -29,6 +29,7 @@ def persist_slots(
     schedule_run_id: str = "legacy",
     commit: bool = True,
     split_unit_presences=None,
+    forecast_task_ids: set[int] | None = None,
 ) -> int:
     now = datetime.now()
     frozen_boundary = natural_day_boundary(now, freeze_days)
@@ -37,6 +38,7 @@ def persist_slots(
     )
     created = 0
     split_unit_presences = split_unit_presences or {}
+    forecast_task_ids = forecast_task_ids or set()
 
     for task in tasks:
         assigned_instrument = _assigned_instrument(
@@ -59,6 +61,7 @@ def persist_slots(
                 frozen_boundary,
                 confirmed_boundary,
                 schedule_run_id,
+                force_forecast=task.id in forecast_task_ids,
             )
             task.status = "scheduled"
             continue
@@ -92,6 +95,7 @@ def persist_slots(
                     frozen_boundary,
                     confirmed_boundary,
                     schedule_run_id,
+                    force_forecast=task.id in forecast_task_ids,
                 )
                 created += 1
                 chunk_start = None
@@ -109,6 +113,7 @@ def persist_slots(
                 frozen_boundary,
                 confirmed_boundary,
                 schedule_run_id,
+                force_forecast=task.id in forecast_task_ids,
             )
             created += 1
         task.status = "scheduled"
@@ -130,6 +135,7 @@ def _persist_split_task_slots(
     frozen_boundary,
     confirmed_boundary,
     schedule_run_id,
+    force_forecast: bool = False,
 ) -> int:
     selected_units = sorted(
         unit for (task_id, instrument_id, unit), presence in split_unit_presences.items()
@@ -156,6 +162,7 @@ def _persist_split_task_slots(
             frozen_boundary,
             confirmed_boundary,
             schedule_run_id,
+            force_forecast=force_forecast,
         )
         created += 1
         chunk_start = unit
@@ -170,6 +177,7 @@ def _persist_split_task_slots(
         frozen_boundary,
         confirmed_boundary,
         schedule_run_id,
+        force_forecast=force_forecast,
     )
     return created + 1
 
@@ -193,8 +201,11 @@ def _create_slot(
     frozen_boundary,
     confirmed_boundary,
     schedule_run_id,
+    force_forecast: bool = False,
 ) -> None:
-    if start <= frozen_boundary:
+    if force_forecast:
+        tier = "forecast"
+    elif start <= frozen_boundary:
         tier = "frozen"
     elif start <= confirmed_boundary:
         tier = "confirmed"

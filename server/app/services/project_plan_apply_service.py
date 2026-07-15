@@ -14,6 +14,10 @@ from app.services.project_hours_validation_service import (
     ProjectHoursExceededError,
     validate_project_estimated_hours,
 )
+from app.services.project_instrument_validation_service import (
+    RequiredInstrumentError,
+    validate_required_task_instruments,
+)
 from app.services.project_task_rollup_service import recalculate_project_parent_hours
 from app.services.schedule_insert_service import (
     _build_impacts,
@@ -41,6 +45,11 @@ def apply_project_plan(db, project_id: int) -> ProjectPlanApplyResponse:
     try:
         validate_project_estimated_hours(db, project_id)
     except ProjectHoursExceededError as exc:
+        raise ProjectPlanInvalidError(str(exc))
+    project_tasks = db.query(Task).filter(Task.project_id == project_id).all()
+    try:
+        validate_required_task_instruments(project_tasks)
+    except RequiredInstrumentError as exc:
         raise ProjectPlanInvalidError(str(exc))
     project, selected_tasks = _load_project_candidates(db, project_id)
     if not selected_tasks:
@@ -186,6 +195,8 @@ def _load_project_candidates(db, project_id: int) -> tuple[Project, list[Task]]:
         task for task in tasks
         if task.id in affected_ids
         and task.id not in parent_ids
+        and not task.is_external_gate
+        and task.status != "waiting_external"
         and task.schedule_lock_status == "none"
     ]
     return project, sorted(candidates, key=lambda task: (task.created_at, task.id))
@@ -259,6 +270,10 @@ def _plan_fingerprint(db, project: Project, tasks: list[Task]) -> str:
                 sorted(task.instrument_ids or []),
                 sorted(task.predecessor_ids),
                 task.parent_id,
+                bool(task.is_external_gate),
+                task.gate_status,
+                _iso(task.expected_approval_at),
+                _iso(task.approved_at),
                 _iso(task.updated_at),
             ]
             for task in unique_tasks

@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.api.schedules import _filter_workspace_tasks_by_user, _select_workspace_slot
+from app.api.schedules import _filter_workspace_tasks_by_user, _select_workspace_slot, _task_actual_window
 from app.core.database import Base
 from app.models import Project, Task, TimeSlot, User
 
@@ -83,6 +83,38 @@ class WorkspaceTaskVisibilityTest(unittest.TestCase):
         )
 
         self.assertIs(today_slot, selected)
+
+    def test_task_actual_window_uses_earliest_start_across_segments(self):
+        started_at = datetime(2026, 7, 13, 19, 3, 58)
+        slots = [
+            TimeSlot(
+                task_id=self.owner_task.id,
+                instrument_id=1,
+                plan_start=datetime(2026, 7, 13, 19, 0),
+                plan_end=datetime(2026, 7, 13, 22, 0),
+                actual_start=started_at,
+                status="running",
+            ),
+            TimeSlot(
+                task_id=self.owner_task.id,
+                instrument_id=1,
+                plan_start=datetime(2026, 7, 14, 8, 30),
+                plan_end=datetime(2026, 7, 15, 6, 0),
+                status="running",
+            ),
+            TimeSlot(
+                task_id=self.owner_task.id,
+                instrument_id=1,
+                plan_start=datetime(2026, 7, 15, 8, 30),
+                plan_end=datetime(2026, 7, 15, 12, 30),
+                status="running",
+            ),
+        ]
+
+        actual_start, actual_end = _task_actual_window(slots)
+
+        self.assertEqual(started_at, actual_start)
+        self.assertIsNone(actual_end)
 
 
 if __name__ == "__main__":

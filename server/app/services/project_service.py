@@ -19,6 +19,7 @@ def create_project(db, data: ProjectCreate) -> Project:
         client_name=data.client_name,
         estimated_hours=data.estimated_hours,
         priority=data.priority,
+        status="pending",
         manager_id=data.manager_id,
         start_date=_naive_datetime(data.start_date),
         end_date=_naive_datetime(data.end_date),

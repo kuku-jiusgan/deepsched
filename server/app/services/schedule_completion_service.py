@@ -16,6 +16,7 @@ from app.services.scheduler_helpers import (
     time_horizon,
     working_time_bounds,
 )
+from app.services.project_status_service import calculate_project_status
 
 SCHEDULE_UNIT_MINUTES = 30
 
@@ -45,6 +46,8 @@ def complete_task_and_shift(
     completed_slot = _select_completed_slot(task_slots, completed_slot_id, end_time)
     affected_instrument_ids = {slot.instrument_id for slot in task_slots if slot.instrument_id}
     _mark_task_slots_completed(task_slots, completed_slot, end_time)
+    if task.project:
+        task.project.status = calculate_project_status(task.project)
 
     for instrument_id in affected_instrument_ids:
         refresh_instrument_status(db, instrument_id)

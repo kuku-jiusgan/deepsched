@@ -92,6 +92,30 @@ DEFAULT_ALERT_RULES = [
         "threshold_minutes": 0,
         "threshold_percent": 0,
     },
+    {
+        "name": "方案待提交客户",
+        "rule_type": "approval_pending",
+        "enabled": True,
+        "notify_roles": '["项目负责人","项目管理员","分析所所长","系统管理员"]',
+        "threshold_minutes": 0,
+        "threshold_percent": 0,
+    },
+    {
+        "name": "方案签批临近或超期",
+        "rule_type": "approval_due",
+        "enabled": True,
+        "notify_roles": '["项目负责人","项目管理员","分析所所长","系统管理员"]',
+        "threshold_minutes": 2880,
+        "threshold_percent": 0,
+    },
+    {
+        "name": "签批后排程结果",
+        "rule_type": "approval_schedule_result",
+        "enabled": True,
+        "notify_roles": '["项目负责人","项目管理员","分析所所长","系统管理员"]',
+        "threshold_minutes": 0,
+        "threshold_percent": 0,
+    },
 ]
 
 @router.get("", response_model=List[AlertRuleOut])

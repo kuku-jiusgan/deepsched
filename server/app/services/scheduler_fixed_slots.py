@@ -13,7 +13,6 @@ FIXED_SLOT_STATUSES = ["scheduled", "running", "completed", "blocked", "interrup
 
 def load_fixed_slots(db, excluded_task_ids: set[int] | None = None) -> list[TimeSlot]:
     query = db.query(TimeSlot).filter(
-        TimeSlot.instrument_id.isnot(None),
         TimeSlot.status.in_(FIXED_SLOT_STATUSES),
     )
     if excluded_task_ids:
@@ -23,6 +22,43 @@ def load_fixed_slots(db, excluded_task_ids: set[int] | None = None) -> list[Time
         slot for slot in slots
         if slot.status != "completed" or (slot.actual_start and slot.actual_end)
     ]
+
+
+def add_human_capacity_constraints(
+    model: cp_model.CpModel,
+    tasks,
+    task_intervals: dict[int, cp_model.IntervalVar],
+    fixed_slots: list[TimeSlot],
+    horizon_start,
+    total_units: int,
+) -> None:
+    intervals_by_assignee: dict[int, list[cp_model.IntervalVar]] = defaultdict(list)
+    for task in tasks:
+        if task.requires_human and task.assignee_id:
+            intervals_by_assignee[task.assignee_id].append(task_intervals[task.id])
+
+    for slot in fixed_slots:
+        task = slot.task
+        if not task or not task.requires_human or not task.assignee_id:
+            continue
+        start_time = slot.actual_start if slot.status == "completed" else slot.plan_start
+        end_time = slot.actual_end if slot.status == "completed" else slot.plan_end
+        start_unit = datetime_to_units(start_time, horizon_start)
+        end_unit = datetime_to_units(end_time, horizon_start)
+        if end_unit <= 0 or start_unit >= total_units:
+            continue
+        clipped_start = max(0, start_unit)
+        clipped_end = min(total_units, end_unit)
+        intervals_by_assignee[task.assignee_id].append(model.NewIntervalVar(
+            clipped_start,
+            clipped_end - clipped_start,
+            clipped_end,
+            f"fixed_human_slot_{slot.id}",
+        ))
+
+    for assignee_intervals in intervals_by_assignee.values():
+        if assignee_intervals:
+            model.AddNoOverlap(assignee_intervals)
 
 
 def add_instrument_capacity_constraints(
@@ -42,6 +78,8 @@ def add_instrument_capacity_constraints(
 ) -> None:
     fixed_by_instrument: dict[int, list[tuple[TimeSlot, int, int]]] = defaultdict(list)
     for slot in fixed_slots:
+        if slot.instrument_id is None:
+            continue
         start_time = slot.actual_start if slot.status == "completed" else slot.plan_start
         end_time = slot.actual_end if slot.status == "completed" else slot.plan_end
         start_unit = datetime_to_units(start_time, horizon_start)

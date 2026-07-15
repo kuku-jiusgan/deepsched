@@ -13,12 +13,21 @@
           <a-descriptions-item label="客户">{{ project.client_name || '-' }}</a-descriptions-item>
           <a-descriptions-item label="负责人">{{ project.manager_name || '-' }}</a-descriptions-item>
           <a-descriptions-item label="项目优先级"><a-tag :color="priorityColor(project.priority)">{{ priorityLabel(project.priority) }}</a-tag></a-descriptions-item>
+          <a-descriptions-item label="项目预计工时">{{ project.estimated_hours != null ? `${project.estimated_hours} 小时` : '-' }}</a-descriptions-item>
           <a-descriptions-item label="开始日期">{{ project.start_date ? dayjs(project.start_date).format('YYYY-MM-DD') : '-' }}</a-descriptions-item>
           <a-descriptions-item label="结题日期">{{ project.end_date ? dayjs(project.end_date).format('YYYY-MM-DD') : '-' }}</a-descriptions-item>
         </a-descriptions>
       </div>
       <a-alert
-        v-if="hasPendingPlanChanges"
+        v-if="hasLocalDrafts"
+        type="info"
+        showIcon
+        message="当前有未保存的计划草稿"
+        description="新增任务和模板计划目前只保存在本页面；离开页面将丢失，点击“保存并开始排程”后才会写入数据库。"
+        style="margin-bottom: 16px"
+      />
+      <a-alert
+        v-else-if="hasPendingPlanChanges"
         type="warning"
         showIcon
         message="计划已修改，待重新排程"
@@ -27,6 +36,8 @@
       />
       <div class="action-bar">
         <a-button type="primary" @click="openAddTask(null)"><PlusOutlined /> 添加顶级任务</a-button>
+        <a-button @click="openTemplateImport"><ImportOutlined /> 模板计划导入</a-button>
+        <a-button @click="openApprovalGate"><FileTextOutlined /> 添加方案签批</a-button>
         <span style="margin-left: 8px; font-size: 12px; color: #94a3b8">点击左侧 &gt; 展开/收起子任务</span>
         <span style="margin-left: auto; font-size: 12px; color: #94a3b8">{{ flatTaskCount }} 个任务（{{ leafTaskCount }} 个叶子任务）</span>
       </div>
@@ -35,12 +46,23 @@
         <a-table-column title="任务名称" dataIndex="name" key="name">
           <template #default="{ record }">
             <span :style="{ fontWeight: record.children?.length ? 600 : 400 }">{{ record.name }}</span>
-              <a-tag v-if="record.schedule_dirty" color="orange" style="margin-left: 8px">待重新排程</a-tag>
+              <a-tag v-if="record.is_local_draft" color="blue" style="margin-left: 8px">未保存</a-tag>
+              <a-tag v-else-if="record.schedule_dirty" color="orange" style="margin-left: 8px">待重新排程</a-tag>
           </template>
         </a-table-column>
         <a-table-column title="类型" key="task_type" width="120">
           <template #default="{ record }">
-            <a-tag v-if="!record.children?.length" :color="getTaskTypeColor(record.task_type)" style="font-size: 11px">{{ getTaskTypeName(record.task_type) }}</a-tag>
+            <a-tag v-if="record.is_external_gate" color="default" style="font-size: 11px">方案签批</a-tag>
+            <a-tag v-else-if="!record.children?.length" :color="getTaskTypeColor(record.task_type)" style="font-size: 11px">{{ getTaskTypeName(record.task_type) }}</a-tag>
+          </template>
+        </a-table-column>
+        <a-table-column title="状态/签批时间" key="plan_status" width="175">
+          <template #default="{ record }">
+            <template v-if="record.is_external_gate">
+              <a-tag :color="gateStatusMeta(record.gate_status).color">{{ gateStatusMeta(record.gate_status).label }}</a-tag>
+              <div style="margin-top: 3px; color: #64748b; font-size: 11px">{{ gateDateText(record) }}</div>
+            </template>
+            <span v-else>{{ taskStatusLabel(record.status) }}</span>
           </template>
         </a-table-column>
         <a-table-column title="对应仪器" key="instruments" width="180">
@@ -77,7 +99,17 @@
         </a-table-column>
         <a-table-column title="操作" key="actions" width="180">
           <template #default="{ record }">
-            <a-space :size="0">
+            <a-space v-if="record.is_external_gate && record.is_local_draft" :size="0">
+              <a-popconfirm title="确定删除这个未保存的方案签批？" @confirm="handleDeleteTask(record.id)">
+                <a-button type="link" size="small" danger>删除</a-button>
+              </a-popconfirm>
+            </a-space>
+            <a-space v-else-if="record.is_external_gate" :size="0">
+              <a-popconfirm title="确定删除方案签批？删除后下游任务将恢复为待排程状态。" @confirm="handleDeleteTask(record.id)">
+                <a-button type="link" size="small" danger>删除</a-button>
+              </a-popconfirm>
+            </a-space>
+            <a-space v-else :size="0">
               <a-button type="link" size="small" @click="openAddTask(record.id)" title="添加子任务"><PlusOutlined /></a-button>
               <a-button type="link" size="small" @click="openEditTask(record)"><EditOutlined /></a-button>
               <a-popconfirm title="确定删除该任务及其所有子任务？" @confirm="handleDeleteTask(record.id)">
@@ -122,8 +154,8 @@
             <a-form-item label="前置任务"><a-select v-model:value="tf.predecessor_ids" mode="multiple" :options="leafTaskOptions" placeholder="可多选" allowClear :disabled="!canEditScheduleFields" size="small" /></a-form-item>
           </a-col>
           <a-col :span="12">
-            <a-form-item label="指定仪器">
-              <a-select v-model:value="tf.instrument_ids" mode="multiple" :options="instrumentOptions" placeholder="选择仪器" allowClear :disabled="!canEditScheduleFields" size="small" style="width: 100%" />
+            <a-form-item label="指定仪器" :required="isInstrumentRequired">
+              <a-select v-model:value="tf.instrument_ids" mode="multiple" :options="instrumentOptions" :placeholder="isInstrumentRequired ? '必填：请选择仪器' : '选择仪器'" allowClear :disabled="!canEditScheduleFields" size="small" style="width: 100%" />
             </a-form-item>
           </a-col>
         </a-row>
@@ -136,6 +168,13 @@
       @confirm="handleConfirmInsert"
       @cancel="handleCancelInsert"
     />
+    <ApprovalGateModal
+      :open="approvalGateOpen"
+      :tasks="allTasks"
+      :submitting="approvalGateSubmitting"
+      @submit="handleCreateApprovalGate"
+      @cancel="approvalGateOpen = false"
+    />
   </div>
 </template>
 <script setup lang="ts">
@@ -143,10 +182,11 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import { isAxiosError } from 'axios'
-import { PlusOutlined, EditOutlined, LeftOutlined, DeleteOutlined, PlayCircleOutlined } from '@ant-design/icons-vue'
-import { getProject, getProjectDAG, addTask, updateTask, deleteTask, getUsers, getTaskTypes, getInstruments, applyProjectPlan, confirmProjectPlanInsert, type Project, type Task, type DAGData, type TaskTypeConfig } from '@/services/api'
+import { PlusOutlined, EditOutlined, LeftOutlined, DeleteOutlined, PlayCircleOutlined, FileTextOutlined, ImportOutlined } from '@ant-design/icons-vue'
+import { commitProjectPlanDrafts, createApprovalGate, getProject, getProjectDAG, updateTask, deleteTask, getUsers, getTaskTypes, getInstruments, applyProjectPlan, confirmProjectPlanInsert, type ApprovalGateCreatePayload, type ProjectPlanDraftTaskPayload, type Project, type Task, type DAGData, type TaskTypeConfig } from '@/services/api'
 import type { ProjectPlanApplyResult } from '@/types'
 import PlanInsertPreviewModal from './components/PlanInsertPreviewModal.vue'
+import ApprovalGateModal from './components/ApprovalGateModal.vue'
 import dayjs from 'dayjs'
 const router = useRouter()
 const route = useRoute()
@@ -160,9 +200,13 @@ const editingTask = ref<Task | null>(null)
 const insertPreview = ref<ProjectPlanApplyResult | null>(null)
 const insertPreviewOpen = ref(false)
 const confirmingInsert = ref(false)
+const approvalGateOpen = ref(false)
+const approvalGateSubmitting = ref(false)
 const parentTaskId = ref<number | null>(null)
+let nextDraftId = -1
 const taskTypeOptions = ref<{ label: string; value: string; resource_type: string }[]>([])
 const taskTypeMap = ref<Record<string, TaskTypeConfig>>({})
+const REQUIRED_INSTRUMENT_TASK_TYPES = new Set(['FFKF_001', 'FFYZ_001'])
 const userOptions = ref<{ label: string; value: number }[]>([])
 const instrumentOptions = ref<{ label: string; value: number }[]>([])
 const instrumentCodeMap = computed(() => {
@@ -192,7 +236,19 @@ const capValOpts: Record<string, { label: string; value: string }[]> = {
 }
 function getCapValueOpts(tagName: string) { return capValOpts[tagName] || [] }
 function goBack() { router.push('/projects/ledger') }
-function getTaskTypeName(code: string) { return taskTypeMap.value[code]?.name || code }
+function getTaskTypeName(code: string) {
+  if (code === 'approval_gate') return '方案签批'
+  return taskTypeMap.value[code]?.name || code
+}
+function taskStatusLabel(status: string) { return ({ pending: '待开始', ready: '可排程', scheduled: '已排程', running: '运行中', done: '已完成', blocked: '已延期', waiting_external: '等待外部签批' } as Record<string, string>)[status] || status }
+function gateStatusMeta(status?: string | null) {
+  return ({ not_submitted: { label: '待提交', color: 'default' }, waiting_approval: { label: '等待客户', color: 'blue' }, approved: { label: '已签批', color: 'green' } } as Record<string, { label: string; color: string }>)[status || 'not_submitted']
+}
+function gateDateText(task: Task) {
+  if (task.approved_at) return `签批 ${dayjs(task.approved_at).format('MM-DD HH:mm')}`
+  if (task.expected_approval_at) return `预计 ${dayjs(task.expected_approval_at).format('MM-DD HH:mm')}`
+  return '尚未提交客户'
+}
 function getTaskTypeColor(code: string) {
       const m: Record<string, string> = { FFKF_001: '#8b5cf6', QCFA_001: '#f59e0b', FFYZ_001: '#10b981', SJCL_001: '#3b82f6', ZXBG_001: '#ef4444' }
   return m[code] || '#94a3b8'
@@ -248,6 +304,8 @@ function sumChildrenHours(task: Task): number {
 function isParentTask(id: number): boolean { return allTasks.value.some(t => t.parent_id === id) }
 const isEditingParent = computed(() => editingTask.value ? isParentTask(editingTask.value.id) : false)
 const canEditScheduleFields = computed(() => editingTask.value?.can_edit_schedule_fields !== false)
+const isInstrumentRequired = computed(() => REQUIRED_INSTRUMENT_TASK_TYPES.has(tf.task_type))
+const hasLocalDrafts = computed(() => allTasks.value.some(task => task.is_local_draft))
 const hasPendingPlanChanges = computed(() => allTasks.value.some(task =>
   !task.children?.length
   && (task.schedule_dirty || ['pending', 'ready'].includes(task.status)),
@@ -268,6 +326,10 @@ function openAddTask(parentId: number | null) {
   taskOpen.value = true
 }
 function openEditTask(t: Task) {
+  if (hasLocalDrafts.value && !t.is_local_draft) {
+    message.warning('请先保存当前新增草稿，再编辑数据库中的任务')
+    return
+  }
   editingTask.value = t; parentTaskId.value = null
   Object.assign(tf, { name: t.name, task_type: t.task_type, est_duration_hours: t.est_duration_hours || 8, switchover_hours: t.switchover_hours, predecessor_ids: t.predecessor_ids || [], instrument_ids: t.instrument_ids || [], assignee_id: t.assignee_id || null, parent_id: t.parent_id || null })
   taskOpen.value = true
@@ -280,6 +342,7 @@ async function handleTaskSubmit() {
     if (!tf.task_type) { message.error('请选择任务类型'); return }
     if (!tf.assignee_id) { message.error('请选择负责人'); return }
     if (!tf.est_duration_hours || tf.est_duration_hours <= 0) { message.error('请输入预计耗时'); return }
+    if (isInstrumentRequired.value && !tf.instrument_ids.length) { message.error('方法开发和方法验证必须指定仪器'); return }
   }
   const payload = {
     name: tf.name, task_type: isParent ? 'group' : tf.task_type,
@@ -289,15 +352,132 @@ async function handleTaskSubmit() {
     parent_id: tf.parent_id, instrument_ids: isParent ? [] : tf.instrument_ids,
   }
   try {
-    if (editingTask.value) { await updateTask(editingTask.value.id, payload); message.success('任务更新成功') }
-    else { await addTask(project.value.id, payload); message.success('任务添加成功') }
+    if (editingTask.value?.is_local_draft) {
+      const index = allTasks.value.findIndex(task => task.id === editingTask.value?.id)
+      if (index >= 0) allTasks.value[index] = buildDraftTask(payload, editingTask.value.id)
+      message.success('草稿任务已更新')
+    } else if (editingTask.value) {
+      await updateTask(editingTask.value.id, payload)
+      message.success('任务更新成功')
+      await fetchProject()
+    } else {
+      allTasks.value.push(buildDraftTask(payload, nextDraftId--))
+      message.success('任务已加入本地草稿，保存前不会写入数据库')
+    }
     taskOpen.value = false; editingTask.value = null
-    await fetchProject()
   } catch (error: unknown) { message.error(errorDetail(error, '操作失败')) }
 }
 async function handleDeleteTask(taskId: number) {
-  try { await deleteTask(taskId); message.success('任务已删除'); await fetchProject() }
+  const task = allTasks.value.find(item => item.id === taskId)
+  if (task?.is_local_draft) {
+    const removedIds = new Set<number>([taskId])
+    let changed = true
+    while (changed) {
+      changed = false
+      for (const candidate of allTasks.value) {
+        if (candidate.parent_id && removedIds.has(candidate.parent_id) && !removedIds.has(candidate.id)) {
+          removedIds.add(candidate.id)
+          changed = true
+        }
+      }
+    }
+    allTasks.value = allTasks.value
+      .filter(candidate => !removedIds.has(candidate.id))
+      .map(candidate => ({
+        ...candidate,
+        predecessor_ids: candidate.predecessor_ids.filter(id => !removedIds.has(id)),
+      }))
+    message.success('未保存草稿已删除')
+    return
+  }
+  if (hasLocalDrafts.value) { message.warning('请先保存当前新增草稿，再删除数据库中的任务'); return }
+  try { await deleteTask(taskId); message.success(task?.is_external_gate ? '方案签批已删除' : '任务已删除'); await fetchProject() }
   catch { message.error('删除失败') }
+}
+function buildDraftTask(
+  payload: {
+    name: string; task_type: string; requires_instrument: boolean;
+    est_duration_hours: number | null; switchover_hours: number;
+    predecessor_ids: number[]; assignee_id: number | null;
+    parent_id: number | null; instrument_ids: number[];
+  },
+  id: number,
+): Task {
+  return {
+    id,
+    project_id: projectId,
+    name: payload.name,
+    task_type: payload.task_type,
+    requires_instrument: payload.requires_instrument,
+    requires_human: payload.task_type !== 'group',
+    est_duration_hours: payload.est_duration_hours ?? undefined,
+    switchover_hours: payload.switchover_hours,
+    status: 'pending',
+    schedule_dirty: true,
+    schedule_lock_status: 'none',
+    can_edit_schedule_fields: true,
+    priority_weight: 1,
+    allow_split: false,
+    instrument_ids: [...payload.instrument_ids],
+    predecessor_ids: [...payload.predecessor_ids],
+    assignee_id: payload.assignee_id,
+    assignee_name: getAssigneeName(payload.assignee_id),
+    parent_id: payload.parent_id,
+    is_local_draft: true,
+  }
+}
+async function handleCreateApprovalGate(payload: ApprovalGateCreatePayload) {
+  approvalGateSubmitting.value = true
+  try {
+    await createApprovalGate(projectId, payload)
+    approvalGateOpen.value = false
+    message.success('方案签批已添加，后续任务已转为等待签批')
+    await fetchProject()
+  } catch (error: unknown) { message.error(errorDetail(error, '添加方案签批失败')) }
+  finally { approvalGateSubmitting.value = false }
+}
+function openApprovalGate() {
+  if (hasLocalDrafts.value) {
+    message.warning('请先保存当前新增草稿，再添加独立方案签批')
+    return
+  }
+  approvalGateOpen.value = true
+}
+function openTemplateImport() {
+  if (!project.value) return
+  if (allTasks.value.length) {
+    Modal.warning({ title: '当前项目已有计划', content: '模板计划只能导入到尚未创建任何任务的空项目，避免重复或覆盖现有计划。' })
+    return
+  }
+  if (!project.value?.estimated_hours) { message.error('请先填写项目预计工时'); return }
+  if (!project.value.manager_id) { message.error('请先设置项目负责人'); return }
+  const [methodHours, schemeHours, validationHours, reportHours] = allocateTemplateHours(project.value.estimated_hours)
+  const managerId = project.value.manager_id
+  const method = buildDraftTask(templatePayload('方法开发', 'FFKF_001', true, methodHours, [], managerId), nextDraftId--)
+  const scheme = buildDraftTask(templatePayload('方案撰写', 'QCFA_001', false, schemeHours, [method.id], managerId), nextDraftId--)
+  const restrictionId = nextDraftId--
+  const validation = buildDraftTask(templatePayload('方法验证', 'FFYZ_001', true, validationHours, [restrictionId], managerId), nextDraftId--)
+  const report = buildDraftTask(templatePayload('报告撰写', 'ZXBG_001', false, reportHours, [validation.id], managerId), nextDraftId--)
+  validation.status = 'waiting_external'; validation.schedule_dirty = false
+  report.status = 'waiting_external'; report.schedule_dirty = false
+  const restriction: Task = {
+    id: restrictionId, project_id: projectId, name: '方案签批', task_type: 'approval_gate',
+    requires_instrument: false, requires_human: false, switchover_hours: 0,
+    status: 'waiting_external', schedule_dirty: false, schedule_lock_status: 'none',
+    can_edit_schedule_fields: true, priority_weight: 1, allow_split: false,
+    instrument_ids: [], predecessor_ids: [scheme.id], assignee_id: null,
+    assignee_name: null, parent_id: null, is_external_gate: true,
+    gate_status: 'not_submitted', is_local_draft: true,
+  }
+  allTasks.value = [method, scheme, restriction, validation, report]
+  message.success('模板计划已导入当前页面，点击保存前不会写入数据库')
+}
+function templatePayload(name: string, taskType: string, requiresInstrument: boolean, hours: number, predecessorIds: number[], assigneeId: number) {
+  return { name, task_type: taskType, requires_instrument: requiresInstrument, est_duration_hours: hours, switchover_hours: 0, predecessor_ids: predecessorIds, assignee_id: assigneeId, parent_id: null, instrument_ids: [] }
+}
+function allocateTemplateHours(total: number): [number, number, number, number] {
+  const first = [0.7, 0.05, 0.2].map(rate => Math.round(total * rate * 100) / 100)
+  return [first[0], first[1], first[2], Math.round((total - first.reduce((sum, value) => sum + value, 0)) * 100) / 100]
 }
 async function loadInstruments() {
   try {
@@ -311,15 +491,31 @@ async function loadUsers() {
 }
 async function loadTaskTypes() {
   try {
-    const types = await getTaskTypes(); const active = types.filter(t => t.is_active)
+    const types = await getTaskTypes(); const active = types.filter(t => t.is_active && t.code !== 'approval_gate')
     taskTypeOptions.value = active.map(t => ({ label: t.name, value: t.code, resource_type: t.resource_type }))
     taskTypeMap.value = {}; active.forEach(t => { taskTypeMap.value[t.code] = t })
   } catch { console.error('loadTaskTypes failed') }
 }
 const scheduling = ref(false)
 async function handleStartSchedule() {
+  const missingInstrumentTasks = allTasks.value.filter(task => (
+    !task.children?.length
+    && !task.is_external_gate
+    && REQUIRED_INSTRUMENT_TASK_TYPES.has(task.task_type)
+    && !task.instrument_ids.length
+  ))
+  if (missingInstrumentTasks.length) {
+    message.error(`请先为任务【${missingInstrumentTasks.map(task => task.name).join('、')}】指定仪器`)
+    return
+  }
   scheduling.value = true
   try {
+    const drafts = allTasks.value.filter(task => task.is_local_draft)
+    if (drafts.length) {
+      const saveResult = await commitProjectPlanDrafts(projectId, drafts.map(toDraftPayload))
+      message.success(saveResult.message)
+      await fetchProject()
+    }
     const result = await applyProjectPlan(projectId)
     if (result.status === 'applied') {
       message.success(result.message || '排程完成')
@@ -335,6 +531,22 @@ async function handleStartSchedule() {
   } catch (error: unknown) {
     Modal.error({ title: '排程请求失败', content: errorDetail(error, '服务器内部错误，请稍后重试。') })
   } finally { scheduling.value = false }
+}
+function toDraftPayload(task: Task): ProjectPlanDraftTaskPayload {
+  return {
+    client_id: task.id,
+    name: task.name,
+    task_type: task.task_type,
+    requires_instrument: task.requires_instrument,
+    requires_human: task.requires_human,
+    estimated_hours: task.est_duration_hours ?? null,
+    switchover_hours: task.switchover_hours,
+    assignee_id: task.assignee_id,
+    parent_id: task.parent_id,
+    predecessor_ids: [...task.predecessor_ids],
+    instrument_ids: [...task.instrument_ids],
+    is_external_gate: Boolean(task.is_external_gate),
+  }
 }
 async function handleConfirmInsert() {
   const previewToken = insertPreview.value?.preview_token

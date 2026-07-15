@@ -2,11 +2,15 @@ import axios from 'axios';
 import type {
   Project, Instrument, TimeSlot, DashboardData, UtilizationStats, ProjectPlanApplyResult,
   DAGData, InsertCost, InsertOrderResult, Task, CapabilityReq, InstrumentFault,
+  ApprovalGate, ApprovalGateAction, ApprovalGateList,
+  StandardPlanImportResult,
 } from '@/types';
 
 export type {
   Project, Instrument, TimeSlot, DashboardData, UtilizationStats,
   DAGData, InsertCost, Task, CapabilityReq, InstrumentFault,
+  ApprovalGate, ApprovalGateAction, ApprovalGateList,
+  StandardPlanImportResult,
 }
 
 
@@ -88,6 +92,77 @@ export interface TaskUpdatePayload {
 
 export const updateTask = (taskId: number, data: TaskUpdatePayload): Promise<Task> =>
   api.put<Task>(`/projects/tasks/${taskId}`, data).then(r => r.data);
+
+export const importStandardProjectPlan = (projectId: number): Promise<StandardPlanImportResult> =>
+  api.post<StandardPlanImportResult>(`/projects/${projectId}/import-standard-plan`).then(r => r.data)
+
+export interface ProjectPlanDraftTaskPayload {
+  client_id: number
+  name: string
+  task_type: string
+  requires_instrument: boolean
+  requires_human: boolean
+  estimated_hours?: number | null
+  switchover_hours: number
+  assignee_id?: number | null
+  parent_id?: number | null
+  predecessor_ids: number[]
+  instrument_ids: number[]
+  is_external_gate: boolean
+}
+
+export const commitProjectPlanDrafts = (
+  projectId: number,
+  tasks: ProjectPlanDraftTaskPayload[],
+): Promise<{ status: string; message: string; created: number }> =>
+  api.post(`/projects/${projectId}/plan-drafts/commit`, { tasks }).then(r => r.data)
+
+export interface ApprovalGateCreatePayload {
+  name: string
+  predecessor_task_id: number
+  unlock_task_ids: number[]
+}
+
+export interface ApprovalGateQuery {
+  status?: 'pending' | 'approved'
+  keyword?: string
+  project_id?: number
+  manager_id?: number
+  risk?: string
+  expected_from?: string
+  expected_to?: string
+  page?: number
+  page_size?: number
+}
+
+export const createApprovalGate = (projectId: number, data: ApprovalGateCreatePayload): Promise<ApprovalGate> =>
+  api.post<ApprovalGate>(`/projects/${projectId}/approval-gates`, data).then(r => r.data)
+
+export const getApprovalGates = (params?: ApprovalGateQuery): Promise<ApprovalGateList> =>
+  api.get<ApprovalGateList>('/approval-gates', { params }).then(r => r.data)
+
+export const getApprovalGate = (gateId: number): Promise<ApprovalGate> =>
+  api.get<ApprovalGate>(`/approval-gates/${gateId}`).then(r => r.data)
+
+export const submitApprovalGate = (
+  gateId: number,
+  data: { expected_approval_at: string; approval_note?: string | null },
+): Promise<ApprovalGateAction> =>
+  api.post<ApprovalGateAction>(`/approval-gates/${gateId}/submit`, data).then(r => r.data)
+
+export const approveApprovalGate = (
+  gateId: number,
+  data: { approval_note?: string | null },
+): Promise<ApprovalGateAction> =>
+  api.post<ApprovalGateAction>(`/approval-gates/${gateId}/approve`, data).then(r => r.data)
+
+export const confirmApprovalScheduleImpact = (
+  gateId: number,
+  previewToken: string,
+): Promise<ApprovalGateAction> =>
+  api.post<ApprovalGateAction>(`/approval-gates/${gateId}/confirm-schedule-impact`, null, {
+    params: { preview_token: previewToken },
+  }).then(r => r.data)
 
 // Instruments
 export interface InstrumentQuery {
@@ -350,6 +425,9 @@ export interface LabStatusInstrument {
   progress: number | null
   next_task: string | null
   next_start: string | null
+  next_project: string | null
+  next_project_code: string | null
+  next_user: string | null
   running_slot_id?: number | null
   running_start?: string | null
 }

@@ -4,7 +4,7 @@ from app.core.database import engine, Base
 from app.core.config import get_settings
 from app.core.schema_migrations import ensure_runtime_schema
 from app.models import models
-from app.api import users, schedule_rules, instruments, projects, schedules, stats, notifications, task_types, alert_rules, calendar_api, project_plan_schedules
+from app.api import approval_gates, project_plan_drafts, project_plan_templates, users, schedule_rules, instruments, projects, schedules, stats, notifications, task_types, alert_rules, calendar_api, project_plan_schedules
 
 Base.metadata.create_all(bind=engine)
 ensure_runtime_schema(engine)
@@ -47,6 +47,9 @@ app.include_router(notifications.router)
 app.include_router(task_types.router)
 app.include_router(alert_rules.router)
 app.include_router(calendar_api.router)
+app.include_router(approval_gates.router)
+app.include_router(project_plan_templates.router)
+app.include_router(project_plan_drafts.router)
 
 @app.get("/api/v1/health")
 def health():

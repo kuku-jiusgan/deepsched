@@ -36,6 +36,87 @@ export interface Task {
   assignee_name: string | null;
   parent_id: number | null;
   children?: Task[];
+  is_external_gate?: boolean;
+  gate_status?: ApprovalGateStatus;
+  expected_approval_at?: string | null;
+  submitted_at?: string | null;
+  approved_at?: string | null;
+  approved_by_name?: string | null;
+  approval_note?: string | null;
+  approval_schedule_status?: string | null;
+  is_local_draft?: boolean;
+}
+
+export type ApprovalGateStatus = 'not_submitted' | 'waiting_approval' | 'approved';
+export type ApprovalRiskStatus = 'normal' | 'upcoming' | 'overdue' | 'deadline_risk';
+
+export interface ApprovalGateTaskRef {
+  id: number;
+  name: string;
+}
+
+export interface ApprovalGate {
+  id: number;
+  project_id: number;
+  project_code: string;
+  project_name: string;
+  client_name?: string | null;
+  project_manager_id?: number | null;
+  project_manager_name?: string | null;
+  project_end_date?: string | null;
+  name: string;
+  gate_status: ApprovalGateStatus;
+  expected_approval_at?: string | null;
+  submitted_at?: string | null;
+  approved_at?: string | null;
+  approved_by_name?: string | null;
+  approval_note?: string | null;
+  predecessor_tasks: ApprovalGateTaskRef[];
+  unlock_tasks: ApprovalGateTaskRef[];
+  latest_approval_at?: string | null;
+  risk_status: ApprovalRiskStatus;
+  schedule_status?: string | null;
+  schedule_message?: string | null;
+  schedule_run_id?: string | null;
+  preview_token?: string | null;
+  moved_tasks: number;
+  project_expected_completion?: string | null;
+  can_operate: boolean;
+}
+
+export interface ApprovalGateList {
+  items: ApprovalGate[];
+  total: number;
+  page: number;
+  page_size: number;
+  pending_count: number;
+  approved_count: number;
+  upcoming_count: number;
+  overdue_count: number;
+}
+
+export interface ApprovalGateAction {
+  gate: ApprovalGate;
+  schedule_status: string;
+  schedule_message?: string | null;
+  preview_token?: string | null;
+}
+
+export interface StandardPlanTask {
+  id: number;
+  name: string;
+  task_type: string;
+  percentage?: number | null;
+  estimated_hours?: number | null;
+  is_approval_restriction: boolean;
+}
+
+export interface StandardPlanImportResult {
+  status: string;
+  message: string;
+  project_id: number;
+  estimated_hours: number;
+  tasks: StandardPlanTask[];
 }
 
 export interface CapabilityReq {
@@ -61,7 +142,7 @@ export interface Instrument {
 
 export interface InstrumentFault {
   id: number;
-  instrument_id: number | null;
+  instrument_id: number;
   reported_at: string;
   estimated_resolved_at: string | null;
   resolved_at: string | null;
@@ -112,6 +193,10 @@ export interface TimeSlot {
   delay_hours?: number | null;
   delay_reason?: string | null;
   delay_reported_at?: string | null;
+  approval_gate_status?: ApprovalGateStatus;
+  approval_risk_status?: ApprovalRiskStatus;
+  approval_latest_at?: string | null;
+  approval_unlock_tasks?: ApprovalGateTaskRef[];
 }
 
 export interface DashboardData {
@@ -139,7 +224,7 @@ export interface UtilizationStats {
 }
 
 export interface DAGData {
-  nodes: { id: number; name: string; type: string; requires_instrument: boolean; status: string }[];
+  nodes: { id: number; name: string; type: string; requires_instrument: boolean; status: string; is_external_gate?: boolean; gate_status?: ApprovalGateStatus }[];
   edges: { from: number; to: number }[];
 }
 

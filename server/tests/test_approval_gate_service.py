@@ -1,0 +1,169 @@
+import unittest
+from datetime import datetime, timedelta
+from unittest.mock import patch
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.core.database import Base
+from app.models import Project, Task, TaskDependency, TimeSlot, User
+from app.schemas.approval_gate_schemas import ApprovalGateCreate, ApprovalGateSubmit
+from app.services.approval_gate_service import (
+    ApprovalGatePermissionError,
+    approve_approval_gate,
+    create_approval_gate,
+    list_approval_gates,
+    submit_approval_gate,
+    unapproved_gate_context,
+)
+
+
+class ApprovalGateServiceTest(unittest.TestCase):
+    def setUp(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        self.db = sessionmaker(bind=engine)()
+        self.manager = User(id=1, username="manager", display_name="项目负责人", role="分析员")
+        self.viewer = User(id=2, username="viewer", display_name="其他分析员", role="分析员")
+        self.project = Project(id=1, name="项目一", code="P-001", manager_id=1, end_date=datetime(2026, 8, 1, 18, 0))
+        self.plan = Task(id=1, project_id=1, name="方案编写", task_type="manual", requires_instrument=False, assignee_id=1, status="pending")
+        self.validation = Task(id=2, project_id=1, name="方法验证", task_type="instrument", requires_instrument=True, assignee_id=1, status="pending")
+        self.db.add_all([self.manager, self.viewer, self.project, self.plan, self.validation])
+        self.db.add(TaskDependency(task_id=2, predecessor_id=1))
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.close()
+
+    def test_create_gate_connects_predecessor_and_unlock_task(self):
+        gate = create_approval_gate(
+            self.db,
+            1,
+            ApprovalGateCreate(predecessor_task_id=1, unlock_task_ids=[2]),
+            self.manager,
+        )
+
+        self.assertTrue(gate.is_external_gate if hasattr(gate, "is_external_gate") else True)
+        stored = self.db.query(Task).filter(Task.is_external_gate.is_(True)).one()
+        dependencies = self.db.query(TaskDependency).filter(
+            (TaskDependency.task_id == stored.id) | (TaskDependency.predecessor_id == stored.id)
+        ).all()
+        self.assertEqual({1}, {item.predecessor_id for item in dependencies if item.task_id == stored.id})
+        self.assertEqual({2}, {item.task_id for item in dependencies if item.predecessor_id == stored.id})
+        self.assertEqual("waiting_external", self.db.get(Task, 2).status)
+        self.assertEqual(0, self.db.query(TimeSlot).count())
+
+    def test_non_manager_cannot_operate_gate(self):
+        with self.assertRaises(ApprovalGatePermissionError):
+            create_approval_gate(
+                self.db,
+                1,
+                ApprovalGateCreate(predecessor_task_id=1, unlock_task_ids=[2]),
+                self.viewer,
+            )
+
+    def test_expected_approval_becomes_solver_lower_bound(self):
+        gate = Task(
+            id=3,
+            project_id=1,
+            name="方案签批",
+            task_type="approval_gate",
+            is_external_gate=True,
+            gate_status="waiting_approval",
+            expected_approval_at=datetime(2026, 7, 20, 9, 0),
+            status="waiting_approval",
+        )
+        self.db.add(gate)
+        self.db.add(TaskDependency(task_id=2, predecessor_id=3))
+        self.db.commit()
+
+        bounds, forecast_ids = unapproved_gate_context(self.db, [self.validation])
+
+        self.assertEqual(datetime(2026, 7, 20, 9, 0), bounds[2])
+        self.assertEqual({2}, forecast_ids)
+
+    @patch("app.services.project_plan_apply_service.apply_project_plan")
+    def test_submit_records_expected_date(self, apply_project_plan):
+        apply_project_plan.return_value = type("Result", (), {
+            "status": "applied", "message": "预测排程已更新", "preview_token": None,
+            "schedule_run_id": "run-1", "moved_tasks": 0,
+        })()
+        gate = create_approval_gate(
+            self.db,
+            1,
+            ApprovalGateCreate(predecessor_task_id=1, unlock_task_ids=[2]),
+            self.manager,
+        )
+        result = submit_approval_gate(
+            self.db,
+            gate.id,
+            ApprovalGateSubmit(expected_approval_at=datetime.now() + timedelta(days=3)),
+            self.manager,
+        )
+
+        self.assertEqual("waiting_approval", result.gate.gate_status)
+        self.assertEqual("forecast", result.schedule_status)
+        self.assertIsNotNone(result.gate.expected_approval_at)
+
+    def test_list_pending_and_approved_counts(self):
+        create_approval_gate(
+            self.db,
+            1,
+            ApprovalGateCreate(predecessor_task_id=1, unlock_task_ids=[2]),
+            self.manager,
+        )
+
+        result = list_approval_gates(self.db, self.manager, status="pending")
+
+        self.assertEqual(1, result.total)
+        self.assertEqual(1, result.pending_count)
+        self.assertEqual(0, result.approved_count)
+
+    @patch("app.services.project_plan_apply_service.apply_project_plan")
+    def test_approved_gate_uses_actual_time_and_is_not_forecast(self, apply_project_plan):
+        apply_project_plan.return_value = type("Result", (), {
+            "status": "applied", "message": "正式排程已更新", "preview_token": None,
+            "schedule_run_id": "run-2", "moved_tasks": 0,
+        })()
+        gate_out = create_approval_gate(
+            self.db,
+            1,
+            ApprovalGateCreate(predecessor_task_id=1, unlock_task_ids=[2]),
+            self.manager,
+        )
+        gate = self.db.get(Task, gate_out.id)
+        gate.gate_status = "waiting_approval"
+        gate.status = "waiting_approval"
+        gate.expected_approval_at = datetime.now() + timedelta(days=3)
+        self.db.commit()
+
+        result = approve_approval_gate(self.db, gate.id, None, self.manager)
+        refreshed_validation = self.db.get(Task, 2)
+        bounds, forecast_ids = unapproved_gate_context(self.db, [refreshed_validation])
+
+        self.assertEqual("approved", result.gate.gate_status)
+        self.assertEqual(result.gate.approved_at, bounds[2])
+        self.assertEqual(set(), forecast_ids)
+
+    @patch("app.services.project_plan_apply_service.apply_project_plan")
+    def test_not_submitted_gate_can_be_confirmed_complete_directly(self, apply_project_plan):
+        apply_project_plan.return_value = type("Result", (), {
+            "status": "applied", "message": "正式排程已更新", "preview_token": None,
+            "schedule_run_id": "run-direct", "moved_tasks": 0,
+        })()
+        gate = create_approval_gate(
+            self.db,
+            1,
+            ApprovalGateCreate(predecessor_task_id=1, unlock_task_ids=[2]),
+            self.manager,
+        )
+
+        result = approve_approval_gate(self.db, gate.id, None, self.manager)
+
+        self.assertEqual("approved", result.gate.gate_status)
+        self.assertIsNotNone(result.gate.submitted_at)
+        self.assertEqual(result.gate.submitted_at, result.gate.approved_at)
+
+
+if __name__ == "__main__":
+    unittest.main()

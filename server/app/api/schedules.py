@@ -33,6 +33,7 @@ from app.services.schedule_night_run_service import (
 )
 from app.services.schedule_reschedule_service import reschedule as reschedule_service
 from app.services.schedule_tier_service import roll_schedule_tiers
+from app.services.approval_gate_service import scan_approval_deadlines
 from app.api.users import auth_token
 
 router = APIRouter(prefix="/api/v1/schedules", tags=["schedules"])
@@ -88,6 +89,8 @@ def start_task(slot_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="时间槽不存在")
     task = db.query(Task).filter(Task.id == slot.task_id).first()
     task.status = "running"
+    if task.project:
+        task.project.status = "active"
     started_at = datetime.now()
     for running_slot in _continuous_running_slots(db, slot):
         running_slot.status = "running"
@@ -175,7 +178,9 @@ def confirm_insert(data: InsertOrderRequest, db: Session = Depends(get_db)):
 
 @router.post("/daily-roll")
 def daily_roll(db: Session = Depends(get_db)):
-    return roll_schedule_tiers(db)
+    result = roll_schedule_tiers(db)
+    result["approval_notifications"] = scan_approval_deadlines(db)
+    return result
 
 @router.get("/my-tasks")
 def my_tasks(token: str = Depends(auth_token), db: Session = Depends(get_db)):
@@ -200,6 +205,7 @@ def my_tasks(token: str = Depends(auth_token), db: Session = Depends(get_db)):
 
     tasks_query = db.query(Task).filter(
         Task.status.in_(["pending", "running", "blocked", "scheduled", "done", "interrupted"]),
+        Task.is_external_gate.is_(False),
         not_(Task.id.in_(parent_ids)),
     )
     tasks_query = _filter_workspace_tasks_by_user(tasks_query, user)
@@ -217,6 +223,7 @@ def my_tasks(token: str = Depends(auth_token), db: Session = Depends(get_db)):
         slot = _select_workspace_slot(task_slots, now)
         task_plan_start = min((s.plan_start for s in task_slots if s.plan_start), default=None)
         task_plan_end = max((s.plan_end for s in task_slots if s.plan_end), default=None)
+        task_actual_start, task_actual_end = _task_actual_window(task_slots)
         
         inst = db.query(Instrument).filter(Instrument.id == slot.instrument_id).first() if slot else None
         
@@ -237,8 +244,8 @@ def my_tasks(token: str = Depends(auth_token), db: Session = Depends(get_db)):
             "plan_end": slot.plan_end.isoformat() if slot and slot.plan_end else None,
             "task_plan_start": task_plan_start.isoformat() if task_plan_start else None,
             "task_plan_end": task_plan_end.isoformat() if task_plan_end else None,
-            "actual_start": slot.actual_start.isoformat() if slot and slot.actual_start else None,
-            "actual_end": slot.actual_end.isoformat() if slot and slot.actual_end else None,
+            "actual_start": task_actual_start.isoformat() if task_actual_start else None,
+            "actual_end": task_actual_end.isoformat() if task_actual_end else None,
             "status": task.status,
             "tier": slot.tier if slot else "unscheduled",
             "est_duration_hours": task.est_duration_hours,
@@ -310,6 +317,12 @@ def _select_workspace_slot(slots: list[TimeSlot], now: datetime) -> Optional[Tim
         return open_slot
 
     return slots[-1] if slots else None
+
+
+def _task_actual_window(slots: list[TimeSlot]) -> tuple[datetime | None, datetime | None]:
+    actual_start = min((slot.actual_start for slot in slots if slot.actual_start), default=None)
+    actual_end = max((slot.actual_end for slot in slots if slot.actual_end), default=None)
+    return actual_start, actual_end
 
 def _empty_delay_fields() -> dict:
     return {

@@ -12,7 +12,7 @@ const routes = [
     component: AppLayout,
     meta: { requiresAuth: true },
     children: [
-      { path: '', redirect: '/dashboard' },
+      { path: '', redirect: '/operations/lab-dashboard' },
       { path: 'dashboard', component: () => import('@/pages/Dashboard.vue') },
       { path: 'operations/lab-dashboard', component: () => import('@/pages/operations/LabOperationsDashboard.vue') },
       { path: 'operations/reports', component: () => import('@/pages/operations/DetailedReports.vue') },
@@ -22,6 +22,7 @@ const routes = [
       { path: 'kanban/project-gantt', component: () => import('@/pages/kanban/ProjectGantt.vue') },
       { path: 'kanban/human-gantt', component: () => import('@/pages/kanban/HumanGantt.vue') },
       { path: 'tasks/workspace', component: () => import('@/pages/tasks/PersonalWorkspace.vue') },
+      { path: 'tasks/approvals', component: () => import('@/pages/tasks/ApprovalCenter.vue') },
       { path: 'tasks/faults', component: () => import('@/pages/tasks/InstrumentFaults.vue') },
       { path: 'projects/ledger', component: () => import('@/pages/ProjectBoard.vue') },
       { path: 'projects/plan-breakdown', component: () => import('@/pages/projects/PlanBreakdown.vue') },
@@ -43,7 +44,7 @@ const router = createRouter({ history: createWebHistory(), routes })
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000
 const ANALYST_ROLE = '分析员'
 const ANALYST_ALLOWED_PATHS = ['/dashboard']
-const ANALYST_ALLOWED_PREFIXES = ['/operations/', '/tasks/', '/projects/']
+const ANALYST_ALLOWED_PREFIXES = ['/operations/', '/kanban/', '/tasks/', '/projects/']
 
 function clearSession() {
   localStorage.removeItem('token')
@@ -63,11 +64,11 @@ router.beforeEach((to, _from, next) => {
   if (to.meta.requiresAuth && !token) {
     next('/login')
   } else if (to.meta.requiresAdmin && getStoredUserRole() !== '系统管理员') {
-    next('/dashboard')
+    next('/operations/lab-dashboard')
   } else if (isAnalystBlockedPath(to.path)) {
-    next('/dashboard')
+    next('/operations/lab-dashboard')
   } else if (to.path === '/login' && token) {
-    next('/dashboard')
+    next('/operations/lab-dashboard')
   } else {
     next()
   }

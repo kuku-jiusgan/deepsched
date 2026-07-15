@@ -33,6 +33,8 @@ def get_visible_project_dag(db, project_id: int, user) -> dict:
                 "type": task.task_type,
                 "requires_instrument": task.requires_instrument,
                 "status": task.status,
+                "is_external_gate": bool(task.is_external_gate),
+                "gate_status": task.gate_status,
             }
             for task in tasks
         ],

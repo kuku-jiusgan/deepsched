@@ -1,0 +1,135 @@
+import unittest
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.core.database import Base
+from app.api.projects import _task_to_out
+from app.models import Project, Task, TaskDependency, TaskTypeConfig, User
+from app.schemas.project_plan_draft_schemas import ProjectPlanDraftCommitIn, ProjectPlanDraftTaskIn
+from app.services.project_plan_draft_service import (
+    ProjectPlanDraftInvalidError,
+    commit_project_plan_drafts,
+)
+from app.services.project_plan_change_service import delete_task_plan
+
+
+class ProjectPlanDraftServiceTest(unittest.TestCase):
+    def setUp(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        self.db = sessionmaker(bind=engine)()
+        self.manager = User(id=1, username="manager", display_name="负责人", role="分析员")
+        self.project = Project(id=1, name="草稿项目", code="DRAFT-1", estimated_hours=100, manager_id=1)
+        self.db.add_all([self.manager, self.project])
+        for code in ["FFKF_001", "QCFA_001", "FFYZ_001", "ZXBG_001"]:
+            self.db.add(TaskTypeConfig(name=code, code=code, resource_type="both", is_active=True))
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.close()
+
+    def test_commit_maps_client_ids_and_preserves_approval_restriction(self):
+        data = ProjectPlanDraftCommitIn(tasks=[
+            self._task(-1, "方法开发", "FFKF_001", 70),
+            self._task(-2, "方案撰写", "QCFA_001", 5, predecessors=[-1]),
+            self._task(-3, "方案签批", "approval_gate", None, predecessors=[-2], is_gate=True),
+            self._task(-4, "方法验证", "FFYZ_001", 20, predecessors=[-3]),
+            self._task(-5, "报告撰写", "ZXBG_001", 5, predecessors=[-4]),
+        ])
+
+        result = commit_project_plan_drafts(self.db, 1, data, self.manager)
+
+        tasks = self.db.query(Task).filter(Task.project_id == 1).all()
+        by_name = {task.name: task for task in tasks}
+        dependencies = {
+            (item.predecessor_id, item.task_id)
+            for item in self.db.query(TaskDependency).all()
+        }
+        self.assertEqual(5, result.created)
+        self.assertEqual("waiting_external", by_name["方法验证"].status)
+        self.assertEqual("waiting_external", by_name["报告撰写"].status)
+        self.assertTrue(by_name["方案签批"].is_external_gate)
+        saved_gate = _task_to_out(by_name["方案签批"], self.db)
+        self.assertTrue(saved_gate.is_external_gate)
+        self.assertEqual("approval_gate", saved_gate.task_type)
+        self.assertEqual("not_submitted", saved_gate.gate_status)
+        self.assertIn((by_name["方案签批"].id, by_name["方法验证"].id), dependencies)
+
+    def test_hours_over_project_limit_rolls_back_whole_batch(self):
+        data = ProjectPlanDraftCommitIn(tasks=[
+            self._task(-1, "超限任务", "FFKF_001", 101),
+        ])
+
+        with self.assertRaises(ProjectPlanDraftInvalidError):
+            commit_project_plan_drafts(self.db, 1, data, self.manager)
+
+        self.assertEqual(0, self.db.query(Task).count())
+
+    def test_missing_client_reference_is_rejected_before_insert(self):
+        data = ProjectPlanDraftCommitIn(tasks=[
+            self._task(-1, "错误依赖", "FFKF_001", 10, predecessors=[-99]),
+        ])
+
+        with self.assertRaises(ProjectPlanDraftInvalidError):
+            commit_project_plan_drafts(self.db, 1, data, self.manager)
+
+        self.assertEqual(0, self.db.query(Task).count())
+
+    def test_method_task_without_instrument_is_rejected(self):
+        data = ProjectPlanDraftCommitIn(tasks=[
+            self._task(-1, "方法开发", "FFKF_001", 10, instrument_ids=[]),
+        ])
+
+        with self.assertRaisesRegex(ProjectPlanDraftInvalidError, "必须指定仪器"):
+            commit_project_plan_drafts(self.db, 1, data, self.manager)
+
+        self.assertEqual(0, self.db.query(Task).count())
+
+    def test_deleting_saved_approval_gate_restores_plan_chain(self):
+        data = ProjectPlanDraftCommitIn(tasks=[
+            self._task(-1, "方案撰写", "QCFA_001", 5),
+            self._task(-2, "方案签批", "approval_gate", None, predecessors=[-1], is_gate=True),
+            self._task(-3, "方法验证", "FFYZ_001", 20, predecessors=[-2]),
+            self._task(-4, "报告撰写", "ZXBG_001", 5, predecessors=[-3]),
+        ])
+        commit_project_plan_drafts(self.db, 1, data, self.manager)
+        tasks = {task.name: task for task in self.db.query(Task).filter(Task.project_id == 1).all()}
+
+        delete_task_plan(self.db, tasks["方案签批"].id)
+
+        dependencies = {
+            (item.predecessor_id, item.task_id)
+            for item in self.db.query(TaskDependency).all()
+        }
+        self.assertIsNone(self.db.get(Task, tasks["方案签批"].id))
+        self.assertIn((tasks["方案撰写"].id, tasks["方法验证"].id), dependencies)
+        self.assertEqual("pending", self.db.get(Task, tasks["方法验证"].id).status)
+        self.assertTrue(self.db.get(Task, tasks["报告撰写"].id).schedule_dirty)
+
+    def _task(
+        self,
+        client_id: int,
+        name: str,
+        task_type: str,
+        hours: float | None,
+        predecessors: list[int] | None = None,
+        is_gate: bool = False,
+        instrument_ids: list[int] | None = None,
+    ) -> ProjectPlanDraftTaskIn:
+        return ProjectPlanDraftTaskIn(
+            client_id=client_id,
+            name=name,
+            task_type=task_type,
+            requires_instrument=task_type in {"FFKF_001", "FFYZ_001"},
+            requires_human=not is_gate,
+            estimated_hours=hours,
+            assignee_id=None if is_gate else 1,
+            predecessor_ids=predecessors or [],
+            instrument_ids=(instrument_ids if instrument_ids is not None else ([1] if task_type in {"FFKF_001", "FFYZ_001"} else [])),
+            is_external_gate=is_gate,
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

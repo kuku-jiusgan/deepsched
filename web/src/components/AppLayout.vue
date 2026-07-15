@@ -136,7 +136,7 @@ import {
   ApartmentOutlined, TableOutlined, ToolOutlined,
   ThunderboltOutlined, SwapOutlined, DollarOutlined,
   BellOutlined, TeamOutlined, CalendarOutlined, LogoutOutlined,
-  MenuFoldOutlined, MenuUnfoldOutlined,
+  MenuFoldOutlined, MenuUnfoldOutlined, HomeOutlined,
 } from '@ant-design/icons-vue'
 import {
   changeMyPassword,
@@ -180,6 +180,7 @@ const iconMap: Record<string, any> = {
   ApartmentOutlined, TableOutlined, ToolOutlined,
   ThunderboltOutlined, SwapOutlined, DollarOutlined,
   BellOutlined, TeamOutlined, CalendarOutlined, LogoutOutlined,
+  HomeOutlined,
 }
 
 function icon(name: string) {
@@ -187,16 +188,16 @@ function icon(name: string) {
 }
 
 const ANALYST_ROLE = '分析员'
-const ANALYST_MENU_KEYS = new Set(['/operations', '/tasks', '/projects'])
+const ANALYST_MENU_KEYS = new Set(['/operations/lab-dashboard', '/kanban', '/tasks', '/projects'])
 
 const baseMenuItems = [
-  { key: '/operations', icon: icon('FundOutlined'), label: '运营数据中台', children: [
+  { key: '/operations/lab-dashboard', icon: icon('HomeOutlined'), label: '首页' },
+  { key: '/operations', icon: icon('FundOutlined'), label: '运营数据中台', hidden: true, children: [
     { key: '/dashboard', icon: icon('DashboardOutlined'), label: '核心 KPI 仪表盘' },
-    { key: '/operations/lab-dashboard', icon: icon('DesktopOutlined'), label: '实验室运营看板' },
     { key: '/operations/reports', icon: icon('FileTextOutlined'), label: '精细化运营报表' },
     { key: '/operations/lab-status', icon: icon('DesktopOutlined'), label: '实验室状态大屏' },
   ]},
-  { key: '/kanban', icon: icon('AppstoreOutlined'), label: '交互式看板', children: [
+  { key: '/kanban', icon: icon('AppstoreOutlined'), label: '资源看板', children: [
     { key: '/kanban/instrument-gantt', icon: icon('BarChartOutlined'), label: '仪器甘特图' },
     { key: '/kanban/project-gantt', icon: icon('BarChartOutlined'), label: '项目甘特图' },
     { key: '/kanban/human-gantt', icon: icon('TeamOutlined'), label: '人力甘特图' },
@@ -231,10 +232,10 @@ const menuItems = computed(() => {
 
 function filterMenuItems(items: typeof baseMenuItems, role?: string) {
   return items
-    .filter(item => role !== ANALYST_ROLE || ANALYST_MENU_KEYS.has(item.key))
+    .filter(item => !item.hidden && (role !== ANALYST_ROLE || ANALYST_MENU_KEYS.has(item.key)))
     .map(item => ({
       ...item,
-      children: item.children?.filter(child => !child.adminOnly || role === '系统管理员'),
+      children: item.children?.filter(child => !('adminOnly' in child) || !child.adminOnly || role === '系统管理员'),
     }))
     .filter(item => !item.children || item.children.length > 0)
 }
@@ -451,6 +452,9 @@ function notificationTypeLabel(type: string) {
     task_start_delay: '开始延迟',
     task_end_delay: '结束延期',
     hours_exceeded: '工时超标',
+    approval_pending: '方案待提交',
+    approval_due: '签批提醒',
+    approval_schedule_result: '签批排程',
   }
   return labels[type] || type
 }
@@ -463,6 +467,9 @@ function notificationTypeColor(type: string) {
     task_start_delay: 'gold',
     task_end_delay: 'volcano',
     hours_exceeded: 'purple',
+    approval_pending: 'default',
+    approval_due: 'orange',
+    approval_schedule_result: 'green',
   }
   return colors[type] || 'default'
 }
@@ -485,213 +492,4 @@ onBeforeUnmount(() => {
 })
 </script>
 
-<style scoped>
-.app-sider {
-  background: #17223a !important;
-  border-right: none;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  transition: flex-basis 0.2s ease, max-width 0.2s ease, min-width 0.2s ease, width 0.2s ease;
-}
-
-.brand-panel {
-  min-height: 142px;
-  padding: 18px 18px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 12px;
-}
-
-.brand-panel-collapsed {
-  min-height: 142px;
-  padding: 18px 11px 16px;
-  align-items: center;
-  justify-content: flex-start;
-}
-
-.brand-panel-head {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.sider-toggle {
-  flex-shrink: 0;
-  color: rgba(255, 255, 255, 0.72);
-}
-
-.sider-toggle:hover,
-.sider-toggle:focus-visible {
-  color: #ffffff !important;
-  background: rgba(255, 255, 255, 0.1) !important;
-}
-
-.brand-panel-collapsed .sider-toggle {
-  margin-top: 10px;
-}
-
-.brand-panel-collapsed .brand-panel-head {
-  flex-direction: column;
-}
-
-.brand-mark {
-  width: 42px;
-  height: 42px;
-  flex-shrink: 0;
-  overflow: hidden;
-  border-radius: 9px;
-  background-color: #ffffff;
-  background-image: url('/公司logo.png');
-  background-repeat: no-repeat;
-  background-position: left center;
-  background-size: 176px auto;
-  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.9);
-}
-
-.brand-copy {
-  min-width: 0;
-  color: #ffffff;
-}
-
-.brand-institute {
-  color: rgba(255, 255, 255, 0.82);
-  font-size: 12px;
-  line-height: 1.35;
-  font-weight: 600;
-  letter-spacing: 0;
-  white-space: nowrap;
-}
-
-.brand-platform {
-  margin-top: 5px;
-  color: #ffffff;
-  font-size: 17px;
-  line-height: 1.2;
-  font-weight: 750;
-  letter-spacing: 0;
-}
-
-.app-menu {
-  background: transparent;
-  border-right: none;
-  margin-top: 12px;
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-.app-content {
-  position: relative;
-  margin: 20px;
-  padding: 24px;
-  background: var(--color-surface);
-  border-radius: 10px;
-  overflow: auto;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-}
-
-.page-top-actions {
-  position: absolute;
-  top: 18px;
-  right: 24px;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.current-user {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 30px;
-  margin-right: 0;
-  line-height: 30px;
-}
-
-.notification-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.notification-panel {
-  width: 360px;
-  max-width: calc(100vw - 48px);
-}
-
-.notification-panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--color-border-light);
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.notification-list {
-  max-height: 420px;
-  overflow: auto;
-  padding-top: 8px;
-}
-
-.notification-item {
-  padding: 10px 0;
-  border-bottom: 1px solid var(--color-border-light);
-  cursor: pointer;
-}
-
-.notification-item:last-child {
-  border-bottom: none;
-}
-
-.notification-item:hover .notification-title {
-  color: var(--color-accent);
-}
-
-.notification-item-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 0.75rem;
-  color: var(--color-text-tertiary);
-}
-
-.notification-title {
-  margin-top: 6px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--color-text-primary);
-}
-
-.notification-content {
-  margin-top: 4px;
-  color: var(--color-text-secondary);
-  font-size: 0.82rem;
-  line-height: 1.55;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.notification-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 8px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .app-sider {
-    transition: none;
-  }
-}
-</style>
+<style scoped src="./AppLayout.css"></style>

@@ -22,7 +22,11 @@
         @start="handleStart"
         @complete="handleComplete"
         @refreshed="fetchData"
-      />
+      >
+        <template #additional-group>
+          <ApprovalConfirmationGroup :approval-gates="approvalGates" @refreshed="fetchData" />
+        </template>
+      </TodayTaskCards>
 
       <a-table v-if="activeTab !== 'active'" :dataSource="filtered" :columns="columns" rowKey="slot_id" size="middle"
         :pagination="{ pageSize: 20, showSizeChanger: true }">
@@ -42,7 +46,7 @@
             <span style="margin-left: 6px; font-size: 12px; color: #64748b">{{ record.project_name }}</span>
           </template>
           <template v-else-if="column.key === 'instrument'">
-            {{ record.instrument_name || record.instrument_code || '-' }}
+            {{ formatInstrument(record) }}
           </template>
           <template v-else-if="column.key === 'plan_start'">
             {{ formatTaskPlanStart(record) }}
@@ -107,12 +111,16 @@ import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { CheckCircleOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import {
-  getMyTasks, startTask, completeTask, getTaskTypes, type MyTask,
+  getApprovalGates, getMyTasks, startTask, completeTask, getTaskTypes, type MyTask,
 } from '@/services/api'
+import type { ApprovalGate } from '@/types'
 import TodayTaskCards from './TodayTaskCards.vue'
+import ApprovalConfirmationGroup from './ApprovalConfirmationGroup.vue'
+import './workspaceActionButtons.css'
 import dayjs from 'dayjs'
 
 const tasks = ref<MyTask[]>([])
+const approvalGates = ref<ApprovalGate[]>([])
 const loading = ref(true)
 const activeTab = ref<string>('active')
 const actingId = ref<number | null>(null)
@@ -125,17 +133,17 @@ const EARLY_RELEASE_THRESHOLD_MINUTES = 30
 
 const cardTasks = computed(() => {
   if (activeTab.value === 'active') {
-    return tasks.value.filter(task => task.status === 'running' || isReadyToStart(task))
+    return tasks.value.filter(task => task.status === 'running' || isTodayPendingTask(task))
   }
   if (activeTab.value === 'pending') {
-    return tasks.value.filter(task => ['pending', 'scheduled'].includes(task.status) && !isReadyToStart(task))
+    return tasks.value.filter(task => ['pending', 'scheduled'].includes(task.status) && !isTodayPendingTask(task))
   }
   return []
 })
 
-function isReadyToStart(task: MyTask) {
+function isTodayPendingTask(task: MyTask) {
   if (!['pending', 'scheduled'].includes(task.status) || !task.plan_start) return false
-  return !dayjs(task.plan_start).isAfter(dayjs())
+  return dayjs(task.plan_start).isSame(dayjs(), 'day')
 }
 
 const filtered = computed(() => {
@@ -177,6 +185,13 @@ function formatDateTime(value: string | null | undefined) {
   return value ? dayjs(value).format('MM-DD HH:mm') : '-'
 }
 
+function formatInstrument(record: MyTask) {
+  if (record.instrument_code && record.instrument_name) {
+    return `${record.instrument_code} · ${record.instrument_name}`
+  }
+  return record.instrument_code || record.instrument_name || '-'
+}
+
 function formatTaskPlanStart(record: MyTask) {
   return formatDateTime(record.task_plan_start || record.plan_start)
 }
@@ -198,9 +213,13 @@ const columns = [
 ]
 
 async function fetchData() {
-  loading.value = true
   try {
-    tasks.value = await getMyTasks()
+    const [taskResult, approvalResult] = await Promise.all([
+      getMyTasks(),
+      getApprovalGates({ page_size: 500 }),
+    ])
+    tasks.value = taskResult
+    approvalGates.value = approvalResult.items
     loadTaskTypes()
   } catch {
     message.error('加载工作台失败')

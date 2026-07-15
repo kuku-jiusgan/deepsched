@@ -51,7 +51,8 @@
           <div v-else class="task-block is-idle">
             <span>下一任务</span>
             <strong>{{ item.next_task || '暂无待执行任务' }}</strong>
-            <em>{{ formatNextStart(item.next_start) }}</em>
+            <em>{{ item.next_project || '未关联项目' }} · {{ item.next_user || '未分配' }}</em>
+            <small>{{ formatNextStart(item.next_start) }}</small>
             <div class="progress-placeholder"></div>
           </div>
         </button>
@@ -80,7 +81,11 @@
                 <div><dt>当前任务</dt><dd>{{ selectedInstrument.current_task || '未占用' }}</dd></div>
                 <div><dt>预计完成</dt><dd>{{ formatExpectedEnd(selectedInstrument.current_task_end) }}</dd></div>
                 <div><dt>负责人</dt><dd>{{ selectedInstrument.current_user || '未分配' }}</dd></div>
+                <div><dt>下一项目</dt><dd>{{ selectedInstrument.next_project || '暂无待执行项目' }}</dd></div>
+                <div><dt>下一项目编号</dt><dd>{{ selectedInstrument.next_project_code || '-' }}</dd></div>
                 <div><dt>下一任务</dt><dd>{{ selectedInstrument.next_task || '暂无待执行任务' }}</dd></div>
+                <div><dt>下一负责人</dt><dd>{{ selectedInstrument.next_user || '未分配' }}</dd></div>
+                <div><dt>预计开始</dt><dd>{{ formatNextStart(selectedInstrument.next_start) }}</dd></div>
                 <div><dt>仪器利用率</dt><dd>{{ utilizationText(selectedInstrument.id) }}</dd></div>
               </dl>
             </div>
@@ -108,7 +113,11 @@
                     <div><dt>当前任务</dt><dd>{{ item.current_task || '未占用' }}</dd></div>
                     <div><dt>预计完成</dt><dd>{{ formatExpectedEnd(item.current_task_end) }}</dd></div>
                     <div><dt>负责人</dt><dd>{{ item.current_user || '未分配' }}</dd></div>
+                    <div><dt>下一项目</dt><dd>{{ item.next_project || '暂无待执行项目' }}</dd></div>
+                    <div><dt>下一项目编号</dt><dd>{{ item.next_project_code || '-' }}</dd></div>
                     <div><dt>下一任务</dt><dd>{{ item.next_task || '暂无待执行任务' }}</dd></div>
+                    <div><dt>下一负责人</dt><dd>{{ item.next_user || '未分配' }}</dd></div>
+                    <div><dt>预计开始</dt><dd>{{ formatNextStart(item.next_start) }}</dd></div>
                     <div><dt>仪器利用率</dt><dd>{{ utilizationText(item.id) }}</dd></div>
                   </dl>
                 </div>
@@ -123,15 +132,23 @@
             <span>延期预警</span>
             <em v-if="warningTasks.length">{{ warningTasks.length }} 项</em>
           </div>
-          <div v-if="warningTasks.length" class="compact-list">
-            <div v-for="item in warningTasks.slice(0, WARNING_TASK_DISPLAY_LIMIT)" :key="`warning-task-${item.id}`" class="warning-task-row">
-              <div class="warning-task-head">
-                <strong>{{ item.project_code || '未关联项目' }}</strong>
-                <em>{{ warningTaskStatus(item) }}</em>
+          <div
+            v-if="warningTasks.length"
+            class="warning-viewport"
+            :style="{ '--warning-scroll-duration': warningScrollDuration }"
+          >
+            <div class="warning-scroll-track" :class="{ 'is-scrolling': isWarningScrollEnabled }">
+              <div v-for="copyIndex in warningCopyCount" :key="`warning-copy-${copyIndex}`" class="warning-scroll-copy">
+                <div v-for="item in warningTasks" :key="`warning-task-${copyIndex}-${item.id}`" class="warning-task-row">
+                  <div class="warning-task-head">
+                    <strong>{{ item.project_code || '未关联项目' }}</strong>
+                    <em>{{ warningTaskStatus(item) }}</em>
+                  </div>
+                  <span>{{ item.task_name || '-' }}</span>
+                  <small>{{ item.instrument_code || item.instrument_name || '-' }} · {{ item.assignee_name || '未分配' }}</small>
+                  <small>{{ warningTaskReason(item) }}</small>
+                </div>
               </div>
-              <span>{{ item.task_name || '-' }}</span>
-              <small>{{ item.instrument_code || item.instrument_name || '-' }} · {{ item.assignee_name || '未分配' }}</small>
-              <small>{{ warningTaskReason(item) }}</small>
             </div>
           </div>
           <a-empty v-else :image="Empty.PRESENTED_IMAGE_SIMPLE" description="暂无延期预警" />
@@ -178,7 +195,9 @@ const CLOCK_INTERVAL_MS = 1_000
 const DETAIL_SCROLL_SECONDS_PER_ITEM = 9
 const DETAIL_SCROLL_MIN_SECONDS = 42
 const DETAIL_PIN_DURATION_MS = 6_000
-const WARNING_TASK_DISPLAY_LIMIT = 2
+const WARNING_SCROLL_THRESHOLD = 2
+const WARNING_SCROLL_SECONDS_PER_ITEM = 6
+const WARNING_SCROLL_MIN_SECONDS = 18
 
 const dashboard = ref<DashboardData | null>(null)
 const instruments = ref<DashboardInstrument[]>([])
@@ -202,6 +221,12 @@ const utilizationByInstrument = computed(() => new Map(utilization.value.map(ite
 const warningTasks = computed(() => timeSlots.value
   .filter(isWarningTask)
   .sort((left, right) => warningSortTime(right) - warningSortTime(left)))
+const isWarningScrollEnabled = computed(() => warningTasks.value.length > WARNING_SCROLL_THRESHOLD)
+const warningCopyCount = computed(() => isWarningScrollEnabled.value ? 2 : 1)
+const warningScrollDuration = computed(() => {
+  const seconds = Math.max(WARNING_SCROLL_MIN_SECONDS, warningTasks.value.length * WARNING_SCROLL_SECONDS_PER_ITEM)
+  return `${seconds}s`
+})
 const detailScrollDuration = computed(() => {
   const seconds = Math.max(DETAIL_SCROLL_MIN_SECONDS, instruments.value.length * DETAIL_SCROLL_SECONDS_PER_ITEM)
   return `${seconds}s`
@@ -400,528 +425,4 @@ onUnmounted(() => {
 })
 </script>
 
-<style scoped>
-.lab-ops-screen {
-  box-sizing: border-box;
-  min-height: calc(100vh - 40px);
-  margin: -24px;
-  padding: 20px;
-  display: grid;
-  grid-template-rows: auto;
-  gap: 12px;
-  background: #eef4fb;
-  color: #1e293b;
-}
-
-.screen-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 18px;
-  padding-right: 230px;
-}
-
-.screen-header h2 {
-  margin: 0;
-  font-size: 22px;
-  line-height: 1.2;
-}
-
-.screen-clock {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-  color: #64748b;
-  font-size: 12px;
-}
-
-.screen-clock strong {
-  color: #1e293b;
-  font-family: var(--font-mono);
-  font-size: 17px;
-}
-
-.kpi-strip {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(132px, 1fr));
-  gap: 10px;
-}
-
-.kpi-item {
-  min-height: 72px;
-  padding: 12px;
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  border: 1px solid #dbe7f3;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.86);
-}
-
-.kpi-item > .anticon {
-  width: 34px;
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 7px;
-  background: #eff6ff;
-  color: #2563eb;
-  font-size: 17px;
-}
-
-.kpi-item strong {
-  display: block;
-  color: #0f172a;
-  font-size: 22px;
-  line-height: 1.05;
-}
-
-.kpi-item span {
-  display: block;
-  font-size: 12px;
-}
-
-.kpi-item span { margin-top: 4px; color: #475569; }
-.kpi-item.running > .anticon { color: #16a34a; background: #f0fdf4; }
-.kpi-item.idle > .anticon { color: #2563eb; background: #eff6ff; }
-.kpi-item.warning > .anticon { color: #ea580c; background: #fff7ed; }
-.kpi-item.danger > .anticon { color: #dc2626; background: #fef2f2; }
-
-.screen-main {
-  --instrument-row-height: 212px;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 12px;
-}
-
-.instrument-grid {
-  min-height: 0;
-  overflow: visible;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-auto-rows: var(--instrument-row-height);
-  align-content: start;
-  gap: 12px;
-}
-
-.instrument-card {
-  min-height: 0;
-  height: 100%;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  text-align: left;
-  border: 1px solid #dbe7f3;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.92);
-  cursor: pointer;
-  transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
-}
-
-.instrument-card:hover,
-.instrument-card.selected {
-  border-color: #93c5fd;
-  box-shadow: 0 3px 8px rgba(37, 99, 235, 0.12);
-  transform: translateY(-1px);
-}
-
-.card-topline {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.instrument-code {
-  max-width: 152px;
-  overflow: hidden;
-  color: #2563eb;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 750;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.status-pill {
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: #eff6ff;
-  color: #1d4ed8;
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.instrument-card.running .status-pill { background: #f0fdf4; color: #15803d; }
-.instrument-card.fault .status-pill { background: #fef2f2; color: #b91c1c; }
-.instrument-card.maint .status-pill { background: #fff7ed; color: #c2410c; }
-
-.instrument-title strong,
-.instrument-title span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.instrument-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.instrument-title strong {
-  min-width: 0;
-  color: #1e293b;
-  font-size: 15px;
-  flex: 1;
-}
-
-.instrument-title span {
-  flex: 0 1 auto;
-  max-width: 46%;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: #f1f5f9;
-  color: #64748b;
-  font-size: 11px;
-}
-
-.task-block {
-  margin-top: auto;
-  width: 100%;
-  align-self: stretch;
-  height: 108px;
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
-  border-radius: 7px;
-  background: #f8fafc;
-}
-
-.task-block span,
-.task-block strong,
-.task-block em {
-  display: block;
-}
-
-.task-block span {
-  color: #94a3b8;
-  font-size: 11px;
-  line-height: 16px;
-}
-
-.task-block strong {
-  margin-top: 3px;
-  color: #1e293b;
-  font-size: 13px;
-  line-height: 18px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.task-block em {
-  margin: 2px 0 8px;
-  color: #64748b;
-  font-size: 12px;
-  font-style: normal;
-  line-height: 17px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.task-block :deep(.ant-progress) {
-  margin-top: auto;
-  line-height: 1;
-}
-
-.progress-placeholder {
-  height: 8px;
-  margin-top: auto;
-  border-radius: 999px;
-  background: transparent;
-}
-
-.task-block.is-idle { background: #eff6ff; }
-
-.side-panel {
-  min-height: 0;
-  overflow: visible;
-  display: grid;
-  grid-template-rows:
-    calc(var(--instrument-row-height) * 2 + 12px)
-    var(--instrument-row-height);
-  gap: 12px;
-  align-content: start;
-}
-
-.panel-card {
-  min-height: 0;
-  height: 100%;
-  padding: 13px;
-  overflow: hidden;
-  border: 1px solid #dbe7f3;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.9);
-}
-
-.panel-title {
-  margin-bottom: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  color: #1e293b;
-  font-size: 13px;
-  font-weight: 750;
-}
-
-.panel-title em {
-  color: #b91c1c;
-  font-size: 11px;
-  font-style: normal;
-  font-weight: 650;
-}
-
-.detail-viewport {
-  position: relative;
-  height: 100%;
-  overflow: hidden;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%);
-  mask-image: linear-gradient(to bottom, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%);
-}
-
-.detail-scroll-track {
-  animation: detail-scroll var(--detail-scroll-duration, 54s) linear infinite;
-  will-change: transform;
-}
-
-.detail-scroll-copy {
-  display: grid;
-  gap: 12px;
-  padding-bottom: 12px;
-}
-
-.detail-viewport:hover .detail-scroll-track {
-  animation-play-state: paused;
-}
-
-.selected-detail {
-  min-height: var(--instrument-row-height);
-  padding: 8px 2px 12px;
-  cursor: pointer;
-}
-
-.selected-detail.is-pinned {
-  min-height: 100%;
-}
-
-.selected-detail.selected {
-  border-radius: 7px;
-  background: #f8fafc;
-}
-
-.selected-head {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-bottom: 10px;
-}
-
-.selected-head strong,
-.selected-head span {
-  display: block;
-}
-
-.selected-head strong {
-  color: #2563eb;
-  font-family: var(--font-mono);
-  font-size: 13px;
-}
-
-.selected-head span {
-  color: #475569;
-  font-size: 12px;
-}
-
-.detail-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #2563eb;
-}
-
-.detail-dot.running { background: #16a34a; }
-.detail-dot.fault { background: #dc2626; }
-.detail-dot.maint { background: #ea580c; }
-
-.detail-list {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-}
-
-.detail-list div {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 8px;
-}
-
-.detail-list dt {
-  color: #94a3b8;
-  font-size: 12px;
-}
-
-.detail-list dd {
-  margin: 0;
-  color: #334155;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-
-
-@keyframes detail-scroll {
-  from {
-    transform: translateY(0);
-  }
-
-  to {
-    transform: translateY(-50%);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .detail-scroll-track {
-    animation: none;
-  }
-}
-
-.compact-list {
-  display: grid;
-  gap: 7px;
-}
-
-.compact-row {
-  display: grid;
-  grid-template-columns: 68px minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  padding: 7px 8px;
-  border-radius: 6px;
-  background: #f8fafc;
-}
-
-.compact-row strong {
-  color: #2563eb;
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-
-.compact-row span {
-  overflow: hidden;
-  color: #334155;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.compact-row em {
-  color: #64748b;
-  font-size: 11px;
-  font-style: normal;
-}
-
-.compact-row.is-warning strong,
-.compact-row.is-warning em {
-  color: #dc2626;
-}
-
-.warning-task-row {
-  display: grid;
-  gap: 3px;
-  padding: 8px;
-  border-radius: 6px;
-  background: #fef2f2;
-}
-
-.warning-task-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.warning-task-head strong {
-  overflow: hidden;
-  color: #b91c1c;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.warning-task-head em {
-  flex-shrink: 0;
-  color: #dc2626;
-  font-size: 11px;
-  font-style: normal;
-  font-weight: 650;
-}
-
-.warning-task-row span,
-.warning-task-row small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.warning-task-row span {
-  color: #1e293b;
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.warning-task-row small {
-  color: #64748b;
-  font-size: 11px;
-}
-
-@media (max-width: 1180px) {
-  .kpi-strip { grid-template-columns: repeat(3, 1fr); }
-  .screen-main { grid-template-columns: 1fr; }
-  .side-panel {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-rows: 320px;
-  }
-}
-
-@media (max-width: 820px) {
-  .lab-ops-screen {
-    height: auto;
-    min-height: calc(100vh - 88px);
-    margin: -16px;
-    padding: 12px;
-    overflow: visible;
-  }
-  .screen-header { flex-direction: column; padding-right: 0; }
-  .screen-clock { align-items: flex-start; }
-  .kpi-strip,
-  .side-panel { grid-template-columns: 1fr; }
-  .side-panel {
-    grid-template-rows:
-      calc(var(--instrument-row-height) * 2 + 12px)
-      var(--instrument-row-height);
-  }
-  .instrument-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-
-@media (max-width: 620px) {
-  .instrument-grid { grid-template-columns: 1fr; }
-}
-</style>
+<style scoped src="./LabOperationsDashboard.css"></style>

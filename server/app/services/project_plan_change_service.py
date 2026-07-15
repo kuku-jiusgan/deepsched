@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from app.models import Project, Task, TaskDependency, TimeSlot
+from app.models import Project, Task, TaskCapabilityRequirement, TaskDependency, TimeSlot
 from app.schemas.schemas import ProjectCreate, TaskUpdate
 from app.services.project_hours_validation_service import (
     ProjectHoursExceededError,
@@ -34,6 +34,32 @@ class PlanChangeNotFoundError(Exception):
 
 class PlanChangeInvalidError(Exception):
     pass
+
+
+def delete_task_plan(db, task_id: int) -> None:
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task:
+        raise PlanChangeNotFoundError("任务不存在")
+    project_id = task.project_id
+    bridge_pairs: set[tuple[int, int]] = set()
+    affected_tasks: list[Task] = []
+    if task.is_external_gate:
+        bridge_pairs, affected_tasks = _prepare_approval_gate_deletion(db, task)
+
+    db.query(TaskDependency).filter(
+        (TaskDependency.predecessor_id == task_id) | (TaskDependency.task_id == task_id)
+    ).delete(synchronize_session=False)
+    db.query(TaskCapabilityRequirement).filter(TaskCapabilityRequirement.task_id == task_id).delete()
+    db.query(TimeSlot).filter(TimeSlot.task_id == task_id).delete()
+    db.delete(task)
+    db.flush()
+    _restore_bridged_dependencies(db, bridge_pairs)
+    for affected_task in affected_tasks:
+        if affected_task.status == "waiting_external":
+            affected_task.status = "pending"
+        affected_task.schedule_dirty = True
+    recalculate_project_parent_hours(db, project_id)
+    db.commit()
 
 
 def update_project_plan(db, project_id: int, data: ProjectCreate) -> Project:
@@ -144,6 +170,38 @@ def _ensure_schedule_fields_editable(db, task: Task, is_structure_change: bool) 
     if protected:
         names = "、".join(item.name for item in protected[:3])
         raise PlanChangeInvalidError(f"下游存在固定任务【{names}】，不能修改当前任务的排程字段")
+
+
+def _prepare_approval_gate_deletion(db, gate: Task) -> tuple[set[tuple[int, int]], list[Task]]:
+    affected_tasks = [task for task in _downstream_tasks(db, gate) if task.id != gate.id]
+    protected = [task for task in affected_tasks if task.schedule_lock_status != "none"]
+    if protected:
+        names = "、".join(task.name for task in protected[:3])
+        raise PlanChangeInvalidError(f"下游任务【{names}】已冻结、运行或完成，不能删除方案签批")
+    predecessor_ids = {
+        item.predecessor_id
+        for item in db.query(TaskDependency).filter(TaskDependency.task_id == gate.id).all()
+    }
+    unlock_task_ids = {
+        item.task_id
+        for item in db.query(TaskDependency).filter(TaskDependency.predecessor_id == gate.id).all()
+    }
+    return {
+        (predecessor_id, unlock_task_id)
+        for predecessor_id in predecessor_ids
+        for unlock_task_id in unlock_task_ids
+        if predecessor_id != unlock_task_id
+    }, affected_tasks
+
+
+def _restore_bridged_dependencies(db, bridge_pairs: set[tuple[int, int]]) -> None:
+    for predecessor_id, task_id in sorted(bridge_pairs):
+        exists = db.query(TaskDependency).filter(
+            TaskDependency.task_id == task_id,
+            TaskDependency.predecessor_id == predecessor_id,
+        ).first()
+        if not exists:
+            db.add(TaskDependency(task_id=task_id, predecessor_id=predecessor_id))
 
 
 def _ensure_project_window_keeps_protected_slots(

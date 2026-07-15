@@ -5,8 +5,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
-from app.models import TimeSlot
-from app.services.schedule_conflict_service import find_instrument_conflicts
+from app.models import Project, Task, TimeSlot, User
+from app.services.schedule_conflict_service import (
+    find_human_conflicts,
+    find_instrument_conflicts,
+)
 
 
 class ScheduleConflictServiceTest(unittest.TestCase):
@@ -17,6 +20,30 @@ class ScheduleConflictServiceTest(unittest.TestCase):
 
     def tearDown(self):
         self.db.close()
+
+    def _create_task(self, task_id, assignee_id, requires_human=True):
+        project = self.db.get(Project, 1)
+        if not project:
+            project = Project(id=1, name="测试项目", code="TEST-001")
+            self.db.add(project)
+        task = Task(
+            id=task_id,
+            project_id=project.id,
+            name=f"任务{task_id}",
+            task_type="test",
+            requires_human=requires_human,
+            assignee_id=assignee_id,
+        )
+        self.db.add(task)
+        return task
+
+    def _create_user(self, user_id):
+        self.db.add(User(
+            id=user_id,
+            username=f"user{user_id}",
+            display_name=f"人员{user_id}",
+            role="分析员",
+        ))
 
     def test_unexecuted_completed_segments_do_not_create_conflicts(self):
         completed_future = TimeSlot(
@@ -55,6 +82,102 @@ class ScheduleConflictServiceTest(unittest.TestCase):
         self.db.commit()
 
         self.assertEqual([], find_instrument_conflicts(self.db))
+
+    def test_overlapping_human_tasks_for_same_assignee_create_conflict(self):
+        self._create_user(1)
+        self._create_task(1, 1)
+        self._create_task(2, 1)
+        self.db.add_all([
+            TimeSlot(
+                task_id=1, plan_start=datetime(2026, 7, 16, 8, 30),
+                plan_end=datetime(2026, 7, 16, 12, 0), status="scheduled",
+            ),
+            TimeSlot(
+                task_id=2, plan_start=datetime(2026, 7, 16, 10, 0),
+                plan_end=datetime(2026, 7, 16, 14, 0), status="scheduled",
+            ),
+        ])
+        self.db.commit()
+
+        conflicts = find_human_conflicts(self.db)
+
+        self.assertEqual(1, len(conflicts))
+        self.assertEqual(1, conflicts[0]["assignee_id"])
+
+    def test_different_assignees_do_not_create_human_conflict(self):
+        self._create_user(1)
+        self._create_user(2)
+        self._create_task(1, 1)
+        self._create_task(2, 2)
+        self.db.add_all([
+            TimeSlot(
+                task_id=1, plan_start=datetime(2026, 7, 16, 8, 30),
+                plan_end=datetime(2026, 7, 16, 12, 0), status="scheduled",
+            ),
+            TimeSlot(
+                task_id=2, plan_start=datetime(2026, 7, 16, 10, 0),
+                plan_end=datetime(2026, 7, 16, 14, 0), status="scheduled",
+            ),
+        ])
+        self.db.commit()
+
+        self.assertEqual([], find_human_conflicts(self.db))
+
+    def test_non_human_task_does_not_create_human_conflict(self):
+        self._create_user(1)
+        self._create_task(1, 1)
+        self._create_task(2, 1, requires_human=False)
+        self.db.add_all([
+            TimeSlot(
+                task_id=1, plan_start=datetime(2026, 7, 16, 8, 30),
+                plan_end=datetime(2026, 7, 16, 12, 0), status="scheduled",
+            ),
+            TimeSlot(
+                task_id=2, plan_start=datetime(2026, 7, 16, 10, 0),
+                plan_end=datetime(2026, 7, 16, 14, 0), status="scheduled",
+            ),
+        ])
+        self.db.commit()
+
+        self.assertEqual([], find_human_conflicts(self.db))
+
+    def test_unexecuted_completed_segment_does_not_create_human_conflict(self):
+        self._create_user(1)
+        self._create_task(1, 1)
+        self._create_task(2, 1)
+        self.db.add_all([
+            TimeSlot(
+                task_id=1, plan_start=datetime(2026, 7, 16, 8, 30),
+                plan_end=datetime(2026, 7, 16, 12, 0), status="completed",
+            ),
+            TimeSlot(
+                task_id=2, plan_start=datetime(2026, 7, 16, 10, 0),
+                plan_end=datetime(2026, 7, 16, 14, 0), status="scheduled",
+            ),
+        ])
+        self.db.commit()
+
+        self.assertEqual([], find_human_conflicts(self.db))
+
+    def test_completed_actual_time_creates_human_conflict(self):
+        self._create_user(1)
+        self._create_task(1, 1)
+        self._create_task(2, 1)
+        self.db.add_all([
+            TimeSlot(
+                task_id=1, plan_start=datetime(2026, 7, 16, 8, 30),
+                plan_end=datetime(2026, 7, 16, 12, 0),
+                actual_start=datetime(2026, 7, 16, 9, 0),
+                actual_end=datetime(2026, 7, 16, 11, 0), status="completed",
+            ),
+            TimeSlot(
+                task_id=2, plan_start=datetime(2026, 7, 16, 10, 0),
+                plan_end=datetime(2026, 7, 16, 14, 0), status="scheduled",
+            ),
+        ])
+        self.db.commit()
+
+        self.assertEqual(1, len(find_human_conflicts(self.db)))
 
 
 if __name__ == "__main__":

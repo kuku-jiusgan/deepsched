@@ -23,6 +23,7 @@ from app.services.project_service import ProjectCodeExistsError, create_project 
 from app.services.project_plan_change_service import (
     PlanChangeInvalidError,
     PlanChangeNotFoundError,
+    delete_task_plan,
     update_project_plan,
     update_task_plan,
 )
@@ -133,21 +134,13 @@ def add_task(proj_id: int, data: TaskCreate, db: Session = Depends(get_db)):
 
 @router.delete("/tasks/{task_id}")
 def delete_task(task_id: int, db: Session = Depends(get_db)):
-    task = db.query(Task).filter(Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
-    # Delete dependencies first
-    db.query(TaskDependency).filter(
-        (TaskDependency.predecessor_id == task_id) | (TaskDependency.task_id == task_id)
-    ).delete()
-    db.query(TaskCapabilityRequirement).filter(TaskCapabilityRequirement.task_id == task_id).delete()
-    db.query(TimeSlot).filter(TimeSlot.task_id == task_id).delete()
-    project_id = task.project_id
-    db.delete(task)
-    db.flush()
-    recalculate_project_parent_hours(db, project_id)
-    db.commit()
-    return {"detail": "已删除"}
+    try:
+        delete_task_plan(db, task_id)
+        return {"detail": "已删除"}
+    except PlanChangeNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PlanChangeInvalidError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
 @router.put("/tasks/{task_id}", response_model=TaskOut)
 def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db)):
@@ -182,6 +175,12 @@ def _task_to_out(task: Task, db: Session) -> TaskOut:
         instrument_ids=task.instrument_ids or [], predecessor_ids=preds,
         assignee_id=task.assignee_id, parent_id=task.parent_id,
         assignee_name=task.assignee.display_name if task.assignee else None,
+        is_external_gate=bool(task.is_external_gate), gate_status=task.gate_status,
+        expected_approval_at=task.expected_approval_at, submitted_at=task.submitted_at,
+        approved_at=task.approved_at,
+        approved_by_name=task.approved_by_user.display_name if task.approved_by_user else None,
+        approval_note=task.approval_note,
+        approval_schedule_status=task.approval_schedule_status,
         children=children_out
     )
 

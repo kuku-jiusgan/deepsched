@@ -10,6 +10,7 @@ def load_scheduler_data(db, project_ids=None, task_ids=None):
     child_parent_ids = select(Task.parent_id).where(Task.parent_id.isnot(None))
     query = db.query(Task).filter(
         Task.status.in_(["pending", "ready"]),
+        Task.is_external_gate.is_(False),
         not_(Task.id.in_(child_parent_ids)),
     ).options(
         selectinload(Task.project),

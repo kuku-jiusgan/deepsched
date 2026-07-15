@@ -1,0 +1,84 @@
+.workspace-action-button.ant-btn {
+  min-width: 88px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm) !important;
+  font-size: 13px;
+  font-weight: 600 !important;
+  line-height: 28px;
+  white-space: nowrap;
+  box-shadow: none !important;
+  transition: color 160ms ease-out, background-color 160ms ease-out, border-color 160ms ease-out;
+}
+
+.workspace-action-button-primary.ant-btn {
+  color: #ffffff !important;
+  background: #2563eb !important;
+  border-color: #2563eb !important;
+}
+
+.workspace-action-button-primary.ant-btn:not(:disabled):hover,
+.workspace-action-button-primary.ant-btn:not(:disabled):focus-visible {
+  background: #1d4ed8 !important;
+  border-color: #1d4ed8 !important;
+}
+
+.workspace-action-button-success.ant-btn {
+  color: #ffffff !important;
+  background: #15803d !important;
+  border-color: #15803d !important;
+}
+
+.workspace-action-button-success.ant-btn:not(:disabled):hover,
+.workspace-action-button-success.ant-btn:not(:disabled):focus-visible {
+  background: #166534 !important;
+  border-color: #166534 !important;
+}
+
+.workspace-action-button-warning.ant-btn {
+  color: #9a3412 !important;
+  background: var(--color-warning-subtle) !important;
+  border-color: #fdba74 !important;
+}
+
+.workspace-action-button-warning.ant-btn:not(:disabled):hover,
+.workspace-action-button-warning.ant-btn:not(:disabled):focus-visible {
+  color: #7c2d12 !important;
+  background: #ffedd5 !important;
+  border-color: #fb923c !important;
+}
+
+.workspace-action-button-danger.ant-btn {
+  color: #ffffff !important;
+  background: var(--color-danger) !important;
+  border-color: var(--color-danger) !important;
+}
+
+.workspace-action-button-danger.ant-btn:not(:disabled):hover,
+.workspace-action-button-danger.ant-btn:not(:disabled):focus-visible {
+  background: #b91c1c !important;
+  border-color: #b91c1c !important;
+}
+
+.workspace-action-button-secondary.ant-btn {
+  color: var(--color-text-secondary) !important;
+  background: var(--color-surface) !important;
+  border-color: #cbd5e1 !important;
+}
+
+.workspace-action-button-secondary.ant-btn:not(:disabled):hover,
+.workspace-action-button-secondary.ant-btn:not(:disabled):focus-visible {
+  color: var(--color-text-primary) !important;
+  background: var(--color-bg) !important;
+  border-color: var(--color-text-tertiary) !important;
+}
+
+.workspace-action-button.ant-btn:disabled {
+  color: #94a3b8 !important;
+  background: #f1f5f9 !important;
+  border-color: #e2e8f0 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-action-button.ant-btn { transition: none; }
+}

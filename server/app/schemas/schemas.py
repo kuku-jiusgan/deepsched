@@ -84,6 +84,14 @@ class TaskOut(BaseModel):
     delay_reported_at: Optional[datetime] = None
     parent_id: Optional[int] = None
     children: List["TaskOut"] = []
+    is_external_gate: bool = False
+    gate_status: Optional[str] = None
+    expected_approval_at: Optional[datetime] = None
+    submitted_at: Optional[datetime] = None
+    approved_at: Optional[datetime] = None
+    approved_by_name: Optional[str] = None
+    approval_note: Optional[str] = None
+    approval_schedule_status: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 class ProjectCreate(BaseModel):
@@ -207,6 +215,14 @@ class TimeSlotOut(BaseModel):
     delay_reported_at: Optional[datetime] = None
     parent_id: Optional[int] = None
     children: List["TaskOut"] = []
+    is_external_gate: bool = False
+    gate_status: Optional[str] = None
+    expected_approval_at: Optional[datetime] = None
+    submitted_at: Optional[datetime] = None
+    approved_at: Optional[datetime] = None
+    approved_by_name: Optional[str] = None
+    approval_note: Optional[str] = None
+    approval_schedule_status: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 class TimeSlotUpdate(BaseModel):
