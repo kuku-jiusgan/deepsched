@@ -27,7 +27,7 @@
       暂无仪器数据，请先在「项目台账管理」中添加仪器并生成排程
     </div>
 
-    <div v-else class="gantt-container" ref="containerRef">
+    <div v-else class="gantt-container" :class="{ 'is-week-view': viewMode === 'week' }" ref="containerRef">
       <div class="gantt-left" ref="leftRef">
         <div class="gantt-header-cell">项目</div>
         <div v-for="row in flatRows" :key="'l-' + row.inst.id + '-q' + row.quarter"
@@ -55,14 +55,17 @@
             <div v-for="col in timeColumns" :key="col.key" class="gantt-grid-cell"
               :style="{ width: colWidth + 'px' }" :class="{ 'is-weekend': col.isWeekend, 'is-today': col.isToday }" />
             <div v-for="slot in getSlotsForQuarter(row.inst.id, row.quarter)" :key="slot.id"
-              class="gantt-bar" :class="'status-' + slot.status"
+              class="gantt-bar" :class="getBarClasses(slot)"
               :style="getBarStyle(slot, row.quarter)"
               @mouseenter="e => showTooltip(slot, e)"
               @mouseleave="hideTooltip">
               <span v-if="hasDelay(slot)" class="bar-delay-segment" :style="getDelaySegmentStyle(slot, row.quarter)">
                 <span class="bar-delay-badge">延</span>
               </span>
-              <span class="bar-tag"><component :is="getTaskIcon(slot.task_type)" /></span>
+              <span class="bar-tag">
+                <span class="bar-status-dot"></span>
+                <component :is="getTaskIcon(slot.task_type)" />
+              </span>
               <span class="bar-label">
                 <span class="bar-instrument">{{ getBarInstrumentText(slot) }}</span>
                 <span class="bar-task">{{ getBarTaskText(slot) }}</span>
@@ -97,6 +100,8 @@ import { LeftOutlined, RightOutlined, ReloadOutlined, FullscreenOutlined, Fullsc
 import { getApprovalGates, getProjects, getTimeslots, getTaskTypes, type TaskTypeConfig } from '@/services/api'
 import type { ApprovalGate, Project, TimeSlot } from '@/types'
 import dayjs from 'dayjs'
+import { centerGanttTimelineOnCurrentTime } from './ganttTimelineScroll'
+import { buildProjectDisplaySlots, buildProjectLaneLayout } from './projectGanttLayout'
 
 const loading = ref(true)
 const route = useRoute()
@@ -115,7 +120,12 @@ const rightRef = ref<HTMLElement | null>(null)
 const colWidth = ref(140)
 const rowHeight = ref(200)
 const BASE_PROJECT_ROW_HEIGHT = 35
+const DAY_PROJECT_ROW_HEIGHT = 48
 const PROJECT_LANE_HEIGHT = 28
+const DELAY_PROBLEM_STATUSES = new Set(['blocked', 'interrupted'])
+const WEEK_SEGMENT_COUNT = 3
+const WEEK_SEGMENT_HOURS = 8
+const WEEK_SEGMENT_SECONDS = WEEK_SEGMENT_HOURS * 60 * 60
 const taskTypeMap = ref<Record<string, string>>({})
 const laneMap = ref<Record<number, Record<number, number>>>({})
 const laneCounts = ref<Record<number, number>>({})
@@ -127,12 +137,12 @@ const filteredProjects = computed(() => {
   return projects.value.filter(p => p.code.toLowerCase().includes(kw) || p.name.toLowerCase().includes(kw))
 })
 
-const displaySlots = computed<TimeSlot[]>(() => toDisplaySlots(slots.value))
+const displaySlots = computed(() => buildProjectDisplaySlots(slots.value))
 
 const flatRows = computed(() => {
   const rows: { inst: Project; quarter: number; isSubrow: boolean; isLast: boolean }[] = []
   for (const inst of filteredProjects.value) {
-    const qCount = viewMode.value === 'week' ? 4 : 1
+    const qCount = viewMode.value === 'week' ? WEEK_SEGMENT_COUNT : 1
     for (let q = 0; q < qCount; q++) {
       rows.push({ inst, quarter: q, isSubrow: viewMode.value === 'week' && q > 0, isLast: q === qCount - 1 })
     }
@@ -193,51 +203,19 @@ const timeColumns = computed<TimeCol[]>(() => {
   return cols
 })
 
-function toDisplaySlots(sourceSlots: TimeSlot[]): TimeSlot[] {
-  return sourceSlots.flatMap(slot => {
-    if (slot.status !== 'completed') return [slot]
-    if (!slot.actual_start || !slot.actual_end) return []
-    return [{
-      ...slot,
-      plan_start: slot.actual_start,
-      plan_end: slot.actual_end,
-    }]
-  })
-}
-
 function computeLanes() {
-  const map: Record<number, Record<number, number>> = {}
-  const counts: Record<number, number> = {}
-  for (const inst of filteredProjects.value) {
-    const instSlots = displaySlots.value.filter(s => s.project_id === inst.id).sort((a, b) => dayjs(a.plan_start).valueOf() - dayjs(b.plan_start).valueOf())
-    const lanes: { end: dayjs.Dayjs }[] = []
-    const assign: Record<number, number> = {}
-    for (const slot of instSlots) {
-      const start = dayjs(slot.plan_start)
-      let placed = false
-      for (let i = 0; i < lanes.length; i++) {
-        if (start.isAfter(lanes[i].end) || start.isSame(lanes[i].end)) {
-          lanes[i].end = dayjs(slot.plan_end)
-          assign[slot.id] = i
-          placed = true
-          break
-        }
-      }
-      if (!placed) {
-        assign[slot.id] = lanes.length
-        lanes.push({ end: dayjs(slot.plan_end) })
-      }
-    }
-    map[inst.id] = assign
-    counts[inst.id] = Math.max(1, lanes.length)
-  }
-  laneMap.value = map
-  laneCounts.value = counts
+  const layout = buildProjectLaneLayout(
+    filteredProjects.value.map(project => project.id),
+    displaySlots.value,
+  )
+  laneMap.value = layout.laneMap
+  laneCounts.value = layout.laneCounts
 }
 
 function getProjectRowStyle(projectId: number) {
   const laneCount = laneCounts.value[projectId] || 1
-  const height = Math.max(BASE_PROJECT_ROW_HEIGHT, laneCount * PROJECT_LANE_HEIGHT + 4)
+  const minimumHeight = viewMode.value === 'day' ? DAY_PROJECT_ROW_HEIGHT : BASE_PROJECT_ROW_HEIGHT
+  const height = Math.max(minimumHeight, laneCount * PROJECT_LANE_HEIGHT + 4)
   return { height: `${height}px` }
 }
 
@@ -250,6 +228,14 @@ function getProjectLaneStyle(slot: TimeSlot) {
   }
 }
 
+function getSegmentStartHour(segment: number) {
+  return segment * WEEK_SEGMENT_HOURS
+}
+
+function getSegmentEndHour(segment: number) {
+  return Math.min(24, getSegmentStartHour(segment) + WEEK_SEGMENT_HOURS)
+}
+
 function getSlotsForQuarter(instId: number, quarter: number) {
   if (viewMode.value !== 'week') return getSlotsForProject(instId)
   const cols = timeColumns.value
@@ -258,8 +244,8 @@ function getSlotsForQuarter(instId: number, quarter: number) {
     const end = dayjs(s.plan_end)
     for (const col of cols) {
       const dayStart = col.start
-      const qStart = dayStart.hour(quarter * 6)
-      const qEnd = dayStart.hour(quarter * 6 + 6)
+      const qStart = dayStart.hour(getSegmentStartHour(quarter))
+      const qEnd = dayStart.hour(getSegmentEndHour(quarter))
       if (end.isAfter(qStart) && start.isBefore(qEnd)) return true
     }
     return false
@@ -299,8 +285,8 @@ function getBarStyle(slot: TimeSlot, quarter?: number) {
     let barStartCol = -1, barEndCol = -1
     for (let i = 0; i < cols.length; i++) {
       const dayStart = cols[i].start
-      const qStart = dayStart.hour(quarter * 6)
-      const qEnd = dayStart.hour(quarter * 6 + 6)
+      const qStart = dayStart.hour(getSegmentStartHour(quarter))
+      const qEnd = dayStart.hour(getSegmentEndHour(quarter))
       if (end.isAfter(qStart) && start.isBefore(qEnd)) {
         if (barStartCol === -1) barStartCol = i
         barEndCol = i
@@ -308,15 +294,15 @@ function getBarStyle(slot: TimeSlot, quarter?: number) {
     }
     if (barStartCol === -1) return { display: 'none' }
     const firstDayStart = cols[barStartCol].start
-    const firstQStart = firstDayStart.hour(quarter * 6)
-    const firstQEnd = firstDayStart.hour(quarter * 6 + 6)
+    const firstQStart = firstDayStart.hour(getSegmentStartHour(quarter))
+    const firstQEnd = firstDayStart.hour(getSegmentEndHour(quarter))
     const clampedStart = start.isBefore(firstQStart) ? firstQStart : start
-    const firstOffset = clampedStart.diff(firstQStart, 'second', true) / 21600
+    const firstOffset = clampedStart.diff(firstQStart, 'second', true) / WEEK_SEGMENT_SECONDS
     const lastDayStart = cols[barEndCol].start
-    const lastQStart = lastDayStart.hour(quarter * 6)
-    const lastQEnd = lastDayStart.hour(quarter * 6 + 6)
+    const lastQStart = lastDayStart.hour(getSegmentStartHour(quarter))
+    const lastQEnd = lastDayStart.hour(getSegmentEndHour(quarter))
     const clampedEnd = end.isAfter(lastQEnd) ? lastQEnd : end
-    const lastOffset = clampedEnd.diff(lastQStart, 'second', true) / 21600
+    const lastOffset = clampedEnd.diff(lastQStart, 'second', true) / WEEK_SEGMENT_SECONDS
     const barLeft = (barStartCol + firstOffset) * cw
     const barRight = (barEndCol + lastOffset) * cw
     return {
@@ -353,7 +339,19 @@ function getBarTaskText(slot: TimeSlot) {
   const delayText = hasDelay(slot) ? ` · 延期${slot.delay_hours || ''}h` : ''
   return `${taskName} · ${ownerName}${delayText}`
 }
-function hasDelay(slot: TimeSlot) { return Boolean(slot.delay_reason) || Boolean(slot.delay_hours) }
+function getBarClasses(slot: TimeSlot) {
+  const status = slot.status === 'pending'
+    ? 'scheduled'
+    : slot.status === 'interrupted' ? 'blocked' : slot.status
+  return [`status-${status}`, { 'has-delay': hasDelay(slot) }]
+}
+function hasDelay(slot: TimeSlot) {
+  const delayHours = Number(slot.delay_hours || 0)
+  const hasDelayReport = Boolean(slot.delay_reason) || delayHours > 0
+  if (!hasDelayReport) return false
+  if (DELAY_PROBLEM_STATUSES.has(slot.status)) return true
+  return slot.status === 'running' && Boolean(slot.actual_start)
+}
 function getDelaySegmentStyle(slot: TimeSlot, quarter?: number): CSSProperties {
   if (!slot.delay_hours || slot.delay_hours <= 0) return { display: 'none' }
   const start = dayjs(slot.plan_start)
@@ -384,7 +382,7 @@ function isFullDelaySlot(slot: TimeSlot) {
   const slotEnd = dayjs(slot.plan_end)
   const slotDurationHours = slotEnd.diff(slotStart, 'hour', true)
   if (slot.delay_hours >= slotDurationHours) return true
-  return displaySlots.value.some(other =>
+  return slots.value.some(other =>
     other.id !== slot.id &&
     other.task_id === slot.task_id &&
     Boolean(other.plan_end) &&
@@ -401,8 +399,8 @@ function getVisibleBarRange(start: dayjs.Dayjs, end: dayjs.Dayjs, quarter?: numb
     let quarterStart: dayjs.Dayjs | null = null
     let quarterEnd: dayjs.Dayjs | null = null
     for (const col of cols) {
-      const qStart = col.start.hour(quarter * 6)
-      const qEnd = col.start.hour(quarter * 6 + 6)
+      const qStart = col.start.hour(getSegmentStartHour(quarter))
+      const qEnd = col.start.hour(getSegmentEndHour(quarter))
       if (end.isAfter(qStart) && start.isBefore(qEnd)) {
         if (!quarterStart) quarterStart = qStart
         quarterEnd = qEnd
@@ -461,13 +459,13 @@ function showTooltip(slot: TimeSlot, e: MouseEvent) {
 }
 function hideTooltip() { hoveredSlot.value = null }
 
-function switchView(mode: 'day' | 'week' | 'month') {
+async function switchView(mode: 'day' | 'week' | 'month') {
   viewMode.value = mode
   if (mode === 'month') cursorDate.value = dayjs().startOf('month')
   else if (mode === 'week') cursorDate.value = dayjs().startOf('week')
   else cursorDate.value = dayjs().startOf('day')
-  recalc()
-  if (mode === 'day') scrollToNow()
+  await recalc()
+  if (mode === 'day') await centerGanttTimelineOnCurrentTime(rightRef, colWidth)
 }
 
 function goPrev() {
@@ -482,39 +480,30 @@ function goNext() {
   else cursorDate.value = cursorDate.value.add(1, 'month')
 }
 
-function goToday() {
+async function goToday() {
   if (viewMode.value === 'month') cursorDate.value = dayjs().startOf('month')
   else if (viewMode.value === 'week') cursorDate.value = dayjs().startOf('week')
   else cursorDate.value = dayjs().startOf('day')
-  recalc()
-  if (viewMode.value === 'day') scrollToNow()
+  await recalc()
+  if (viewMode.value === 'day') await centerGanttTimelineOnCurrentTime(rightRef, colWidth)
 }
 
 function onScroll() {
   if (leftRef.value && rightRef.value) leftRef.value.scrollTop = rightRef.value.scrollTop
 }
 
-function scrollToNow() {
-  if (viewMode.value !== 'day' || !rightRef.value) return
-  nextTick(() => {
-    const right = rightRef.value
-    if (!right) return
-    const hour = dayjs().hour()
-    const containerH = right.clientHeight
-    right.scrollTop = Math.max(0, hour * (rowHeight.value / 24) - containerH / 2)
-  })
-}
-
-function recalc() {
-  nextTick(() => {
+async function recalc() {
+  await nextTick()
+  await new Promise<void>(resolve => {
     setTimeout(() => {
-      if (!containerRef.value || containerRef.value.clientHeight <= 0) return
-      computeLanes()
-      const fixedH = 35
-      rowHeight.value = fixedH
-      const available = containerRef.value.clientWidth - 160 - 2
-      const cols = viewMode.value === 'day' ? 24 : viewMode.value === 'week' ? 7 : cursorDate.value.daysInMonth()
-      colWidth.value = Math.max(60, available / cols)
+      if (containerRef.value && containerRef.value.clientHeight > 0) {
+        computeLanes()
+        rowHeight.value = 35
+        const available = containerRef.value.clientWidth - 160 - 2
+        const cols = viewMode.value === 'day' ? 24 : viewMode.value === 'week' ? 7 : cursorDate.value.daysInMonth()
+        colWidth.value = Math.max(60, available / cols)
+      }
+      resolve()
     }, 50)
   })
 }
@@ -539,8 +528,8 @@ async function fetchData(silent = false) {
   finally {
     if (!silent) loading.value = false
     await nextTick()
-    recalc()
-    if (viewMode.value === 'day') scrollToNow()
+    await recalc()
+    if (viewMode.value === 'day') await centerGanttTimelineOnCurrentTime(rightRef, colWidth)
   }
 }
 

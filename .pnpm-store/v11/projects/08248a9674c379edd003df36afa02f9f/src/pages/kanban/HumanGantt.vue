@@ -142,6 +142,7 @@ import dayjs from 'dayjs'
 import { getTaskTypes, getTimeslots, getUserDirectory, type TaskTypeConfig, type UserDirectoryEntry } from '@/services/api'
 import type { TimeSlot } from '@/types'
 import { useHumanGantt, type HumanGanttViewMode } from './useHumanGantt'
+import { centerGanttTimelineOnCurrentTime, scrollGanttTimelineToStart } from './ganttTimelineScroll'
 
 const COLUMN_WIDTH = 140
 const REFRESH_INTERVAL_MS = 30_000
@@ -192,10 +193,10 @@ const {
 const columnWidth = COLUMN_WIDTH
 const tooltipStyle = computed(() => ({ left: `${tooltipX.value}px`, top: `${tooltipY.value}px` }))
 
-function changeView(mode: HumanGanttViewMode) {
+async function changeView(mode: HumanGanttViewMode) {
   switchView(mode)
-  fetchData(true)
-  scrollToRelevantTime()
+  await fetchData(true)
+  await scrollToRelevantTime()
 }
 
 function goPrevious() {
@@ -210,36 +211,32 @@ function goFollowing() {
   scrollToTimelineStart()
 }
 
-function returnToday() {
+async function returnToday() {
   goToday()
-  fetchData(true)
-  scrollToRelevantTime()
+  await fetchData(true)
+  await scrollToRelevantTime()
 }
 
 function scrollToTimelineStart() {
-  nextTick(() => {
-    if (rightRef.value) rightRef.value.scrollLeft = 0
-  })
+  return scrollGanttTimelineToStart(rightRef)
 }
 
-function scrollToRelevantTime() {
-  nextTick(() => {
-    const timeline = rightRef.value
-    if (!timeline) return
-    const now = dayjs()
-    if (!now.isAfter(periodStart.value) || !now.isBefore(periodEnd.value)) {
-      timeline.scrollLeft = 0
-      return
-    }
-    let currentPosition = 0
-    if (viewMode.value === 'day') {
-      currentPosition = (now.hour() + now.minute() / 60) * COLUMN_WIDTH
-    } else {
-      const columnIndex = now.startOf('day').diff(periodStart.value.startOf('day'), 'day')
-      currentPosition = (columnIndex + 0.5) * COLUMN_WIDTH
-    }
-    timeline.scrollLeft = Math.max(0, currentPosition - timeline.clientWidth / 2)
-  })
+async function scrollToRelevantTime() {
+  if (viewMode.value === 'day') {
+    await centerGanttTimelineOnCurrentTime(rightRef, COLUMN_WIDTH)
+    return
+  }
+  await nextTick()
+  const timeline = rightRef.value
+  if (!timeline) return
+  const now = dayjs()
+  if (!now.isAfter(periodStart.value) || !now.isBefore(periodEnd.value)) {
+    timeline.scrollLeft = 0
+    return
+  }
+  const columnIndex = now.startOf('day').diff(periodStart.value.startOf('day'), 'day')
+  const currentPosition = (columnIndex + 0.5) * COLUMN_WIDTH
+  timeline.scrollLeft = Math.max(0, currentPosition - timeline.clientWidth / 2)
 }
 
 function syncVerticalScroll() {

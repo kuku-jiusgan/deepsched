@@ -118,6 +118,7 @@ import { LeftOutlined, RightOutlined, ReloadOutlined, FullscreenOutlined, Fullsc
 import { getInstruments, getTimeslots, getTaskTypes, type TaskTypeConfig } from '@/services/api'
 import type { Instrument, TimeSlot } from '@/types'
 import dayjs from 'dayjs'
+import { centerGanttTimelineOnCurrentTime } from './kanban/ganttTimelineScroll'
 
 const LEFT_WIDTH = 250
 const HEADER_HEIGHT = 50
@@ -694,14 +695,14 @@ function canMergeSlots(current: GanttSlot, next: TimeSlot) {
     && dayjs(current.plan_end).isSame(dayjs(next.plan_start))
 }
 
-function switchView(mode: 'day' | 'week' | 'month') {
+async function switchView(mode: 'day' | 'week' | 'month') {
   viewMode.value = mode
   if (mode === 'month') cursorDate.value = dayjs().startOf('month')
   else if (mode === 'week') cursorDate.value = dayjs().startOf('week')
   else cursorDate.value = dayjs().startOf('day')
   updateRowHeight()
-  recalc()
-  if (mode === 'day') scrollToNow()
+  await recalc()
+  if (mode === 'day') await centerGanttTimelineOnCurrentTime(containerRef, colWidth)
 }
 
 function goPrev() {
@@ -716,36 +717,27 @@ function goNext() {
   else cursorDate.value = cursorDate.value.add(1, 'month')
 }
 
-function goToday() {
+async function goToday() {
   if (viewMode.value === 'month') cursorDate.value = dayjs().startOf('month')
   else if (viewMode.value === 'week') cursorDate.value = dayjs().startOf('week')
   else cursorDate.value = dayjs().startOf('day')
-  recalc()
-  if (viewMode.value === 'day') scrollToNow()
+  await recalc()
+  if (viewMode.value === 'day') await centerGanttTimelineOnCurrentTime(containerRef, colWidth)
 }
 
-
-function scrollToNow() {
-  if (viewMode.value !== 'day' || !containerRef.value) return
-  nextTick(() => {
-    const container = containerRef.value
-    if (!container) return
-    const hour = dayjs().hour()
-    const x = hour * colWidth.value
-    container.scrollLeft = Math.max(0, x - container.clientWidth / 2)
-  })
-}
-
-function recalc() {
-  nextTick(() => {
+async function recalc() {
+  await nextTick()
+  await new Promise<void>(resolve => {
     setTimeout(() => {
-      if (!containerRef.value || containerRef.value.clientHeight <= 0) return
-      computeLanes()
-      updateRowHeight()
-      const available = containerRef.value.clientWidth - LEFT_WIDTH - 2
-      const cols = viewMode.value === 'day' ? 24 : viewMode.value === 'week' ? 7 : cursorDate.value.daysInMonth()
-      colWidth.value = Math.max(MIN_COL_WIDTH, available / cols)
-      getMaxVerticalScroll()
+      if (containerRef.value && containerRef.value.clientHeight > 0) {
+        computeLanes()
+        updateRowHeight()
+        const available = containerRef.value.clientWidth - LEFT_WIDTH - 2
+        const cols = viewMode.value === 'day' ? 24 : viewMode.value === 'week' ? 7 : cursorDate.value.daysInMonth()
+        colWidth.value = Math.max(MIN_COL_WIDTH, available / cols)
+        getMaxVerticalScroll()
+      }
+      resolve()
     }, 50)
   })
 }
@@ -767,8 +759,8 @@ async function fetchData(silent = false) {
   finally {
     if (!silent) loading.value = false
     await nextTick()
-    recalc()
-    if (viewMode.value === 'day') scrollToNow()
+    await recalc()
+    if (viewMode.value === 'day') await centerGanttTimelineOnCurrentTime(containerRef, colWidth)
     if (isFullscreen.value && autoScrollEnabled.value) scheduleAutoScrollStart()
   }
 }
@@ -1186,6 +1178,7 @@ onUnmounted(() => {
 .gantt-container.is-week-view .bar-label { gap: 0; line-height: 1; }
 .gantt-container.is-week-view .bar-project { font-size: 8px; }
 .gantt-container.is-week-view .bar-task { font-size: 7px; opacity: 0.96; }
+.gantt-container.is-week-view .bar-delay-segment { top: 0; bottom: 0; }
 .gantt-bar.is-compact { padding: 0 4px; justify-content: center; }
 .gantt-bar.is-compact .bar-label { display: none; }
 .gantt-bar.is-compact .bar-tag { width: 16px; height: 16px; font-size: 9px; }
