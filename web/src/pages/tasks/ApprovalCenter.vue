@@ -5,7 +5,6 @@
         <h2>方案签批</h2>
         <p>集中跟踪客户方案审核，并在同意后自动衔接验证排程</p>
       </div>
-      <a-button :loading="loading" @click="loadGates(false)"><ReloadOutlined /> 刷新</a-button>
     </div>
 
     <div class="summary-strip">
@@ -34,79 +33,61 @@
       size="small"
       :loading="loading"
       :pagination="pagination"
-      :scroll="{ x: activeTab === 'pending' ? 1680 : 1520 }"
+      table-layout="fixed"
       @change="handleTableChange"
     >
-      <a-table-column title="项目" fixed="left" width="210">
+      <a-table-column title="项目" width="360">
         <template #default="{ record }">
-          <div class="primary-text">{{ record.project_name }}</div>
-          <div class="secondary-text">{{ record.project_code }} · {{ record.client_name || '未填写客户' }}</div>
+          <a-tooltip :title="record.project_name"><div class="primary-text row-ellipsis">{{ record.project_name }}</div></a-tooltip>
+          <a-tooltip :title="`${record.project_code} · ${record.client_name || '未填写客户'}`">
+            <div class="secondary-text row-ellipsis"><span class="project-code">{{ record.project_code }}</span> · {{ record.client_name || '未填写客户' }}</div>
+          </a-tooltip>
         </template>
       </a-table-column>
-      <a-table-column title="方案" width="170">
-        <template #default="{ record }"><span class="primary-text">{{ record.name }}</span></template>
-      </a-table-column>
-      <a-table-column title="项目负责人" dataIndex="project_manager_name" width="110" />
-      <a-table-column title="前置任务" width="170">
-        <template #default="{ record }">{{ taskNames(record.predecessor_tasks) }}</template>
-      </a-table-column>
-      <a-table-column title="解锁验证任务" width="190">
-        <template #default="{ record }">{{ taskNames(record.unlock_tasks) }}</template>
-      </a-table-column>
-      <a-table-column title="提交时间" width="145">
-        <template #default="{ record }">{{ formatDateTime(record.submitted_at) }}</template>
-      </a-table-column>
-      <a-table-column title="预计签批" width="145">
+      <a-table-column title="负责人" dataIndex="project_manager_name" width="26" ellipsis />
+      <a-table-column title="预计签批" width="118">
         <template #default="{ record }">{{ formatDateTime(record.expected_approval_at) }}</template>
       </a-table-column>
-      <a-table-column v-if="activeTab === 'pending'" title="最迟可签批" width="145">
+      <a-table-column v-if="activeTab === 'pending'" title="最迟签批" width="118">
         <template #default="{ record }">{{ formatDateTime(record.latest_approval_at) }}</template>
       </a-table-column>
-      <a-table-column v-else title="实际签批" width="145">
+      <a-table-column v-else title="实际签批" width="118">
         <template #default="{ record }">{{ formatDateTime(record.approved_at) }}</template>
       </a-table-column>
-      <a-table-column v-if="activeTab === 'approved'" title="记录人" dataIndex="approved_by_name" width="100" />
-      <a-table-column title="风险/结果" width="150">
+      <a-table-column title="风险/结果" width="135">
         <template #default="{ record }">
-          <a-tag :color="riskMeta(record.risk_status).color">{{ riskMeta(record.risk_status).label }}</a-tag>
-          <div v-if="record.schedule_status" class="secondary-text schedule-result">{{ scheduleLabel(record.schedule_status) }}</div>
+          <div class="risk-result-cell">
+            <a-tag :color="riskMeta(record.risk_status).color">{{ riskMeta(record.risk_status).label }}</a-tag>
+            <a-tooltip v-if="record.schedule_status" :title="scheduleLabel(record.schedule_status)">
+              <span class="row-ellipsis schedule-result">{{ scheduleLabel(record.schedule_status) }}</span>
+            </a-tooltip>
+          </div>
         </template>
       </a-table-column>
-      <a-table-column title="状态" width="110">
+      <a-table-column title="状态" width="54">
         <template #default="{ record }"><a-tag :color="gateMeta(record.gate_status).color">{{ gateMeta(record.gate_status).label }}</a-tag></template>
       </a-table-column>
-      <a-table-column title="操作" fixed="right" width="220">
+      <a-table-column title="操作" :width="activeTab === 'pending' ? 190 : 52">
         <template #default="{ record }">
           <a-space :size="4">
-            <a-button v-if="activeTab === 'pending' && record.can_operate" type="link" size="small" @click="openSubmit(record)">
-              {{ record.gate_status === 'not_submitted' ? '提交签批' : '修改预计日期' }}
-            </a-button>
-            <a-button v-if="record.gate_status === 'waiting_approval' && record.can_operate" type="link" size="small" @click="confirmApprove(record)">记录已同意</a-button>
+            <a-button v-if="activeTab === 'pending' && record.can_operate" type="link" size="small" @click="confirmApprove(record)">确认签批完成</a-button>
             <a-button v-if="record.schedule_status === 'confirmation_required' && record.can_operate" type="link" size="small" danger @click="confirmImpact(record)">确认排程影响</a-button>
-            <a-button type="link" size="small" @click="openDetail(record)">详情</a-button>
-            <a-button v-if="activeTab === 'pending'" type="link" size="small" @click="viewProject(record.project_id)">项目计划</a-button>
-            <a-button v-else type="link" size="small" @click="viewGantt(record.project_id)">项目甘特图</a-button>
+            <a-dropdown :trigger="['click']">
+              <a-button type="text" size="small" title="更多操作"><EllipsisOutlined /></a-button>
+              <template #overlay>
+                <a-menu>
+                  <a-menu-item @click="openDetail(record)">查看详情</a-menu-item>
+                  <a-menu-item v-if="activeTab === 'pending'" @click="viewProject(record.project_id)">项目计划</a-menu-item>
+                  <a-menu-item v-else @click="viewGantt(record.project_id)">项目甘特图</a-menu-item>
+                </a-menu>
+              </template>
+            </a-dropdown>
           </a-space>
         </template>
       </a-table-column>
       <template #emptyText><a-empty description="当前没有方案签批记录" /></template>
     </a-table>
 
-    <a-modal
-      v-model:open="submitOpen"
-      :title="editingGate?.gate_status === 'not_submitted' ? '提交客户签批' : '修改预计签批日期'"
-      okText="保存并生成预测排程"
-      :confirmLoading="submitting"
-      @ok="handleSubmit"
-    >
-      <a-form layout="vertical">
-        <a-form-item label="项目方案"><a-input :value="editingGate ? `${editingGate.project_code} · ${editingGate.name}` : ''" disabled /></a-form-item>
-        <a-form-item label="预计签批完成时间" required>
-          <a-date-picker v-model:value="submitForm.expectedAt" showTime format="YYYY-MM-DD HH:mm" style="width: 100%" :disabledDate="disablePastDate" />
-        </a-form-item>
-        <a-form-item label="备注"><a-textarea v-model:value="submitForm.note" :rows="3" :maxlength="500" showCount /></a-form-item>
-      </a-form>
-    </a-modal>
     <a-drawer v-model:open="detailOpen" title="方案签批详情" width="520">
       <a-descriptions v-if="detailGate" :column="1" bordered size="small">
         <a-descriptions-item label="项目">{{ detailGate.project_code }} · {{ detailGate.project_name }}</a-descriptions-item>
@@ -133,7 +114,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import type { TablePaginationConfig } from 'ant-design-vue'
-import { ReloadOutlined } from '@ant-design/icons-vue'
+import { EllipsisOutlined } from '@ant-design/icons-vue'
 import type { Dayjs } from 'dayjs'
 import dayjs from 'dayjs'
 import {
@@ -141,7 +122,6 @@ import {
   confirmApprovalScheduleImpact,
   getApprovalGates,
   getProjects,
-  submitApprovalGate,
 } from '@/services/api'
 import type { ApprovalGate, ApprovalGateStatus, ApprovalGateTaskRef, ApprovalRiskStatus } from '@/types'
 
@@ -150,14 +130,10 @@ const activeTab = ref<'pending' | 'approved'>('pending')
 const gates = ref<ApprovalGate[]>([])
 const projects = ref<{ id: number; code: string; name: string; manager_id?: number | null; manager_name?: string }[]>([])
 const loading = ref(false)
-const submitOpen = ref(false)
-const submitting = ref(false)
-const editingGate = ref<ApprovalGate | null>(null)
 const detailGate = ref<ApprovalGate | null>(null)
 const detailOpen = ref(false)
 const summary = reactive({ pending: 0, approved: 0, upcoming: 0, overdue: 0 })
 const filters = reactive({ keyword: '', projectId: undefined as number | undefined, managerId: undefined as number | undefined, risk: undefined as string | undefined, expectedRange: null as [Dayjs, Dayjs] | null })
-const submitForm = reactive({ expectedAt: null as Dayjs | null, note: '' })
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
@@ -200,32 +176,18 @@ async function loadGates(silent = true) {
 function resetAndLoad() { page.value = 1; loadGates(false) }
 function handleTabChange() { resetAndLoad() }
 function handleTableChange(value: TablePaginationConfig) { page.value = value.current || 1; pageSize.value = value.pageSize || 20; loadGates(false) }
-function openSubmit(gate: ApprovalGate) {
-  editingGate.value = gate
-  submitForm.expectedAt = gate.expected_approval_at ? dayjs(gate.expected_approval_at) : null
-  submitForm.note = gate.approval_note || ''
-  submitOpen.value = true
-}
-async function handleSubmit() {
-  if (!editingGate.value || !submitForm.expectedAt) { message.error('请选择预计签批完成时间'); return }
-  submitting.value = true
-  try {
-    const result = await submitApprovalGate(editingGate.value.id, { expected_approval_at: submitForm.expectedAt.toISOString(), approval_note: submitForm.note || null })
-    submitOpen.value = false
-    message.success(result.schedule_message || '已提交客户签批并更新预测排程')
-    await loadGates(true)
-  } catch (error: unknown) { message.error(errorDetail(error, '提交签批失败')) }
-  finally { submitting.value = false }
-}
 function confirmApprove(gate: ApprovalGate) {
   Modal.confirm({
-    title: '确认客户已审核同意？',
-    content: `确认后将以当前时间解除“${gate.name}”限制，并自动重新安排后续验证任务。`,
-    okText: '确认同意并排程',
+    title: '确认方案签批已完成？',
+    content: `确认后将以当前时间完成“${gate.name}”，并自动重新安排后续验证任务。`,
+    okText: '确认完成并排程',
     async onOk() {
-      const result = await approveApprovalGate(gate.id, { approval_note: gate.approval_note })
-      message.success(result.schedule_message || '已记录客户审核同意')
-      await loadGates(true)
+      try {
+        const result = await approveApprovalGate(gate.id, { approval_note: gate.approval_note })
+        if (result.schedule_status === 'confirmation_required') message.warning(result.schedule_message || '签批已记录，请继续确认跨项目排程影响')
+        else message.success(result.schedule_message || '已记录客户审核同意')
+        await loadGates(true)
+      } catch (error: unknown) { message.error(errorDetail(error, '记录签批同意失败')); throw error }
     },
   })
 }
@@ -247,7 +209,6 @@ function viewGantt(projectId: number) { router.push({ path: '/kanban/project-gan
 function openDetail(gate: ApprovalGate) { detailGate.value = gate; detailOpen.value = true }
 function taskNames(tasks: ApprovalGateTaskRef[]) { return tasks.map(task => task.name).join('、') || '-' }
 function formatDateTime(value?: string | null) { return value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '-' }
-function disablePastDate(value: Dayjs) { return value.endOf('day').isBefore(dayjs()) }
 function gateMeta(status: ApprovalGateStatus) {
   return { not_submitted: { label: '待提交', color: 'default' }, waiting_approval: { label: '等待客户', color: 'blue' }, approved: { label: '已签批', color: 'green' } }[status]
 }
@@ -283,9 +244,14 @@ onMounted(async () => {
 .summary-strip .is-danger { color: #dc2626; }
 .summary-strip .is-success { color: #15803d; }
 .filter-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 6px; }
+.row-ellipsis { min-width: 0; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .primary-text { color: var(--color-text-primary); font-weight: 600; }
-.secondary-text { margin-top: 2px; color: var(--color-text-tertiary); font-size: 12px; }
-.schedule-result { white-space: normal; line-height: 1.35; }
+.secondary-text { margin-top: 2px; color: var(--color-text-tertiary); font-size: 11px; }
+.project-code { color: var(--color-accent); font-family: var(--font-mono); font-size: 12px; }
+.risk-result-cell { min-width: 0; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.risk-result-cell .ant-tag { flex-shrink: 0; margin-inline-end: 0; }
+.schedule-result { color: var(--color-text-tertiary); font-size: 11px; }
+.approval-page :deep(.ant-table-cell) { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 @media (max-width: 900px) {
   .summary-strip > div { flex: 1 1 50%; border-bottom: 1px solid var(--color-border-light); }
   .filter-bar > * { width: 100% !important; }

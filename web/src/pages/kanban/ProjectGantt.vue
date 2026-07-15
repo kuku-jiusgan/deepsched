@@ -213,18 +213,23 @@ function computeLanes() {
 }
 
 function getProjectRowStyle(projectId: number) {
+  return { height: `${getProjectRowHeight(projectId)}px` }
+}
+
+function getProjectRowHeight(projectId: number) {
   const laneCount = laneCounts.value[projectId] || 1
   const minimumHeight = viewMode.value === 'day' ? DAY_PROJECT_ROW_HEIGHT : BASE_PROJECT_ROW_HEIGHT
-  const height = Math.max(minimumHeight, laneCount * PROJECT_LANE_HEIGHT + 4)
-  return { height: `${height}px` }
+  return Math.max(minimumHeight, laneCount * PROJECT_LANE_HEIGHT + 4)
 }
 
 function getProjectLaneStyle(slot: TimeSlot) {
   const projectId = slot.project_id
   const lane = projectId ? (laneMap.value[projectId] || {})[slot.id] || 0 : 0
+  const laneCount = projectId ? laneCounts.value[projectId] || 1 : 1
+  const laneHeight = (getProjectRowHeight(projectId || 0) - 4) / laneCount
   return {
-    top: `${lane * PROJECT_LANE_HEIGHT + 2}px`,
-    height: `${PROJECT_LANE_HEIGHT - 2}px`,
+    top: `${lane * laneHeight + 2}px`,
+    height: `${laneHeight - 2}px`,
   }
 }
 

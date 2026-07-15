@@ -146,6 +146,7 @@ import { centerGanttTimelineOnCurrentTime, scrollGanttTimelineToStart } from './
 
 const COLUMN_WIDTH = 140
 const REFRESH_INTERVAL_MS = 30_000
+const API_LOCAL_DATETIME_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
 
 const loading = ref(true)
 const users = ref<UserDirectoryEntry[]>([])
@@ -321,8 +322,8 @@ async function fetchData(silent = false) {
     const [userList, timeslotList, taskTypes] = await Promise.all([
       getUserDirectory(),
       getTimeslots({
-        start_date: periodStart.value.toISOString(),
-        end_date: periodEnd.value.toISOString(),
+        start_date: periodStart.value.format(API_LOCAL_DATETIME_FORMAT),
+        end_date: periodEnd.value.format(API_LOCAL_DATETIME_FORMAT),
       }),
       getTaskTypes(),
     ])
