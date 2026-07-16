@@ -169,7 +169,9 @@ let clockTimer: ReturnType<typeof setInterval> | undefined
 let dataTimer: ReturnType<typeof setInterval> | undefined
 let cockpitResizeObserver: ResizeObserver | undefined
 const COCKPIT_DESIGN_WIDTH = 1540
+const COCKPIT_DESIGN_HEIGHT = 929
 const MIN_COCKPIT_SCALE = 0.78
+const MAX_COCKPIT_SCALE = 1.35
 const WARNING_SCROLL_THRESHOLD = 1
 const WARNING_SCROLL_SECONDS_PER_ITEM = 6
 const WARNING_SCROLL_MIN_SECONDS = 18
@@ -189,6 +191,7 @@ const cockpitPageStyle = computed(() => ({
   zoom: cockpitScale.value,
   width: `${COCKPIT_DESIGN_WIDTH}px`,
   minWidth: `${COCKPIT_DESIGN_WIDTH}px`,
+  minHeight: `${COCKPIT_DESIGN_HEIGHT}px`,
 }))
 const runningCount = computed(() => instruments.value.filter(item => statusClass(item) === 'running').length)
 const idleCount = computed(() => instruments.value.filter(item => statusClass(item) === 'idle').length)
@@ -259,7 +262,11 @@ function taskStatusText(status: string) { return ({ pending: '待进行', ready:
 function formatDelayDuration(slot: TimeSlot) { const end = slot.actual_end ? dayjs(slot.actual_end) : now.value; const minutes = Math.max(1, end.diff(dayjs(slot.plan_end), 'minute')); const hours = Math.floor(minutes / 60); const remainingMinutes = minutes % 60; return hours ? `${hours}小时${remainingMinutes ? `${remainingMinutes}分钟` : ''}` : `${minutes}分钟` }
 function barHeight(value: number) { const max = Math.max(...completion.value.days.map(item => item.value), 1); return Math.max(8, value / max * 78) }
 function handleUserMenu({ key }: { key: string }) { if (key === 'logout') { localStorage.removeItem('token'); localStorage.removeItem('user'); router.push('/login') } }
-function updateCockpitScale(width: number) { cockpitScale.value = Math.max(MIN_COCKPIT_SCALE, Math.min(1, width / COCKPIT_DESIGN_WIDTH)) }
+function updateCockpitScale(width: number, height: number) {
+  const widthScale = width / COCKPIT_DESIGN_WIDTH
+  const heightScale = height / COCKPIT_DESIGN_HEIGHT
+  cockpitScale.value = Math.max(MIN_COCKPIT_SCALE, Math.min(MAX_COCKPIT_SCALE, widthScale, heightScale))
+}
 function mergeInstruments(statusList: LabStatusInstrument[], baseList: Instrument[]) { const base = new Map(baseList.map(item => [item.id, item])); return statusList.filter(item => base.get(item.id)?.availability_status === 'available').map(item => ({ ...item, model: base.get(item.id)?.model || null, availability_status: 'available' as const })) }
 async function loadData() {
   try {
@@ -272,8 +279,11 @@ onMounted(() => {
   clockTimer = setInterval(() => { now.value = dayjs() }, 1000)
   dataTimer = setInterval(loadData, 60000)
   if (cockpitViewport.value) {
-    updateCockpitScale(cockpitViewport.value.clientWidth)
-    cockpitResizeObserver = new ResizeObserver(entries => updateCockpitScale(entries[0]?.contentRect.width || COCKPIT_DESIGN_WIDTH))
+    updateCockpitScale(cockpitViewport.value.clientWidth, cockpitViewport.value.clientHeight)
+    cockpitResizeObserver = new ResizeObserver((entries) => {
+      const viewport = entries[0]?.contentRect
+      updateCockpitScale(viewport?.width || COCKPIT_DESIGN_WIDTH, viewport?.height || COCKPIT_DESIGN_HEIGHT)
+    })
     cockpitResizeObserver.observe(cockpitViewport.value)
   }
 })
