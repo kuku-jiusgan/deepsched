@@ -14,7 +14,7 @@
 .user-menu svg:last-child { padding: 8px; color: #38516e; border-radius: 50%; background: #e6eef9; }
 .cockpit-shell { padding: 15px; border: 1px solid #dce8f6; border-radius: 12px; background: rgba(255,255,255,.74); box-shadow: 0 8px 32px rgba(62, 105, 159, .09); transition: opacity .2s; }
 .cockpit-shell.is-loading { opacity: .72; }
-.kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 15px; }
+.kpi-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; }
 .kpi-card { min-height: 94px; display: flex; align-items: center; gap: 18px; padding: 12px 24px; border: 1px solid #dbe7f5; border-radius: 10px; background: #fff; box-shadow: 0 3px 12px rgba(72, 112, 160, .06); }
 .kpi-icon { width: 52px; height: 52px; flex: 0 0 52px; display: grid; place-items: center; border-radius: 50%; font-size: 26px; }
 .kpi-icon.blue { color: #3378ed; background: #e8f1fe; }.kpi-icon.green { color: #0da64c; background: #e6f7ec; }.kpi-icon.orange { color: #f17822; background: #fff0e5; }.kpi-icon.purple { color: #7b54e8; background: #f0ebff; }

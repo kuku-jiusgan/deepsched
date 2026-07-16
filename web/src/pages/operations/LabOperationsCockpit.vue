@@ -178,14 +178,12 @@ const currentUserLabel = computed(() => { try { const user = JSON.parse(localSto
 const runningCount = computed(() => instruments.value.filter(item => statusClass(item) === 'running').length)
 const idleCount = computed(() => instruments.value.filter(item => statusClass(item) === 'idle').length)
 const maintenanceCount = computed(() => instruments.value.filter(item => ['maint', 'fault'].includes(statusClass(item))).length)
-const averageUtilization = computed(() => roundedRate(dashboard.value?.avg_utilization || 0))
 const delayedCount = computed(() => dashboard.value?.delayed_tasks || 0)
 const kpis = computed(() => [
   { label: '仪器总数', value: instruments.value.length, unit: '台', icon: ExperimentOutlined, tone: 'blue' },
   { label: '运行中', value: runningCount.value, unit: '台', icon: ThunderboltOutlined, tone: 'green' },
   { label: '空闲仪器', value: idleCount.value, unit: '台', icon: DashboardOutlined, tone: 'blue' },
   { label: '维护/故障', value: maintenanceCount.value, unit: '台', icon: ToolOutlined, tone: 'orange' },
-  { label: '平均利用率', value: averageUtilization.value, unit: '%', icon: DashboardOutlined, tone: 'blue' },
   { label: '延期任务', value: delayedCount.value, unit: '项', icon: ClockCircleOutlined, tone: 'purple' },
 ])
 const topInstruments = computed(() => [...utilization.value].sort((a, b) => b.actual_utilization_rate - a.actual_utilization_rate).slice(0, 3))
