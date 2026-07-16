@@ -220,7 +220,7 @@ const baseMenuItems = [
   { key: '/system', icon: icon('SettingOutlined'), label: '系统管理', children: [
     { key: '/system/alerts', icon: icon('BellOutlined'), label: '智能预警推送' },
     { key: '/system/users', icon: icon('TeamOutlined'), label: '用户管理' },
-    { key: '/system/basic', icon: icon('SettingOutlined'), label: '系统基础管理' },
+    { key: '/system/basic', icon: icon('SettingOutlined'), label: '标准任务类型' },
     { key: '/system/calendar', icon: icon('CalendarOutlined'), label: '工作日历管理' },
   ]},
 ]
