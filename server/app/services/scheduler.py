@@ -21,7 +21,7 @@ from app.services.scheduler_persistence import persist_slots
 from app.services.scheduler_objective import add_scheduler_objective
 from app.services.scheduler_split_tasks import add_split_task_variables
 from app.services.scheduler_diagnostics import frozen_schedule_message, unavailable_instrument_message
-from app.services.scheduler_data import load_scheduler_data
+from app.services.scheduler_data import load_scheduler_data, load_task_children
 from app.services.project_hours_validation_service import (
     ProjectHoursExceededError,
     validate_projects_estimated_hours,
@@ -90,7 +90,10 @@ class SchedulerService:
         if diagnostic_message:
             return {"status": "error", "message": diagnostic_message}
 
-        task_deps = build_dependencies(tasks)
+        task_deps = build_dependencies(
+            tasks,
+            load_task_children(self.db, tasks),
+        )
         maintenance_rule = constraints["maintenance_avoidance"]
         maint_windows = (
             build_maintenance_windows(instruments, horizon_start)
@@ -362,9 +365,11 @@ class SchedulerService:
 
         # Precedence constraints (DAG)
         # Bug 1 fix: handle frozen/missing predecessors as constant bounds
-        missing_pred_ids = {pred_id for tid, pred_id in task_deps if pred_id not in task_starts}
-        all_dep_pred_ids = {d.predecessor_id for t in tasks for d in t.predecessors}
-        missing_pred_ids |= (all_dep_pred_ids - {t.id for t in tasks})
+        missing_pred_ids = {
+            pred_id
+            for _, pred_id in task_deps
+            if pred_id not in task_starts
+        }
 
         missing_pred_ends = {}
         if missing_pred_ids:
@@ -382,10 +387,15 @@ class SchedulerService:
                     model.Add(task_starts[tid] >= task_ends[pred_id])
 
             # Frozen/missing predecessors: apply constant lower-bound
-            for t in tasks:
-                for dep in t.predecessors:
-                    if dep.predecessor_id in missing_pred_ends and t.id in task_starts:
-                        model.Add(task_starts[t.id] >= missing_pred_ends[dep.predecessor_id])
+            for task_id, predecessor_id in task_deps:
+                if (
+                    predecessor_id in missing_pred_ends
+                    and task_id in task_starts
+                ):
+                    model.Add(
+                        task_starts[task_id]
+                        >= missing_pred_ends[predecessor_id]
+                    )
 
         # === Project split penalty: discourage spreading one project across many instruments ===
         project_to_tasks = {}

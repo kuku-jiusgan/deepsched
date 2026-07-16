@@ -32,3 +32,17 @@ def load_scheduler_data(db, project_ids=None, task_ids=None):
         selectinload(Instrument.maintenance_windows),
     ).all()
     return tasks, instruments
+
+
+def load_task_children(db, tasks) -> dict[int, list[int]]:
+    project_ids = {task.project_id for task in tasks}
+    if not project_ids:
+        return {}
+    rows = db.query(Task.id, Task.parent_id).filter(
+        Task.project_id.in_(project_ids),
+        Task.parent_id.isnot(None),
+    ).all()
+    children_by_parent: dict[int, list[int]] = {}
+    for task_id, parent_id in rows:
+        children_by_parent.setdefault(parent_id, []).append(task_id)
+    return children_by_parent

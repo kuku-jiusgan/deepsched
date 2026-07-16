@@ -130,14 +130,41 @@ def build_compatibility(
     return compatibility
 
 
-def build_dependencies(tasks) -> list[tuple[int, int]]:
-    task_ids = {task.id for task in tasks}
-    return [
-        (task.id, dependency.predecessor_id)
+def build_dependencies(
+    tasks,
+    children_by_parent: dict[int, list[int]] | None = None,
+) -> list[tuple[int, int]]:
+    children_by_parent = children_by_parent or {}
+    dependencies = {
+        (task.id, leaf_predecessor_id)
         for task in tasks
         for dependency in task.predecessors
-        if dependency.predecessor_id in task_ids
-    ]
+        for leaf_predecessor_id in _leaf_task_ids(
+            dependency.predecessor_id,
+            children_by_parent,
+        )
+    }
+    return sorted(dependencies)
+
+
+def _leaf_task_ids(
+    task_id: int,
+    children_by_parent: dict[int, list[int]],
+) -> set[int]:
+    pending_ids = [task_id]
+    visited_ids = set()
+    leaf_ids = set()
+    while pending_ids:
+        current_id = pending_ids.pop()
+        if current_id in visited_ids:
+            continue
+        visited_ids.add(current_id)
+        child_ids = children_by_parent.get(current_id, [])
+        if child_ids:
+            pending_ids.extend(child_ids)
+        else:
+            leaf_ids.add(current_id)
+    return leaf_ids or {task_id}
 
 
 def build_maintenance_windows(
