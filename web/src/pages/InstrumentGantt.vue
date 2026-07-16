@@ -15,7 +15,6 @@
       <span class="period-label">{{ periodLabel }}</span>
       <a-button @click="goNext"><RightOutlined /></a-button>
       <a-button @click="goToday">今天</a-button>
-      <a-button @click="fetchData"><ReloadOutlined /> 刷新</a-button>
       <a-button @click="toggleFullscreen"><component :is="isFullscreen ? FullscreenExitOutlined : FullscreenOutlined" /> 全屏</a-button>
       <span class="auto-scroll-control">
         <a-switch v-model:checked="autoScrollEnabled" size="small" />
@@ -114,7 +113,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import type { CSSProperties, Component } from 'vue'
 import { message } from 'ant-design-vue'
-import { LeftOutlined, RightOutlined, ReloadOutlined, FullscreenOutlined, FullscreenExitOutlined, ExperimentOutlined, EditOutlined, CheckSquareOutlined, DotChartOutlined, FileTextOutlined } from '@ant-design/icons-vue'
+import { LeftOutlined, RightOutlined, FullscreenOutlined, FullscreenExitOutlined, ExperimentOutlined, EditOutlined, CheckSquareOutlined, DotChartOutlined, FileTextOutlined } from '@ant-design/icons-vue'
 import { getInstruments, getTimeslots, getTaskTypes, type TaskTypeConfig } from '@/services/api'
 import type { Instrument, TimeSlot } from '@/types'
 import dayjs from 'dayjs'

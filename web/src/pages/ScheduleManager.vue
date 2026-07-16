@@ -21,9 +21,6 @@
           <h3 id="all-schedules-title">全部排程</h3>
           <p>{{ scheduleSummary }}</p>
         </div>
-        <a-button :loading="tableLoading" @click="loadSchedules">
-          <ReloadOutlined /> 刷新
-        </a-button>
       </div>
 
       <a-table
@@ -182,6 +179,6 @@ function errorDetail(error: unknown, fallback: string) {
 .schedule-section :deep(.ant-table-wrapper) { padding: 0 16px 16px; }
 @media (max-width: 720px) {
   .reschedule-panel, .section-header { align-items: flex-start; flex-direction: column; }
-  .reschedule-panel .ant-btn, .section-header .ant-btn { width: 100%; }
+  .reschedule-panel .ant-btn { width: 100%; }
 }
 </style>

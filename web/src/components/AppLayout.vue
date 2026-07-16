@@ -65,7 +65,6 @@
             <div class="notification-panel">
               <div class="notification-panel-head">
                 <span>站内通知</span>
-                <a-button type="link" size="small" @click="fetchNotifications">刷新</a-button>
               </div>
               <a-empty v-if="notifications.length === 0" :image="Empty.PRESENTED_IMAGE_SIMPLE" description="暂无未读通知" />
               <div v-else class="notification-list">

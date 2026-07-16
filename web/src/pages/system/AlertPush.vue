@@ -5,9 +5,8 @@
     <a-spin v-if="loading" size="large" style="display: block; margin: 50px auto" />
 
     <template v-else>
-      <div class="action-bar">
-        <a-button @click="fetchData"><ReloadOutlined /> 刷新</a-button>
-        <a-button v-if="activeTab === 'rules'" type="primary" style="margin-left: auto" @click="saveAll">保存规则</a-button>
+      <div v-if="activeTab === 'rules'" class="action-bar">
+        <a-button type="primary" style="margin-left: auto" @click="saveAll">保存规则</a-button>
       </div>
 
       <a-tabs v-model:activeKey="activeTab">
@@ -115,7 +114,6 @@
 <script setup lang="ts">
 import { reactive, ref, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
-import { ReloadOutlined } from '@ant-design/icons-vue'
 import dayjs from 'dayjs'
 import {
   getAlertRules,

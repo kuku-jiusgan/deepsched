@@ -6,7 +6,6 @@
 
     <div class="action-bar">
       <a-button type="primary" danger @click="openFaultModal"><ToolOutlined /> 故障提报</a-button>
-      <a-button @click="fetchData"><ReloadOutlined /> 刷新</a-button>
     </div>
 
     <a-spin v-if="loading" size="large" style="display: block; margin: 80px auto" />
@@ -166,7 +165,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
-import { ReloadOutlined, ToolOutlined } from '@ant-design/icons-vue'
+import { ToolOutlined } from '@ant-design/icons-vue'
 import dayjs from 'dayjs'
 import {
   getInstruments,
