@@ -12,6 +12,8 @@ def add_split_task_variables(
     duration_units: int,
     project_start_unit: int,
     project_end_unit: int,
+    task_start_max: int,
+    task_end_min: int,
     total_units: int,
     instrument_prefix_sums: dict[int, list[int]],
     task_start,
@@ -56,19 +58,31 @@ def add_split_task_variables(
             ))
             model.AddImplication(unit_choice, choice)
 
-            start_candidate = model.NewIntVar(0, total_units, f"split_start_t{task.id}_i{instrument.id}_u{unit}")
+            start_candidate = model.NewIntVarFromDomain(
+                cp_model.Domain.FromValues([unit, total_units]),
+                f"split_start_t{task.id}_i{instrument.id}_u{unit}",
+            )
             model.Add(start_candidate == unit).OnlyEnforceIf(unit_choice)
             model.Add(start_candidate == total_units).OnlyEnforceIf(unit_choice.Not())
             start_candidates.append(start_candidate)
 
-            end_candidate = model.NewIntVar(0, total_units, f"split_end_t{task.id}_i{instrument.id}_u{unit}")
+            end_candidate = model.NewIntVarFromDomain(
+                cp_model.Domain.FromValues([0, unit + 1]),
+                f"split_end_t{task.id}_i{instrument.id}_u{unit}",
+            )
             model.Add(end_candidate == unit + 1).OnlyEnforceIf(unit_choice)
             model.Add(end_candidate == 0).OnlyEnforceIf(unit_choice.Not())
             end_candidates.append(end_candidate)
 
         model.Add(sum(unit_choices) == duration_units * choice)
-        inst_start = model.NewIntVar(0, total_units, f"start_t{task.id}_i{instrument.id}")
-        inst_end = model.NewIntVar(0, total_units, f"end_t{task.id}_i{instrument.id}")
+        inst_start = model.NewIntVarFromDomain(
+            _optional_time_domain(project_start_unit, task_start_max),
+            f"start_t{task.id}_i{instrument.id}",
+        )
+        inst_end = model.NewIntVarFromDomain(
+            _optional_time_domain(task_end_min, project_end_unit),
+            f"end_t{task.id}_i{instrument.id}",
+        )
         inst_starts[key] = inst_start
         inst_ends[key] = inst_end
         model.Add(inst_start == task_start).OnlyEnforceIf(choice)
@@ -83,3 +97,12 @@ def add_split_task_variables(
     model.AddMinEquality(task_start, start_candidates)
     model.AddMaxEquality(task_end, end_candidates)
     return True
+
+
+def _optional_time_domain(lower_bound: int, upper_bound: int) -> cp_model.Domain:
+    if lower_bound == 0:
+        return cp_model.Domain.FromIntervals([(0, upper_bound)])
+    return cp_model.Domain.FromIntervals([
+        (0, 0),
+        (lower_bound, upper_bound),
+    ])

@@ -172,12 +172,26 @@ class SchedulerService:
                 return {"status": "error", "message": f"排程失败：项目【{t.project.name if t.project else chr(39)+chr(39)}】时间窗口不足。"}
 
             # Constrain task start/end within project boundaries
-            task_starts[t.id] = model.NewIntVar(p_start_unit, p_end_unit, f"start_t{t.id}")
-            task_ends[t.id] = model.NewIntVar(p_start_unit, p_end_unit, f"end_t{t.id}")
+            task_start_max = p_end_unit - dur
+            task_end_min = p_start_unit + dur
+            task_starts[t.id] = model.NewIntVar(
+                p_start_unit,
+                task_start_max,
+                f"start_t{t.id}",
+            )
+            task_ends[t.id] = model.NewIntVar(
+                task_end_min,
+                p_end_unit,
+                f"end_t{t.id}",
+            )
             task_tardiness[t.id] = model.NewIntVar(0, total_units, f"tardy_t{t.id}")
 
             # Physical span can stretch beyond dur to accommodate night breaks
-            task_span = model.NewIntVar(dur, total_units, f"span_t{t.id}")
+            task_span = model.NewIntVar(
+                dur,
+                p_end_unit - p_start_unit,
+                f"span_t{t.id}",
+            )
             model.Add(task_ends[t.id] - task_starts[t.id] == task_span)
 
             task_interval = model.NewIntervalVar(
@@ -203,6 +217,8 @@ class SchedulerService:
                     dur,
                     p_start_unit,
                     p_end_unit,
+                    task_start_max,
+                    task_end_min,
                     total_units,
                     instrument_prefix_sums,
                     task_starts[t.id],
@@ -224,9 +240,19 @@ class SchedulerService:
                 instrument_prefix_sum = instrument_prefix_sums[inst.id]
                 key = (t.id, inst.id)
                 presences[key] = model.NewBoolVar(f"presence_t{t.id}_i{inst.id}")
-                inst_start = model.NewIntVar(0, total_units, f"start_t{t.id}_i{inst.id}")
-                inst_end = model.NewIntVar(0, total_units, f"end_t{t.id}_i{inst.id}")
-                inst_span = model.NewIntVar(0, total_units, f"span_t{t.id}_i{inst.id}")
+                inst_start = model.NewIntVarFromDomain(
+                    _optional_time_domain(p_start_unit, task_start_max),
+                    f"start_t{t.id}_i{inst.id}",
+                )
+                inst_end = model.NewIntVarFromDomain(
+                    _optional_time_domain(task_end_min, p_end_unit),
+                    f"end_t{t.id}_i{inst.id}",
+                )
+                inst_span = model.NewIntVar(
+                    0,
+                    p_end_unit - p_start_unit,
+                    f"span_t{t.id}_i{inst.id}",
+                )
                 model.Add(inst_end - inst_start == inst_span)
 
                 inst_iv = model.NewOptionalIntervalVar(
@@ -472,3 +498,12 @@ class SchedulerService:
 
 def _new_schedule_run_id() -> str:
     return f"{datetime.now():%Y%m%d%H%M%S}-{uuid4().hex[:8]}"
+
+
+def _optional_time_domain(lower_bound: int, upper_bound: int) -> cp_model.Domain:
+    if lower_bound == 0:
+        return cp_model.Domain.FromIntervals([(0, upper_bound)])
+    return cp_model.Domain.FromIntervals([
+        (0, 0),
+        (lower_bound, upper_bound),
+    ])
