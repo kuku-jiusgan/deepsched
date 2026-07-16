@@ -58,12 +58,33 @@
         </article>
 
         <aside class="summary-column">
-          <section class="summary-card status-summary">
-            <h2>设备运行总览</h2>
-            <div v-for="item in statusOverview" :key="item.label" class="status-row">
-              <span class="summary-icon" :class="item.tone"><component :is="item.icon" /></span>
-              <span>{{ item.label }}</span><strong>{{ item.value }}<small>{{ item.unit }}</small></strong><em>{{ item.note }}</em>
+          <section class="summary-card instrument-feed-card">
+            <h2>仪器实时运行信息</h2>
+            <div v-if="instruments.length" class="instrument-feed-viewport" :style="{ '--feed-scroll-duration': feedScrollDuration }">
+              <div class="instrument-feed-track">
+                <div v-for="copyIndex in 2" :key="`feed-copy-${copyIndex}`" class="instrument-feed-copy">
+                  <article v-for="item in instruments" :key="`feed-${copyIndex}-${item.id}`" class="instrument-feed-item">
+                    <header>
+                      <span class="feed-status-dot" :class="statusClass(item)"></span>
+                      <div><strong>{{ item.code }}</strong><span>{{ item.name }}</span></div>
+                      <em :class="statusClass(item)">{{ statusText(item) }}</em>
+                    </header>
+                    <dl>
+                      <div><dt>品牌型号</dt><dd>{{ item.model || '未填写型号' }}</dd></div>
+                      <div><dt>位置分组</dt><dd>{{ item.location || '-' }} · {{ groupText(item.group) }}</dd></div>
+                      <div><dt>当前项目</dt><dd>{{ item.current_project || '暂无运行项目' }}</dd></div>
+                      <div><dt>当前任务</dt><dd>{{ taskOwnerText(item.current_task, item.current_user, '未占用') }}</dd></div>
+                      <div><dt>预计完成</dt><dd>{{ formatDateTime(item.current_task_end) }}</dd></div>
+                      <div><dt>下一项目</dt><dd>{{ item.next_project || '暂无待执行项目' }}</dd></div>
+                      <div><dt>下一任务</dt><dd>{{ taskOwnerText(item.next_task, item.next_user, '暂无待执行任务') }}</dd></div>
+                      <div><dt>预计开始</dt><dd>{{ formatDateTime(item.next_start) }}</dd></div>
+                      <div><dt>仪器利用率</dt><dd>{{ utilizationRate(item.id) }}%</dd></div>
+                    </dl>
+                  </article>
+                </div>
+              </div>
             </div>
+            <a-empty v-else description="暂无仪器" />
           </section>
           <section class="summary-card ranking-card">
             <h2>利用率 TOP3</h2>
@@ -166,16 +187,11 @@ const kpis = computed(() => [
   { label: '平均利用率', value: averageUtilization.value, unit: '%', icon: DashboardOutlined, tone: 'blue' },
   { label: '延期任务', value: delayedCount.value, unit: '项', icon: ClockCircleOutlined, tone: 'purple' },
 ])
-const statusOverview = computed(() => [
-  { label: '运行中仪器', value: runningCount.value, unit: '台', note: `占比 ${percentage(runningCount.value)}%`, icon: ThunderboltOutlined, tone: 'green' },
-  { label: '空闲仪器', value: idleCount.value, unit: '台', note: `占比 ${percentage(idleCount.value)}%`, icon: DashboardOutlined, tone: 'blue' },
-  { label: '维护/故障仪器', value: maintenanceCount.value, unit: '台', note: `占比 ${percentage(maintenanceCount.value)}%`, icon: ToolOutlined, tone: 'orange' },
-  { label: '告警与异常', value: delayedCount.value, unit: '条', note: delayedCount.value ? '需关注' : '当前无异常', icon: ClockCircleOutlined, tone: 'red' },
-])
 const topInstruments = computed(() => [...utilization.value].sort((a, b) => b.actual_utilization_rate - a.actual_utilization_rate).slice(0, 3))
 const hasWarning = computed(() => delayedCount.value > 0 || maintenanceCount.value > 0)
 const healthDescription = computed(() => hasWarning.value ? `当前有 ${delayedCount.value + maintenanceCount.value} 项需要关注` : '当前无告警与异常事件')
 const utilizationMap = computed(() => new Map(utilization.value.map(item => [item.instrument_id, roundedRate(item.actual_utilization_rate)])))
+const feedScrollDuration = computed(() => `${Math.max(instruments.value.length * 9, 42)}s`)
 
 const completion = computed(() => {
   const start = dayjs().startOf('day').subtract(6, 'day')
@@ -194,6 +210,9 @@ const trendAreaPath = computed(() => weeklyTrend.value.length ? `M ${trendX(0)} 
 
 function statusClass(item: CockpitInstrument) { const value = item.status.toLowerCase(); if (value.includes('fault')) return 'fault'; if (value.includes('maint')) return 'maint'; return item.current_task || value === 'running' ? 'running' : 'idle' }
 function statusText(item: CockpitInstrument) { return ({ running: '运行中', idle: '空闲', maint: '维护中', fault: '故障' } as const)[statusClass(item) as 'running' | 'idle' | 'maint' | 'fault'] }
+function groupText(group: string) { return group === 'GTI_Group' ? '基因毒组' : group === 'Quality_Group' ? '质量组' : group || '未分组' }
+function taskOwnerText(task: string | null | undefined, owner: string | null | undefined, fallback: string) { return task ? `${task} · ${owner || '未分配'}` : fallback }
+function formatDateTime(value: string | null | undefined) { return value ? dayjs(value).format('MM-DD HH:mm') : '-' }
 function percentage(value: number) { return instruments.value.length ? Math.round(value / instruments.value.length * 1000) / 10 : 0 }
 function roundedRate(value: number) { return Math.max(0, Math.min(100, Math.round(Number(value) || 0))) }
 function utilizationRate(id: number) { return utilizationMap.value.get(id) || 0 }
