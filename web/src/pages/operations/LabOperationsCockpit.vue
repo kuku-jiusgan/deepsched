@@ -63,7 +63,7 @@
             <ol>
               <li v-for="(item, index) in topInstruments" :key="item.instrument_id">
                 <span :class="`rank-${index + 1}`">{{ index + 1 }}</span>
-                <p>{{ item.instrument_name }}<small v-if="instrumentModel(item.instrument_id)">（{{ instrumentModel(item.instrument_id) }}）</small></p>
+                <p><small>{{ item.instrument_code || '-' }}</small><span>{{ item.instrument_name }}</span></p>
                 <strong>{{ roundedRate(item.actual_utilization_rate) }}%</strong>
               </li>
             </ol>
@@ -219,7 +219,6 @@ function instrumentPhotoClass(code: string) {
   if (code === 'ZBYY-002-0006') classes.push('instrument-photo-needs-cleanup')
   return classes
 }
-function instrumentModel(id: number) { return instruments.value.find(item => item.id === id)?.model }
 function trendX(index: number) { return weeklyTrend.value.length > 1 ? 18 + index * (584 / (weeklyTrend.value.length - 1)) : 310 }
 function trendY(value: number) { return 100 - Math.max(0, Math.min(100, value)) * .86 }
 function barHeight(value: number) { const max = Math.max(...completion.value.days.map(item => item.value), 1); return Math.max(8, value / max * 78) }
