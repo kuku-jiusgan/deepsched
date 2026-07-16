@@ -173,6 +173,7 @@ const MIN_COCKPIT_SCALE = 0.78
 const WARNING_SCROLL_THRESHOLD = 1
 const WARNING_SCROLL_SECONDS_PER_ITEM = 6
 const WARNING_SCROLL_MIN_SECONDS = 18
+const COMPLETED_TASK_STATUSES = new Set(['done', 'completed'])
 const INSTRUMENT_IMAGES: Record<string, string> = {
   'ZBYY-002-0001': '/assets/instruments/ab-api5500.png',
   'ZBYY-002-0002': '/assets/instruments/agilent-7000b.png',
@@ -247,7 +248,10 @@ function instrumentPhotoClass(code: string) {
   if (code === 'ZBYY-002-0006') classes.push('instrument-photo-needs-cleanup')
   return classes
 }
-function isWarningTask(slot: TimeSlot) { return slot.delay_status === 'delayed' }
+function isWarningTask(slot: TimeSlot) {
+  const executionStatus = slot.task_status || slot.status
+  return slot.delay_status === 'delayed' && !COMPLETED_TASK_STATUSES.has(executionStatus)
+}
 function warningSortTime(slot: TimeSlot) { return dayjs(slot.delay_reported_at || slot.plan_end || slot.plan_start).valueOf() }
 function warningTaskStatus(slot: TimeSlot) { const delayText = slot.delay_hours && slot.delay_hours > 0 ? `延期 ${slot.delay_hours}h` : `延期 ${formatDelayDuration(slot)}`; return `${taskStatusText(slot.task_status || slot.status)} · ${delayText}` }
 function warningTaskReason(slot: TimeSlot) { return slot.delay_reason || `计划结束 ${formatDateTime(slot.plan_end)}，${taskStatusText(slot.task_status || slot.status)}` }
