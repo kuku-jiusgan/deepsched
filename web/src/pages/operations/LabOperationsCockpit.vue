@@ -58,6 +58,20 @@
         </article>
 
         <aside class="summary-column">
+          <section class="summary-card ranking-card">
+            <h2>利用率 TOP3</h2>
+            <ol>
+              <li v-for="(item, index) in topInstruments" :key="item.instrument_id">
+                <span :class="`rank-${index + 1}`">{{ index + 1 }}</span>
+                <p>{{ item.instrument_name }}<small v-if="instrumentModel(item.instrument_id)">（{{ instrumentModel(item.instrument_id) }}）</small></p>
+                <strong>{{ roundedRate(item.actual_utilization_rate) }}%</strong>
+              </li>
+            </ol>
+            <div class="health-state" :class="{ warning: hasWarning }">
+              <SafetyCertificateOutlined />
+              <div><strong>{{ hasWarning ? '系统存在待处理事项' : '系统运行正常' }}</strong><span>{{ healthDescription }}</span></div>
+            </div>
+          </section>
           <section class="summary-card instrument-feed-card">
             <h2>仪器实时运行信息</h2>
             <div v-if="instruments.length" class="instrument-feed-viewport" :style="{ '--feed-scroll-duration': feedScrollDuration }">
@@ -85,20 +99,6 @@
               </div>
             </div>
             <a-empty v-else description="暂无仪器" />
-          </section>
-          <section class="summary-card ranking-card">
-            <h2>利用率 TOP3</h2>
-            <ol>
-              <li v-for="(item, index) in topInstruments" :key="item.instrument_id">
-                <span :class="`rank-${index + 1}`">{{ index + 1 }}</span>
-                <p>{{ item.instrument_name }}<small v-if="instrumentModel(item.instrument_id)">（{{ instrumentModel(item.instrument_id) }}）</small></p>
-                <strong>{{ roundedRate(item.actual_utilization_rate) }}%</strong>
-              </li>
-            </ol>
-            <div class="health-state" :class="{ warning: hasWarning }">
-              <SafetyCertificateOutlined />
-              <div><strong>{{ hasWarning ? '系统存在待处理事项' : '系统运行正常' }}</strong><span>{{ healthDescription }}</span></div>
-            </div>
           </section>
         </aside>
       </section>
