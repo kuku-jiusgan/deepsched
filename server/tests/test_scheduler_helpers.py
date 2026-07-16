@@ -1,7 +1,8 @@
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 
-from app.services.scheduler_helpers import natural_day_boundary, to_units
+from app.services.scheduler_helpers import natural_day_boundary, time_horizon, to_units
 
 
 class SchedulerHelpersTest(unittest.TestCase):
@@ -29,6 +30,48 @@ class SchedulerHelpersTest(unittest.TestCase):
         self.assertEqual(1, to_units(0.5))
         self.assertEqual(2, to_units(0.75))
         self.assertEqual(3, to_units(1.25))
+
+    def test_time_horizon_rounding_crosses_midnight_safely(self):
+        class LateNightDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 8, 3, 23, 45, 20)
+
+        with patch(
+            "app.services.scheduler_helpers.datetime",
+            LateNightDateTime,
+        ):
+            horizon_start, _, _ = time_horizon()
+
+        self.assertEqual(datetime(2026, 8, 4, 0, 0), horizon_start)
+
+    def test_time_horizon_rounds_up_to_next_half_hour(self):
+        class MiddayDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 8, 3, 10, 45, 20)
+
+        with patch(
+            "app.services.scheduler_helpers.datetime",
+            MiddayDateTime,
+        ):
+            horizon_start, _, _ = time_horizon()
+
+        self.assertEqual(datetime(2026, 8, 3, 11, 0), horizon_start)
+
+    def test_time_horizon_keeps_aligned_time(self):
+        class AlignedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 8, 3, 10, 30, 20)
+
+        with patch(
+            "app.services.scheduler_helpers.datetime",
+            AlignedDateTime,
+        ):
+            horizon_start, _, _ = time_horizon()
+
+        self.assertEqual(datetime(2026, 8, 3, 10, 30), horizon_start)
 
 if __name__ == "__main__":
     unittest.main()
