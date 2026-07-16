@@ -345,9 +345,13 @@ onMounted(fetchData)
 .fault-page {
   min-height: calc(100vh - 40px);
   margin: -24px;
-  padding: 24px;
+  padding: 14px 24px 24px;
   background: #f7f8fa;
   box-sizing: border-box;
+}
+
+.fault-page > .page-header {
+  margin-bottom: 14px;
 }
 
 .fault-card-grid {
@@ -521,7 +525,7 @@ onMounted(fetchData)
 
 @media (max-width: 768px) {
   .fault-page {
-    padding: 18px;
+    padding: 12px 18px 18px;
   }
 
   .fault-card-grid {
