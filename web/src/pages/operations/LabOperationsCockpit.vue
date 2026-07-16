@@ -32,12 +32,17 @@
         <article class="instrument-panel panel-frame">
           <h2>{{ instruments.length }}台仪器模型阵列</h2>
           <div v-if="instruments.length" class="instrument-grid">
-            <article v-for="item in instruments" :key="item.id" class="instrument-card">
+            <article
+              v-for="item in instruments"
+              :key="item.id"
+              class="instrument-card"
+              :class="instrumentCardClass(item.code)"
+            >
               <div class="instrument-heading">
                 <div><span>{{ item.code }}</span><strong>{{ item.name }}</strong><small>{{ item.model || '型号未设置' }}</small></div>
                 <em :class="statusClass(item)">{{ statusText(item) }}</em>
               </div>
-              <div class="instrument-picture">
+              <div class="instrument-picture" :class="instrumentPhotoClass(item.code)">
                 <img
                   :src="instrumentImage(item.code)"
                   :alt="`${item.name} ${item.model || ''}`"
@@ -193,6 +198,12 @@ function percentage(value: number) { return instruments.value.length ? Math.roun
 function roundedRate(value: number) { return Math.max(0, Math.min(100, Math.round(Number(value) || 0))) }
 function utilizationRate(id: number) { return utilizationMap.value.get(id) || 0 }
 function instrumentImage(code: string) { return INSTRUMENT_IMAGES[code] || '/assets/instruments/ab-api5500.png' }
+function instrumentCardClass(code: string) {
+  if (code === 'ZBYY-002-0007') return 'instrument-card-wide'
+  if (code === 'ZBYY-002-0011') return 'instrument-card-wider'
+  return ''
+}
+function instrumentPhotoClass(code: string) { return `instrument-photo-${code.slice(-4)}` }
 function instrumentModel(id: number) { return instruments.value.find(item => item.id === id)?.model }
 function trendX(index: number) { return weeklyTrend.value.length > 1 ? 18 + index * (584 / (weeklyTrend.value.length - 1)) : 310 }
 function trendY(value: number) { return 100 - Math.max(0, Math.min(100, value)) * .86 }
