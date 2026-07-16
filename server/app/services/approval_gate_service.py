@@ -14,7 +14,11 @@ from app.schemas.approval_gate_schemas import (
 from app.schemas.schemas import ProjectPlanInsertConfirmRequest
 from app.services.project_access_service import FULL_PROJECT_ACCESS_ROLES, can_view_project
 from app.services.push_notification_service import push_by_rule
-from app.services.task_execution_service import TaskExecutionInvalidError, ensure_predecessors_completed
+from app.services.task_execution_service import (
+    COMPLETED_TASK_STATUSES,
+    TaskExecutionInvalidError,
+    ensure_predecessors_completed,
+)
 
 
 APPROVAL_WRITE_ROLES = FULL_PROJECT_ACCESS_ROLES
@@ -176,6 +180,12 @@ def submit_approval_gate(
     expected_at = _naive_datetime(data.expected_approval_at)
     if expected_at <= datetime.now():
         raise ApprovalGateInvalidError("预计签批完成时间必须晚于当前时间")
+    predecessor_completed_at = _latest_predecessor_completed_at(gate)
+    if predecessor_completed_at and expected_at < predecessor_completed_at:
+        raise ApprovalGateInvalidError(
+            f"预计签批完成时间不能早于前置任务完成时间"
+            f"【{predecessor_completed_at:%Y-%m-%d %H:%M}】"
+        )
     gate.gate_status = "waiting_approval"
     gate.status = "waiting_approval"
     gate.submitted_at = gate.submitted_at or datetime.now()
@@ -349,7 +359,12 @@ def _store_schedule_result(db, gate: Task, result, is_forecast: bool) -> None:
 def _gate_out(db, gate: Task, user: User) -> ApprovalGateOut:
     project = gate.project
     predecessor_tasks = [
-        ApprovalGateTaskRef(id=dependency.predecessor.id, name=dependency.predecessor.name)
+        ApprovalGateTaskRef(
+            id=dependency.predecessor.id,
+            name=dependency.predecessor.name,
+            status=dependency.predecessor.status,
+            completed_at=_task_completed_at(dependency.predecessor),
+        )
         for dependency in gate.predecessors
     ]
     unlock_tasks = [
@@ -515,6 +530,22 @@ def _ensure_gate_predecessors_completed(gate: Task) -> None:
         ensure_predecessors_completed(gate)
     except TaskExecutionInvalidError as exc:
         raise ApprovalGateInvalidError(str(exc))
+
+
+def _latest_predecessor_completed_at(gate: Task) -> datetime | None:
+    completion_times = [
+        completed_at
+        for dependency in gate.predecessors
+        if (completed_at := _task_completed_at(dependency.predecessor)) is not None
+    ]
+    return max(completion_times, default=None)
+
+
+def _task_completed_at(task: Task) -> datetime | None:
+    if task.status not in COMPLETED_TASK_STATUSES:
+        return None
+    actual_ends = [slot.actual_end for slot in task.time_slots if slot.actual_end]
+    return max(actual_ends, default=task.updated_at)
 
 
 def _audit(db, user: User, action: str, gate: Task, detail: dict) -> None:

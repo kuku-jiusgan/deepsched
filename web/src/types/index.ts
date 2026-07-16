@@ -53,6 +53,8 @@ export type ApprovalRiskStatus = 'normal' | 'upcoming' | 'overdue' | 'deadline_r
 export interface ApprovalGateTaskRef {
   id: number;
   name: string;
+  status?: string | null;
+  completed_at?: string | null;
 }
 
 export interface ApprovalGate {

@@ -27,6 +27,8 @@ class ApprovalGateApprove(BaseModel):
 class ApprovalGateTaskRef(BaseModel):
     id: int
     name: str
+    status: str | None = None
+    completed_at: datetime | None = None
 
 
 class ApprovalGateOut(BaseModel):

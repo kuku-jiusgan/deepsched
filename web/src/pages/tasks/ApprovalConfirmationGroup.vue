@@ -17,12 +17,24 @@
           <div><span>提交时间：</span>{{ formatDateTime(gate.submitted_at) }}</div>
           <div><span>预计签批：</span>{{ formatDateTime(gate.expected_approval_at) }}</div>
           <div><span>最迟签批：</span>{{ formatDateTime(gate.latest_approval_at) }}</div>
+          <div><span>前置任务：</span>{{ taskNames(gate.predecessor_tasks) }}</div>
           <div><span>解锁任务：</span>{{ taskNames(gate.unlock_tasks) }}</div>
+        </div>
+        <div v-if="!predecessorsCompleted(gate)" class="approval-prerequisite-warning">
+          前置任务【{{ incompletePredecessorNames(gate) }}】尚未完成，暂不能提交或确认签批。
         </div>
         <div class="today-card-choice">请选择：</div>
         <div class="today-card-actions">
-          <a-button v-if="gate.gate_status !== 'approved'" size="small" class="workspace-action-button workspace-action-button-secondary" @click="openExpectedApproval(gate)">预计签批时间</a-button>
-          <a-button v-if="gate.gate_status !== 'approved'" size="small" class="workspace-action-button workspace-action-button-success" @click="confirmApprove(gate)">确认签批</a-button>
+          <a-tooltip v-if="gate.gate_status !== 'approved'" :title="prerequisiteBlockReason(gate)">
+            <span class="disabled-action-wrapper">
+              <a-button size="small" class="workspace-action-button workspace-action-button-secondary" :disabled="!predecessorsCompleted(gate)" @click="openExpectedApproval(gate)">预计签批时间</a-button>
+            </span>
+          </a-tooltip>
+          <a-tooltip v-if="gate.gate_status !== 'approved'" :title="prerequisiteBlockReason(gate)">
+            <span class="disabled-action-wrapper">
+              <a-button size="small" class="workspace-action-button workspace-action-button-success" :disabled="!predecessorsCompleted(gate)" @click="confirmApprove(gate)">确认签批</a-button>
+            </span>
+          </a-tooltip>
           <a-button v-if="gate.schedule_status === 'confirmation_required'" size="small" class="workspace-action-button workspace-action-button-warning" @click="confirmImpact(gate)">确认排程影响</a-button>
           <a-button size="small" class="workspace-action-button workspace-action-button-secondary" @click="viewHistory">查看详情</a-button>
         </div>
@@ -36,7 +48,7 @@
       ok-text="保存并生成预测排程"
       cancel-text="取消"
       :confirm-loading="expectedSubmitting"
-      :ok-button-props="{ disabled: !expectedApprovalAt }"
+      :ok-button-props="{ disabled: !expectedApprovalAt || !expectedGate || !predecessorsCompleted(expectedGate) }"
       :cancel-button-props="{ disabled: expectedSubmitting }"
       :mask-closable="!expectedSubmitting"
       :closable="!expectedSubmitting"
@@ -50,12 +62,13 @@
             :show-time="{ format: 'HH:mm', minuteStep: 30 }"
             format="YYYY-MM-DD HH:mm"
             :disabled-date="disabledExpectedDate"
+            :disabled-time="disabledExpectedTime"
             style="width: 100%"
             @change="normalizeExpectedApprovalAt"
           />
         </a-form-item>
       </a-form>
-      <p class="expected-approval-help">保存后将从该时间起预测安排后续任务；如果需要调整其他项目排程，系统会另行提示确认。</p>
+      <p class="expected-approval-help">不得早于前置任务完成时间{{ expectedMinimumLabel }}。保存后将从该时间起预测安排后续任务。</p>
     </a-modal>
   </div>
 </template>
@@ -79,6 +92,11 @@ const expectedModalOpen = ref(false)
 const expectedSubmitting = ref(false)
 const expectedGate = ref<ApprovalGate | null>(null)
 const expectedApprovalAt = ref<Dayjs | null>(null)
+const completedTaskStatuses = new Set(['done', 'completed'])
+const expectedMinimumLabel = computed(() => {
+  if (!expectedGate.value) return ''
+  return `【${minimumExpectedAt(expectedGate.value).format('YYYY-MM-DD HH:mm')}】`
+})
 
 function openExpectedApproval(gate: ApprovalGate) {
   expectedGate.value = gate
@@ -88,29 +106,47 @@ function openExpectedApproval(gate: ApprovalGate) {
     : latestApprovalAt?.isAfter(dayjs())
       ? latestApprovalAt
       : dayjs().add(1, 'day').minute(0).second(0)
-  expectedApprovalAt.value = floorToHalfHour(defaultExpectedAt)
+  const minimum = minimumExpectedAt(gate)
+  expectedApprovalAt.value = defaultExpectedAt.isBefore(minimum) ? minimum : ceilToHalfHour(defaultExpectedAt)
   expectedModalOpen.value = true
 }
 
-function floorToHalfHour(value: Dayjs) {
-  const minute = value.minute() < 30 ? 0 : 30
-  return value.minute(minute).second(0).millisecond(0)
+function ceilToHalfHour(value: Dayjs) {
+  const normalized = value.second(0).millisecond(0)
+  if (normalized.minute() === 0 || normalized.minute() === 30) return normalized
+  if (normalized.minute() < 30) return normalized.minute(30)
+  return normalized.add(1, 'hour').minute(0)
 }
 
 function normalizeExpectedApprovalAt(value: Dayjs | null) {
-  expectedApprovalAt.value = value ? floorToHalfHour(value) : null
+  expectedApprovalAt.value = value ? ceilToHalfHour(value) : null
 }
 
 function disabledExpectedDate(value: Dayjs) {
-  return value.endOf('day').isBefore(dayjs())
+  const gate = expectedGate.value
+  return gate ? value.endOf('day').isBefore(minimumExpectedAt(gate)) : value.endOf('day').isBefore(dayjs())
+}
+
+function disabledExpectedTime(value: Dayjs | null) {
+  const gate = expectedGate.value
+  if (!gate || !value) return {}
+  const minimum = minimumExpectedAt(gate)
+  if (!value.isSame(minimum, 'day')) return {}
+  return {
+    disabledHours: () => Array.from({ length: minimum.hour() }, (_, hour) => hour),
+    disabledMinutes: (hour: number) => hour === minimum.hour()
+      ? Array.from({ length: minimum.minute() }, (_, minute) => minute)
+      : [],
+  }
 }
 
 async function saveExpectedApproval() {
   const gate = expectedGate.value
-  const expectedAt = expectedApprovalAt.value ? floorToHalfHour(expectedApprovalAt.value) : null
+  const expectedAt = expectedApprovalAt.value ? ceilToHalfHour(expectedApprovalAt.value) : null
   if (!gate || !expectedAt) return
-  if (!expectedAt.isAfter(dayjs())) {
-    message.warning('预计签批时间必须晚于当前时间')
+  const minimum = minimumExpectedAt(gate)
+  if (expectedAt.isBefore(minimum)) {
+    message.warning(`预计签批时间不能早于 ${minimum.format('YYYY-MM-DD HH:mm')}`)
     return
   }
   expectedSubmitting.value = true
@@ -167,6 +203,30 @@ function confirmImpact(gate: ApprovalGate) {
 
 function viewHistory() { router.push('/tasks/approvals') }
 function taskNames(tasks: ApprovalGateTaskRef[]) { return tasks.map(task => task.name).join('、') || '-' }
+function incompletePredecessors(gate: ApprovalGate) {
+  return gate.predecessor_tasks.filter(task => !task.status || !completedTaskStatuses.has(task.status))
+}
+function incompletePredecessorNames(gate: ApprovalGate) {
+  return incompletePredecessors(gate).map(task => task.name).join('、')
+}
+function predecessorsCompleted(gate: ApprovalGate) {
+  return gate.predecessor_tasks.length > 0 && incompletePredecessors(gate).length === 0
+}
+function prerequisiteBlockReason(gate: ApprovalGate) {
+  return predecessorsCompleted(gate) ? '' : `前置任务【${incompletePredecessorNames(gate) || '未配置'}】尚未完成`
+}
+function latestPredecessorCompletedAt(gate: ApprovalGate) {
+  const completionTimes = gate.predecessor_tasks
+    .map(task => task.completed_at ? dayjs(task.completed_at) : null)
+    .filter((value): value is Dayjs => value !== null && value.isValid())
+  return completionTimes.reduce<Dayjs | null>((latest, value) => !latest || value.isAfter(latest) ? value : latest, null)
+}
+function minimumExpectedAt(gate: ApprovalGate) {
+  const afterNow = dayjs().add(1, 'millisecond')
+  const predecessorCompletedAt = latestPredecessorCompletedAt(gate)
+  const lowerBound = predecessorCompletedAt?.isAfter(afterNow) ? predecessorCompletedAt : afterNow
+  return ceilToHalfHour(lowerBound)
+}
 function formatDateTime(value?: string | null) { return value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '-' }
 function gateMeta(status: ApprovalGateStatus) {
   return { not_submitted: { label: '待提交', color: 'default' }, waiting_approval: { label: '等待客户', color: 'blue' }, approved: { label: '已签批', color: 'green' } }[status]
@@ -191,6 +251,8 @@ function errorDetail(error: unknown, fallback: string) {
 .today-card-lines span { color: var(--color-text-secondary); }
 .today-card-choice { margin: var(--space-sm) 0 var(--space-xs); color: var(--color-text-secondary); font-size: 0.78rem; }
 .today-card-actions { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+.approval-prerequisite-warning { margin-top: var(--space-sm); padding: 6px 8px; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius-sm); font-size: 0.78rem; line-height: 1.45; }
+.disabled-action-wrapper { display: inline-block; }
 .today-card-empty { min-height: 120px; display: flex; align-items: center; justify-content: center; color: var(--color-text-tertiary); background: var(--color-surface); border: 1px dashed var(--color-border); border-radius: var(--radius-sm); font-size: 0.82rem; }
 .expected-approval-help { margin: 0; color: var(--color-text-secondary); font-size: 0.84rem; line-height: 1.55; }
 </style>

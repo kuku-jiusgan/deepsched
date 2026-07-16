@@ -135,6 +135,77 @@ class ApprovalGateServiceTest(unittest.TestCase):
 
         apply_project_plan.assert_not_called()
 
+    @patch("app.services.project_plan_apply_service.apply_project_plan")
+    def test_submit_rejects_time_before_predecessor_completion(self, apply_project_plan):
+        gate = create_approval_gate(
+            self.db,
+            1,
+            ApprovalGateCreate(predecessor_task_id=1, unlock_task_ids=[2]),
+            self.manager,
+        )
+        completed_at = datetime.now() + timedelta(days=2)
+        self.plan.status = "done"
+        self.db.add(TimeSlot(
+            schedule_run_id="run-completed",
+            task_id=self.plan.id,
+            plan_start=completed_at - timedelta(hours=1),
+            plan_end=completed_at,
+            actual_start=completed_at - timedelta(hours=1),
+            actual_end=completed_at,
+            status="completed",
+        ))
+        self.db.commit()
+
+        with self.assertRaisesRegex(ApprovalGateInvalidError, "不能早于前置任务完成时间"):
+            submit_approval_gate(
+                self.db,
+                gate.id,
+                ApprovalGateSubmit(expected_approval_at=datetime.now() + timedelta(days=1)),
+                self.manager,
+            )
+
+        apply_project_plan.assert_not_called()
+
+    def test_workspace_gate_exposes_predecessor_status_and_completion_time(self):
+        gate = create_approval_gate(
+            self.db,
+            1,
+            ApprovalGateCreate(predecessor_task_id=1, unlock_task_ids=[2]),
+            self.manager,
+        )
+        completed_at = datetime.now()
+        self.plan.status = "done"
+        self.db.add(TimeSlot(
+            schedule_run_id="run-workspace",
+            task_id=self.plan.id,
+            plan_start=completed_at - timedelta(hours=1),
+            plan_end=completed_at,
+            actual_start=completed_at - timedelta(hours=1),
+            actual_end=completed_at,
+            status="completed",
+        ))
+        self.db.commit()
+
+        result = list_approval_gates(self.db, self.manager, workspace_only=True)
+
+        predecessor = result.items[0].predecessor_tasks[0]
+        self.assertEqual("done", predecessor.status)
+        self.assertEqual(completed_at, predecessor.completed_at)
+
+    @patch("app.services.project_plan_apply_service.apply_project_plan")
+    def test_approve_rejects_incomplete_predecessor(self, apply_project_plan):
+        gate = create_approval_gate(
+            self.db,
+            1,
+            ApprovalGateCreate(predecessor_task_id=1, unlock_task_ids=[2]),
+            self.manager,
+        )
+
+        with self.assertRaisesRegex(ApprovalGateInvalidError, "方案编写.*尚未完成"):
+            approve_approval_gate(self.db, gate.id, None, self.manager)
+
+        apply_project_plan.assert_not_called()
+
     def test_list_pending_and_approved_counts(self):
         create_approval_gate(
             self.db,
