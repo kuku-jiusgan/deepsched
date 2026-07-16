@@ -8,6 +8,11 @@ const routes = [
     meta: { guest: true }
   },
   {
+    path: '/operations/cockpit',
+    component: () => import('@/pages/operations/LabOperationsCockpit.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/',
     component: AppLayout,
     meta: { requiresAuth: true },

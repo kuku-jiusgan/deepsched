@@ -4,8 +4,11 @@
       <div>
         <h2>实验室运营看板</h2>
       </div>
-      <div class="screen-clock">
-        <strong>{{ currentTime }}</strong>
+      <div class="screen-header-actions">
+        <a-button type="primary" @click="router.push('/operations/cockpit')"><ExpandOutlined />进入运营驾驶舱</a-button>
+        <div class="screen-clock">
+          <strong>{{ currentTime }}</strong>
+        </div>
       </div>
     </header>
 
@@ -157,12 +160,14 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { Empty, message } from 'ant-design-vue'
 import {
   AlertOutlined,
   ApiOutlined,
   DashboardOutlined,
   ExperimentOutlined,
+  ExpandOutlined,
   FieldTimeOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons-vue'
@@ -185,6 +190,8 @@ interface DashboardInstrument extends LabStatusInstrument {
   availability_status?: string
   instrument_group?: string
 }
+
+const router = useRouter()
 
 const REFRESH_INTERVAL_MS = 30_000
 const CLOCK_INTERVAL_MS = 1_000

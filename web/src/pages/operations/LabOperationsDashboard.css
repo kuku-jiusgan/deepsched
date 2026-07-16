@@ -32,6 +32,12 @@
   font-size: 12px;
 }
 
+.screen-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
 .screen-clock strong {
   color: #1e293b;
   font-family: var(--font-mono);
