@@ -17,7 +17,7 @@ const routes = [
     component: AppLayout,
     meta: { requiresAuth: true },
     children: [
-      { path: '', redirect: '/operations/lab-dashboard' },
+      { path: '', redirect: '/operations/cockpit' },
       { path: 'dashboard', component: () => import('@/pages/Dashboard.vue') },
       { path: 'operations/lab-dashboard', component: () => import('@/pages/operations/LabOperationsDashboard.vue') },
       { path: 'operations/reports', component: () => import('@/pages/operations/DetailedReports.vue') },
@@ -69,11 +69,11 @@ router.beforeEach((to, _from, next) => {
   if (to.meta.requiresAuth && !token) {
     next('/login')
   } else if (to.meta.requiresAdmin && getStoredUserRole() !== '系统管理员') {
-    next('/operations/lab-dashboard')
+    next('/operations/cockpit')
   } else if (isAnalystBlockedPath(to.path)) {
-    next('/operations/lab-dashboard')
+    next('/operations/cockpit')
   } else if (to.path === '/login' && token) {
-    next('/operations/lab-dashboard')
+    next('/operations/cockpit')
   } else {
     next()
   }

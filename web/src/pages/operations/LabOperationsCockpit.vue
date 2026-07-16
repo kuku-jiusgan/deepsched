@@ -12,7 +12,7 @@
           <button class="user-menu" type="button"><UserOutlined />{{ currentUserLabel }}<DownOutlined /></button>
           <template #overlay>
             <a-menu @click="handleUserMenu">
-              <a-menu-item key="home">返回现有首页</a-menu-item>
+              <a-menu-item key="home">进入首页2</a-menu-item>
               <a-menu-item key="logout">退出登录</a-menu-item>
             </a-menu>
           </template>

@@ -5,7 +5,7 @@
         <h2>实验室运营看板</h2>
       </div>
       <div class="screen-header-actions">
-        <a-button type="primary" @click="router.push('/operations/cockpit')"><ExpandOutlined />进入运营驾驶舱</a-button>
+        <a-button type="primary" @click="router.push('/operations/cockpit')"><ExpandOutlined />返回首页</a-button>
         <div class="screen-clock">
           <strong>{{ currentTime }}</strong>
         </div>

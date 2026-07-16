@@ -74,7 +74,7 @@ async function handleLogin() {
     localStorage.setItem('token', response.data.token)
     localStorage.setItem('user', JSON.stringify(response.data.user))
     localStorage.setItem('lastActivityAt', String(Date.now()))
-    router.replace('/operations/lab-dashboard')
+    router.replace('/operations/cockpit')
   } catch (error: unknown) {
     const detail = axios.isAxiosError(error) ? error.response?.data?.detail : null
     errorMsg.value = typeof detail === 'string' ? detail : '登录失败'

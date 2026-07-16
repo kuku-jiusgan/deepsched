@@ -187,10 +187,11 @@ function icon(name: string) {
 }
 
 const ANALYST_ROLE = '分析员'
-const ANALYST_MENU_KEYS = new Set(['/operations/lab-dashboard', '/kanban', '/tasks', '/projects'])
+const ANALYST_MENU_KEYS = new Set(['/operations/cockpit', '/operations/lab-dashboard', '/kanban', '/tasks', '/projects'])
 
 const baseMenuItems = [
-  { key: '/operations/lab-dashboard', icon: icon('HomeOutlined'), label: '首页' },
+  { key: '/operations/cockpit', icon: icon('HomeOutlined'), label: '首页' },
+  { key: '/operations/lab-dashboard', icon: icon('DashboardOutlined'), label: '首页2' },
   { key: '/operations', icon: icon('FundOutlined'), label: '运营数据中台', hidden: true, children: [
     { key: '/dashboard', icon: icon('DashboardOutlined'), label: '核心 KPI 仪表盘' },
     { key: '/operations/reports', icon: icon('FileTextOutlined'), label: '精细化运营报表' },
