@@ -20,6 +20,7 @@ from app.services.task_execution_service import (
     TaskExecutionInvalidError,
     ensure_predecessors_completed,
 )
+from app.services.task_delay_status_service import reset_task_delay
 
 
 APPROVAL_WRITE_ROLES = FULL_PROJECT_ACCESS_ROLES
@@ -196,6 +197,7 @@ def submit_approval_gate(
     for task in descendants:
         if not task.is_external_gate and task.schedule_lock_status == "none":
             task.status = "pending"
+            reset_task_delay(task)
             task.schedule_dirty = True
     _audit(db, user, "approval_gate_submitted", gate, {
         "expected_approval_at": expected_at.isoformat(),
@@ -228,6 +230,7 @@ def approve_approval_gate(db, gate_id: int, note: str | None, user: User) -> App
     for task in _descendant_tasks(db, gate.id):
         if not task.is_external_gate and task.schedule_lock_status == "none":
             task.status = "pending"
+            reset_task_delay(task)
             task.schedule_dirty = True
     _audit(db, user, "approval_gate_approved", gate, {
         "approved_at": gate.approved_at.isoformat(),

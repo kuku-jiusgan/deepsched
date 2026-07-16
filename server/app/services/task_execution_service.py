@@ -5,6 +5,7 @@ from datetime import datetime
 from app.models import Task, TimeSlot
 from app.services.instrument_status_service import mark_instrument_running
 from app.services.instrument_occupancy_service import current_occupying_slot
+from app.services.task_delay_status_service import mark_task_delayed
 
 
 COMPLETED_TASK_STATUSES = {"done", "completed"}
@@ -31,6 +32,8 @@ def start_task_execution(db, slot_id: int) -> dict[str, str]:
 
     started_at = datetime.now()
     task.status = "running"
+    if slot.plan_start and started_at > slot.plan_start:
+        mark_task_delayed(task)
     if task.project:
         task.project.status = "active"
     for running_slot in _continuous_slots(db, slot):

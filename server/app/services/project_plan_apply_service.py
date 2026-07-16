@@ -16,6 +16,7 @@ from app.services.project_hours_validation_service import (
     validate_project_estimated_hours,
 )
 from app.services.instrument_status_service import delete_time_slots_and_refresh
+from app.services.task_delay_status_service import reset_task_delay
 from app.services.project_instrument_validation_service import (
     RequiredInstrumentError,
     validate_required_task_instruments,
@@ -144,6 +145,7 @@ def _execute_replan(
     _delete_movable_slots(db, replan_task_ids)
     for task in replan_tasks:
         task.status = "pending"
+        reset_task_delay(task)
     db.flush()
 
     from app.services.scheduler import SchedulerService

@@ -52,6 +52,7 @@ class Task(Base):
     priority_weight = Column(Float, default=1.0)
     instrument_ids = Column(JSON, default=[], comment="可选仪器ID列表")
     status = Column(String(20), default="pending")
+    delay_status = Column(String(20), default="not_delayed")
     schedule_dirty = Column(Boolean, default=False)
     parent_id = Column(Integer, ForeignKey("task.id"), nullable=True)
     assignee_id = Column(Integer, ForeignKey("user.id"))

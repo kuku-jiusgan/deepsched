@@ -39,6 +39,7 @@ from app.services.task_execution_service import (
     TaskExecutionNotFoundError,
     start_task_execution,
 )
+from app.services.task_delay_status_service import reset_task_delay
 from app.api.users import auth_token
 
 router = APIRouter(prefix="/api/v1/schedules", tags=["schedules"])
@@ -83,6 +84,9 @@ def update_timeslot(slot_id: int, data: TimeSlotUpdate, db: Session = Depends(ge
         slot.instrument_id = data.instrument_id
     if data.tier is not None:
         slot.tier = data.tier
+    task = db.query(Task).filter(Task.id == slot.task_id).first()
+    if task and task.schedule_lock_status == "none":
+        reset_task_delay(task)
     db.commit()
     db.refresh(slot)
     return _enrich_slot(slot, db)
@@ -335,6 +339,8 @@ def _enrich_slot(slot: TimeSlot, db: Session) -> TimeSlotOut:
         tier=slot.tier, status=slot.status,
         task_name=task.name if task else None,
         task_type=task.task_type if task else None,
+        task_status=task.status if task else None,
+        delay_status=task.delay_status if task else "not_delayed",
         project_code=proj.code if proj else None,
         project_name=proj.name if proj else None,
         instrument_name=inst.name if inst else None,

@@ -27,6 +27,13 @@ def ensure_runtime_schema(engine) -> None:
             if "schedule_dirty" not in task_columns:
                 connection.execute(text("ALTER TABLE task ADD COLUMN schedule_dirty BOOLEAN DEFAULT 0"))
                 connection.execute(text("UPDATE task SET schedule_dirty = 0 WHERE schedule_dirty IS NULL"))
+            if "delay_status" not in task_columns:
+                connection.execute(text(
+                    "ALTER TABLE task ADD COLUMN delay_status VARCHAR(20) DEFAULT 'not_delayed'"
+                ))
+            connection.execute(text(
+                "UPDATE task SET delay_status = 'not_delayed' WHERE delay_status IS NULL"
+            ))
             approval_columns = {
                 "is_external_gate": "BOOLEAN DEFAULT 0",
                 "gate_status": "VARCHAR(30) DEFAULT 'not_submitted'",

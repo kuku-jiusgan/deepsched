@@ -84,6 +84,8 @@ class TaskActionReminderServiceTest(unittest.TestCase):
         site_notifications = self._site_notifications("task_start_delay")
         self.assertEqual(2, first["start_reminders"])
         self.assertEqual(0, second["start_reminders"])
+        self.db.refresh(self.task)
+        self.assertEqual("delayed", self.task.delay_status)
         self.assertEqual({"analyst", "manager"}, {item.user_name for item in site_notifications})
         self.assertTrue(all("请点击开始" in item.title for item in site_notifications))
 
@@ -110,6 +112,8 @@ class TaskActionReminderServiceTest(unittest.TestCase):
 
         self.assertEqual(0, before["end_reminders"])
         self.assertEqual(2, due["end_reminders"])
+        self.db.refresh(self.task)
+        self.assertEqual("delayed", self.task.delay_status)
         self.assertEqual(0, len(self._site_notifications("task_start_delay")))
         self.assertTrue(all(
             "请点击结束" in item.title

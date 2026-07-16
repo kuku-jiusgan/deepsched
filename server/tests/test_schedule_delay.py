@@ -47,6 +47,8 @@ class ScheduleDelayTest(unittest.TestCase):
         self.assertEqual(datetime(2026, 7, 15, 8, 30), task_slots[-1].plan_start)
         self.assertEqual(datetime(2026, 7, 15, 9, 0), task_slots[-1].plan_end)
         self.assertEqual(final_slot.id, result["slot_id"])
+        self.db.refresh(task)
+        self.assertEqual("delayed", task.delay_status)
 
     def test_following_task_delay_respects_working_hours(self):
         delayed_task = Task(project_id=1, name="delayed", task_type="test", status="scheduled")

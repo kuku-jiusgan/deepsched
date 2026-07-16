@@ -6,6 +6,7 @@ from typing import Iterable, Set
 
 from app.models import AuditLog, Task, TimeSlot
 from app.services.instrument_status_service import delete_time_slots_and_refresh
+from app.services.task_delay_status_service import mark_task_delayed
 from app.services.schedule_rule_service import get_solver_constraints
 from app.services.scheduler_helpers import (
     is_allowed_calendar_day,
@@ -41,6 +42,7 @@ def report_task_delay(db, slot_id: int, delay_hours: float, reason: str) -> dict
     task = db.query(Task).filter(Task.id == slot.task_id).first()
     if not task:
         raise ScheduleDelayNotFoundError("任务不存在")
+    mark_task_delayed(task)
 
     final_slot = _final_task_slot(db, task.id)
     if not final_slot:

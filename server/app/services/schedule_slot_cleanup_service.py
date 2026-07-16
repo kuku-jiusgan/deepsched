@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Task, TimeSlot
 from app.services.instrument_status_service import delete_time_slots_and_refresh
+from app.services.task_delay_status_service import NOT_DELAYED_STATUS
 
 
 def clear_reschedulable_slots(db: Session, project_ids: list[int] | None = None) -> None:
@@ -19,7 +20,10 @@ def clear_reschedulable_slots(db: Session, project_ids: list[int] | None = None)
             Task.project_id.in_(project_ids),
             Task.status.in_(["scheduled", "blocked"]),
             ~Task.id.in_(done_task_ids),
-        ).update({"status": "pending"}, synchronize_session=False)
+        ).update(
+            {"status": "pending", "delay_status": NOT_DELAYED_STATUS},
+            synchronize_session=False,
+        )
         db.commit()
         return
 
@@ -37,6 +41,9 @@ def clear_reschedulable_slots(db: Session, project_ids: list[int] | None = None)
     db.query(Task).filter(
         Task.status.in_(["scheduled", "blocked"]),
         ~Task.id.in_(frozen_task_ids),
-    ).update({"status": "pending"}, synchronize_session=False)
+    ).update(
+        {"status": "pending", "delay_status": NOT_DELAYED_STATUS},
+        synchronize_session=False,
+    )
 
     db.commit()

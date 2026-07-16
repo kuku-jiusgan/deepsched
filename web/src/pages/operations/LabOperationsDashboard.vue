@@ -128,7 +128,7 @@
 
         <section class="panel-card">
           <div class="panel-title">
-            <span>延期预警</span>
+            <span>延期/异常任务预警</span>
             <em v-if="warningTasks.length">{{ warningTasks.length }} 项</em>
           </div>
           <div
@@ -150,7 +150,7 @@
               </div>
             </div>
           </div>
-          <a-empty v-else :image="Empty.PRESENTED_IMAGE_SIMPLE" description="暂无延期预警" />
+          <a-empty v-else :image="Empty.PRESENTED_IMAGE_SIMPLE" description="暂无延期/异常任务" />
         </section>
 
       </aside>
@@ -221,9 +221,14 @@ const runningInstruments = computed(() => instruments.value.filter(item => statu
 const idleInstruments = computed(() => instruments.value.filter(item => statusClass(item) === 'idle'))
 const warningInstruments = computed(() => instruments.value.filter(item => ['fault', 'maint'].includes(statusClass(item))))
 const utilizationByInstrument = computed(() => new Map(utilization.value.map(item => [item.instrument_id, item])))
-const warningTasks = computed(() => timeSlots.value
-  .filter(isWarningTask)
-  .sort((left, right) => warningSortTime(right) - warningSortTime(left)))
+const warningTasks = computed(() => {
+  const latestSlotByTask = new Map<number, TimeSlot>()
+  for (const slot of timeSlots.value.filter(isWarningTask)) {
+    const current = latestSlotByTask.get(slot.task_id)
+    if (!current || dayjs(slot.plan_end).isAfter(current.plan_end)) latestSlotByTask.set(slot.task_id, slot)
+  }
+  return [...latestSlotByTask.values()].sort((left, right) => warningSortTime(right) - warningSortTime(left))
+})
 const isWarningScrollEnabled = computed(() => warningTasks.value.length > WARNING_SCROLL_THRESHOLD)
 const warningCopyCount = computed(() => isWarningScrollEnabled.value ? 2 : 1)
 const warningScrollDuration = computed(() => {
@@ -307,9 +312,7 @@ function utilizationText(instrumentId: number) {
 }
 
 function isWarningTask(slot: TimeSlot) {
-  return Boolean(slot.delay_reason)
-    || Boolean(slot.delay_hours && slot.delay_hours > 0)
-    || ['blocked', 'interrupted'].includes(slot.status)
+  return slot.delay_status === 'delayed'
 }
 
 function warningSortTime(slot: TimeSlot) {
@@ -317,18 +320,30 @@ function warningSortTime(slot: TimeSlot) {
 }
 
 function warningTaskStatus(slot: TimeSlot) {
-  if (slot.status === 'interrupted') return '已中断'
-  if (slot.status === 'blocked') return '已阻塞'
-  if (slot.delay_hours && slot.delay_hours > 0) return `延期 ${slot.delay_hours}h`
-  return '延期'
+  const delayText = slot.delay_hours && slot.delay_hours > 0
+    ? `延期 ${slot.delay_hours}h`
+    : `延期 ${formatDelayDuration(slot)}`
+  return `${taskStatusText(slot.task_status || slot.status)} · ${delayText}`
 }
 
 function warningTaskReason(slot: TimeSlot) {
-  return slot.delay_reason || formatSlotRange(slot)
+  return slot.delay_reason || `计划结束 ${formatExpectedEnd(slot.plan_end)}，${taskStatusText(slot.task_status || slot.status)}`
 }
 
-function formatSlotRange(slot: TimeSlot) {
-  return `${dayjs(slot.plan_start).format('MM-DD HH:mm')} - ${dayjs(slot.plan_end).format('MM-DD HH:mm')}`
+function taskStatusText(status: string) {
+  const labels: Record<string, string> = {
+    pending: '待进行', ready: '待进行', scheduled: '待进行', waiting_external: '待进行',
+    running: '运行中', done: '已完成', completed: '已完成', blocked: '已阻塞', interrupted: '已中断',
+  }
+  return labels[status] || status
+}
+
+function formatDelayDuration(slot: TimeSlot) {
+  const end = slot.actual_end ? dayjs(slot.actual_end) : now.value
+  const minutes = Math.max(1, end.diff(dayjs(slot.plan_end), 'minute'))
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  return hours ? `${hours}小时${remainingMinutes ? `${remainingMinutes}分钟` : ''}` : `${minutes}分钟`
 }
 
 function selectInstrument(instrument: DashboardInstrument) {

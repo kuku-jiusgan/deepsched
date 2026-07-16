@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.models import Task, TimeSlot
 from app.schemas.schemas import RescheduleRequest
 from app.services.instrument_status_service import delete_time_slots_and_refresh
+from app.services.task_delay_status_service import NOT_DELAYED_STATUS, reset_task_delay
 
 
 def reschedule(db: Session, data: RescheduleRequest) -> dict:
@@ -25,6 +26,7 @@ def _local_repair(db: Session, data: RescheduleRequest) -> dict:
                 TimeSlot.status.in_(["scheduled", "blocked"]),
             ))
             task.status = "pending"
+            reset_task_delay(task)
             db.commit()
     return _generate(db)
 
@@ -43,7 +45,7 @@ def _project_reschedule(db: Session, data: RescheduleRequest) -> dict:
             db.query(Task).filter(
                 Task.project_id == task.project_id,
                 Task.status == "scheduled",
-            ).update({"status": "pending"})
+            ).update({"status": "pending", "delay_status": NOT_DELAYED_STATUS})
             db.commit()
             return _generate(db, [task.project_id])
     return {"status": "error", "message": "未指定受影响任务"}
@@ -72,7 +74,10 @@ def _global_reschedule(db: Session) -> dict:
         db.query(Task).filter(
             Task.id.in_(movable_task_ids),
             Task.status == "scheduled",
-        ).update({"status": "pending"}, synchronize_session=False)
+        ).update(
+            {"status": "pending", "delay_status": NOT_DELAYED_STATUS},
+            synchronize_session=False,
+        )
     result = _generate(
         db,
         commit=False,

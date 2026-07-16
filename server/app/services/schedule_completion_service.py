@@ -17,6 +17,7 @@ from app.services.scheduler_helpers import (
     working_time_bounds,
 )
 from app.services.project_status_service import calculate_project_status
+from app.services.task_delay_status_service import mark_task_delayed
 
 def complete_task_and_shift(
     db: Session,
@@ -39,7 +40,10 @@ def complete_task_and_shift(
     if not task_slots:
         return {"status": "error", "message": "任务没有排程时段"}
 
+    planned_end = max(slot.plan_end for slot in task_slots)
     task.status = "done"
+    if end_time > planned_end:
+        mark_task_delayed(task)
     completed_slot = _select_completed_slot(task_slots, completed_slot_id, end_time)
     affected_instrument_ids = {slot.instrument_id for slot in task_slots if slot.instrument_id}
     _mark_task_slots_completed(task_slots, completed_slot, end_time)

@@ -68,6 +68,7 @@ class TaskOut(BaseModel):
     switchover_hours: float
     allow_split: bool = False
     status: str
+    delay_status: Literal["delayed", "not_delayed"] = "not_delayed"
     schedule_dirty: bool = False
     schedule_lock_status: Literal["none", "frozen", "running", "completed"] = "none"
     can_edit_schedule_fields: bool = True
@@ -203,6 +204,8 @@ class TimeSlotOut(BaseModel):
     status: str
     task_name: Optional[str] = None
     task_type: Optional[str] = None
+    task_status: Optional[str] = None
+    delay_status: str = "not_delayed"
     project_code: Optional[str] = None
     project_name: Optional[str] = None
     instrument_name: Optional[str] = None

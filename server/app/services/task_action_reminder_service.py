@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from app.core.database import SessionLocal
 from app.models import AlertRule, Notification, Task
 from app.services.push_notification_service import push_by_rule
+from app.services.task_delay_status_service import mark_task_delayed
 from app.services.task_execution_service import COMPLETED_TASK_STATUSES
 
 
@@ -56,19 +57,15 @@ def scan_task_action_reminders(db, now: datetime | None = None) -> dict[str, int
         last_slot = max(slots, key=lambda slot: (slot.plan_end, slot.id))
         has_started = task.status == "running" or any(slot.actual_start for slot in slots)
 
-        if (
-            not has_started
-            and current_time >= first_slot.plan_start + start_threshold
-            and not _already_notified(db, START_REMINDER_TYPE, first_slot.id)
-        ):
-            start_count += _push_start_reminder(db, task, first_slot)
+        if not has_started and current_time >= first_slot.plan_start + start_threshold:
+            mark_task_delayed(task)
+            if not _already_notified(db, START_REMINDER_TYPE, first_slot.id):
+                start_count += _push_start_reminder(db, task, first_slot)
 
-        if (
-            has_started
-            and current_time >= last_slot.plan_end
-            and not _already_notified(db, END_REMINDER_TYPE, last_slot.id)
-        ):
-            end_count += _push_end_reminder(db, task, last_slot)
+        if has_started and current_time >= last_slot.plan_end:
+            mark_task_delayed(task)
+            if not _already_notified(db, END_REMINDER_TYPE, last_slot.id):
+                end_count += _push_end_reminder(db, task, last_slot)
 
     db.commit()
     return {"start_reminders": start_count, "end_reminders": end_count}

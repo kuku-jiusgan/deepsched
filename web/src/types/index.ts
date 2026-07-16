@@ -23,6 +23,7 @@ export interface Task {
   est_duration_hours?: number;
   switchover_hours: number;
   status: string;
+  delay_status: 'delayed' | 'not_delayed';
   schedule_dirty: boolean;
   schedule_lock_status: 'none' | 'frozen' | 'running' | 'completed';
   can_edit_schedule_fields: boolean;
@@ -187,6 +188,8 @@ export interface TimeSlot {
   status: string;
   task_name?: string;
   task_type?: string | null;
+  task_status?: string | null;
+  delay_status?: 'delayed' | 'not_delayed';
   project_code?: string | null;
   project_name?: string;
   instrument_name?: string;

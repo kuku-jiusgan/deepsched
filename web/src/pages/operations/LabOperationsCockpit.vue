@@ -102,7 +102,7 @@
 
       <section class="chart-grid">
         <article class="chart-card anomaly-card">
-          <header><h2>异常任务</h2><span v-if="warningTasks.length">{{ warningTasks.length }} 项</span></header>
+          <header><h2>延期/异常任务预警</h2><span v-if="warningTasks.length">{{ warningTasks.length }} 项</span></header>
           <div
             v-if="warningTasks.length"
             class="cockpit-warning-viewport"
@@ -122,7 +122,7 @@
               </div>
             </div>
           </div>
-          <a-empty v-else description="暂无异常任务" />
+          <a-empty v-else description="暂无延期/异常任务" />
         </article>
 
         <article class="chart-card distribution-card">
@@ -204,7 +204,14 @@ const kpis = computed(() => [
 const topInstruments = computed(() => [...utilization.value].sort((a, b) => b.actual_utilization_rate - a.actual_utilization_rate).slice(0, 3))
 const utilizationMap = computed(() => new Map(utilization.value.map(item => [item.instrument_id, roundedRate(item.actual_utilization_rate)])))
 const feedScrollDuration = computed(() => `${Math.max(instruments.value.length * 9, 42)}s`)
-const warningTasks = computed(() => slots.value.filter(isWarningTask).sort((left, right) => warningSortTime(right) - warningSortTime(left)))
+const warningTasks = computed(() => {
+  const latestSlotByTask = new Map<number, TimeSlot>()
+  for (const slot of slots.value.filter(isWarningTask)) {
+    const current = latestSlotByTask.get(slot.task_id)
+    if (!current || dayjs(slot.plan_end).isAfter(current.plan_end)) latestSlotByTask.set(slot.task_id, slot)
+  }
+  return [...latestSlotByTask.values()].sort((left, right) => warningSortTime(right) - warningSortTime(left))
+})
 const isWarningScrollEnabled = computed(() => warningTasks.value.length > WARNING_SCROLL_THRESHOLD)
 const warningCopyCount = computed(() => isWarningScrollEnabled.value ? 2 : 1)
 const warningScrollDuration = computed(() => `${Math.max(WARNING_SCROLL_MIN_SECONDS, warningTasks.value.length * WARNING_SCROLL_SECONDS_PER_ITEM)}s`)
@@ -241,10 +248,12 @@ function instrumentPhotoClass(code: string) {
   if (code === 'ZBYY-002-0006') classes.push('instrument-photo-needs-cleanup')
   return classes
 }
-function isWarningTask(slot: TimeSlot) { return Boolean(slot.delay_reason) || Boolean(slot.delay_hours && slot.delay_hours > 0) || ['blocked', 'interrupted'].includes(slot.status) }
+function isWarningTask(slot: TimeSlot) { return slot.delay_status === 'delayed' }
 function warningSortTime(slot: TimeSlot) { return dayjs(slot.delay_reported_at || slot.plan_end || slot.plan_start).valueOf() }
-function warningTaskStatus(slot: TimeSlot) { if (slot.status === 'interrupted') return '已中断'; if (slot.status === 'blocked') return '已阻塞'; if (slot.delay_hours && slot.delay_hours > 0) return `延期 ${slot.delay_hours}h`; return '延期' }
-function warningTaskReason(slot: TimeSlot) { return slot.delay_reason || `${formatDateTime(slot.plan_start)} - ${formatDateTime(slot.plan_end)}` }
+function warningTaskStatus(slot: TimeSlot) { const delayText = slot.delay_hours && slot.delay_hours > 0 ? `延期 ${slot.delay_hours}h` : `延期 ${formatDelayDuration(slot)}`; return `${taskStatusText(slot.task_status || slot.status)} · ${delayText}` }
+function warningTaskReason(slot: TimeSlot) { return slot.delay_reason || `计划结束 ${formatDateTime(slot.plan_end)}，${taskStatusText(slot.task_status || slot.status)}` }
+function taskStatusText(status: string) { return ({ pending: '待进行', ready: '待进行', scheduled: '待进行', waiting_external: '待进行', running: '运行中', done: '已完成', completed: '已完成', blocked: '已阻塞', interrupted: '已中断' } as Record<string, string>)[status] || status }
+function formatDelayDuration(slot: TimeSlot) { const end = slot.actual_end ? dayjs(slot.actual_end) : now.value; const minutes = Math.max(1, end.diff(dayjs(slot.plan_end), 'minute')); const hours = Math.floor(minutes / 60); const remainingMinutes = minutes % 60; return hours ? `${hours}小时${remainingMinutes ? `${remainingMinutes}分钟` : ''}` : `${minutes}分钟` }
 function barHeight(value: number) { const max = Math.max(...completion.value.days.map(item => item.value), 1); return Math.max(8, value / max * 78) }
 function handleUserMenu({ key }: { key: string }) { if (key === 'home') router.push('/operations/lab-dashboard'); if (key === 'logout') { localStorage.removeItem('token'); localStorage.removeItem('user'); router.push('/login') } }
 function updateCockpitScale(width: number) { cockpitScale.value = Math.max(MIN_COCKPIT_SCALE, Math.min(1, width / COCKPIT_DESIGN_WIDTH)) }

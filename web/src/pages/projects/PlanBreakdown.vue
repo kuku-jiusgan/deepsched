@@ -425,6 +425,7 @@ function buildDraftTask(
     est_duration_hours: payload.est_duration_hours ?? undefined,
     switchover_hours: payload.switchover_hours,
     status: 'pending',
+    delay_status: 'not_delayed',
     schedule_dirty: true,
     schedule_lock_status: 'none',
     can_edit_schedule_fields: true,
@@ -475,7 +476,7 @@ function openTemplateImport() {
   const restriction: Task = {
     id: restrictionId, project_id: projectId, name: '方案签批', task_type: 'approval_gate',
     requires_instrument: false, requires_human: false, switchover_hours: 0,
-    status: 'waiting_external', schedule_dirty: false, schedule_lock_status: 'none',
+    status: 'waiting_external', delay_status: 'not_delayed', schedule_dirty: false, schedule_lock_status: 'none',
     can_edit_schedule_fields: true, priority_weight: 1, allow_split: false,
     instrument_ids: [], predecessor_ids: [scheme.id], assignee_id: null,
     assignee_name: null, parent_id: null, is_external_gate: true,

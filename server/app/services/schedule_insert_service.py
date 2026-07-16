@@ -10,6 +10,7 @@ from app.schemas.schemas import (
     InsertOrderResult,
 )
 from app.services.instrument_status_service import delete_time_slots_and_refresh
+from app.services.task_delay_status_service import reset_task_delay
 
 
 class ScheduleInsertNotFoundError(Exception):
@@ -69,6 +70,7 @@ def _execute_insert(db, data: InsertOrderRequest, commit: bool) -> InsertOrderPr
     ), synchronize_session=False)
     for task in replan_tasks:
         task.status = "pending"
+        reset_task_delay(task)
     db.flush()
 
     from app.services.scheduler import SchedulerService
