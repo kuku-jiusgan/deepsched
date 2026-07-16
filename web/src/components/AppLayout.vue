@@ -9,11 +9,20 @@
       <div class="brand-panel" :class="{ 'brand-panel-collapsed': isSiderCollapsed }" aria-label="山东大学淄博生物医药研究院 资源智能调度协同平台">
         <div class="brand-panel-head">
           <div class="brand-mark" aria-hidden="true" />
-          <a-tooltip :title="isSiderCollapsed ? '展开菜单' : '收回菜单'" placement="right">
+          <a-tooltip
+            :title="isSiderCollapsed ? '展开菜单' : '收回菜单'"
+            placement="right"
+            :open="isSiderTooltipOpen"
+            :trigger="[]"
+          >
             <a-button
               type="text"
               class="sider-toggle"
               :aria-label="isSiderCollapsed ? '展开菜单' : '收回菜单'"
+              @mouseenter="showSiderTooltip"
+              @mouseleave="hideSiderTooltip"
+              @focus="showSiderTooltip"
+              @blur="hideSiderTooltip"
               @click="toggleSider"
             >
               <template #icon>
@@ -150,6 +159,8 @@ import {
 const router = useRouter()
 const route = useRoute()
 const isSiderCollapsed = ref(localStorage.getItem('siderCollapsed') === 'true')
+const isSiderTooltipOpen = ref(false)
+const canShowSiderTooltip = ref(true)
 const notificationOpen = ref(false)
 const notifications = ref<NotificationRecord[]>([])
 const passwordModalOpen = ref(false)
@@ -343,8 +354,19 @@ function navigate({ key }: { key: string }) {
 }
 
 function toggleSider() {
+  isSiderTooltipOpen.value = false
+  canShowSiderTooltip.value = false
   isSiderCollapsed.value = !isSiderCollapsed.value
   localStorage.setItem('siderCollapsed', String(isSiderCollapsed.value))
+}
+
+function showSiderTooltip() {
+  if (canShowSiderTooltip.value) isSiderTooltipOpen.value = true
+}
+
+function hideSiderTooltip() {
+  isSiderTooltipOpen.value = false
+  canShowSiderTooltip.value = true
 }
 
 async function fetchNotifications() {
