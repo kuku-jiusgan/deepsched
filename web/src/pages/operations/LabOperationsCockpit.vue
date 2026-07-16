@@ -161,6 +161,7 @@ const now = ref(dayjs())
 const isLoading = ref(true)
 const cockpitViewport = ref<HTMLElement | null>(null)
 const cockpitScale = ref(1)
+const cockpitPageHeight = ref(929)
 const instruments = ref<CockpitInstrument[]>([])
 const utilization = ref<UtilizationStats[]>([])
 const slots = ref<TimeSlot[]>([])
@@ -191,6 +192,7 @@ const cockpitPageStyle = computed(() => ({
   zoom: cockpitScale.value,
   width: `${COCKPIT_DESIGN_WIDTH}px`,
   minWidth: `${COCKPIT_DESIGN_WIDTH}px`,
+  height: `${cockpitPageHeight.value}px`,
   minHeight: `${COCKPIT_DESIGN_HEIGHT}px`,
 }))
 const runningCount = computed(() => instruments.value.filter(item => statusClass(item) === 'running').length)
@@ -264,8 +266,9 @@ function barHeight(value: number) { const max = Math.max(...completion.value.day
 function handleUserMenu({ key }: { key: string }) { if (key === 'logout') { localStorage.removeItem('token'); localStorage.removeItem('user'); router.push('/login') } }
 function updateCockpitScale(width: number, height: number) {
   const widthScale = width / COCKPIT_DESIGN_WIDTH
-  const heightScale = height / COCKPIT_DESIGN_HEIGHT
-  cockpitScale.value = Math.max(MIN_COCKPIT_SCALE, Math.min(MAX_COCKPIT_SCALE, widthScale, heightScale))
+  const nextScale = Math.max(MIN_COCKPIT_SCALE, Math.min(MAX_COCKPIT_SCALE, widthScale))
+  cockpitScale.value = nextScale
+  cockpitPageHeight.value = Math.max(COCKPIT_DESIGN_HEIGHT, height / nextScale)
 }
 function mergeInstruments(statusList: LabStatusInstrument[], baseList: Instrument[]) { const base = new Map(baseList.map(item => [item.id, item])); return statusList.filter(item => base.get(item.id)?.availability_status === 'available').map(item => ({ ...item, model: base.get(item.id)?.model || null, availability_status: 'available' as const })) }
 async function loadData() {
