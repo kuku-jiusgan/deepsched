@@ -203,7 +203,11 @@ function instrumentCardClass(code: string) {
   if (code === 'ZBYY-002-0011') return 'instrument-card-wider'
   return ''
 }
-function instrumentPhotoClass(code: string) { return `instrument-photo-${code.slice(-4)}` }
+function instrumentPhotoClass(code: string) {
+  const classes = [`instrument-photo-${code.slice(-4)}`]
+  if (['ZBYY-002-0006', 'ZBYY-002-0007'].includes(code)) classes.push('instrument-photo-needs-cleanup')
+  return classes
+}
 function instrumentModel(id: number) { return instruments.value.find(item => item.id === id)?.model }
 function trendX(index: number) { return weeklyTrend.value.length > 1 ? 18 + index * (584 / (weeklyTrend.value.length - 1)) : 310 }
 function trendY(value: number) { return 100 - Math.max(0, Math.min(100, value)) * .86 }
