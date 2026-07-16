@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import Iterable, Set
 
 from app.models import AuditLog, Task, TimeSlot
+from app.services.instrument_status_service import delete_time_slots_and_refresh
 from app.services.schedule_rule_service import get_solver_constraints
 from app.services.scheduler_helpers import (
     is_allowed_calendar_day,
@@ -131,8 +132,11 @@ def _apply_delay_with_working_hours(
     )
     snapshots_by_task = _group_slot_snapshots(slots)
     if slot_ids:
-        db.query(TimeSlot).filter(TimeSlot.id.in_(slot_ids)).delete(synchronize_session="fetch")
-        db.flush()
+        delete_time_slots_and_refresh(
+            db,
+            db.query(TimeSlot).filter(TimeSlot.id.in_(slot_ids)),
+            synchronize_session="fetch",
+        )
 
     options = _load_working_options(db, cutoff)
     delay_minutes = int(delay.total_seconds() / 60)

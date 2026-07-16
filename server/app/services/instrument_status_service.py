@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Iterable, Optional
 
 from app.models import Instrument, TimeSlot
 
@@ -38,6 +38,30 @@ def refresh_instrument_status(db, instrument_id: Optional[int]) -> None:
     instrument = db.query(Instrument).filter(Instrument.id == instrument_id).first()
     if instrument:
         instrument.status = effective_instrument_status(db, instrument)
+
+
+def refresh_instrument_statuses(db, instrument_ids: Iterable[int | None]) -> None:
+    for instrument_id in set(instrument_ids):
+        refresh_instrument_status(db, instrument_id)
+
+
+def delete_time_slots_and_refresh(db, query, synchronize_session=False) -> int:
+    instrument_ids = {
+        instrument_id
+        for instrument_id, in query.with_entities(TimeSlot.instrument_id).distinct().all()
+        if instrument_id
+    }
+    deleted_count = query.delete(synchronize_session=synchronize_session)
+    db.flush()
+    refresh_instrument_statuses(db, instrument_ids)
+    return deleted_count
+
+
+def delete_time_slot_and_refresh(db, slot: TimeSlot) -> None:
+    instrument_id = slot.instrument_id
+    db.delete(slot)
+    db.flush()
+    refresh_instrument_status(db, instrument_id)
 
 
 def _has_running_slot(db, instrument_id: int) -> bool:

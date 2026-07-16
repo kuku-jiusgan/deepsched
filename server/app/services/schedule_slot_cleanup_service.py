@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 
 from app.models import Task, TimeSlot
+from app.services.instrument_status_service import delete_time_slots_and_refresh
 
 
 def clear_reschedulable_slots(db: Session, project_ids: list[int] | None = None) -> None:
@@ -8,11 +9,11 @@ def clear_reschedulable_slots(db: Session, project_ids: list[int] | None = None)
 
     if project_ids:
         project_task_ids = db.query(Task.id).filter(Task.project_id.in_(project_ids))
-        db.query(TimeSlot).filter(
+        delete_time_slots_and_refresh(db, db.query(TimeSlot).filter(
             TimeSlot.task_id.in_(project_task_ids),
             TimeSlot.status.in_(["scheduled", "blocked"]),
             ~TimeSlot.task_id.in_(done_task_ids),
-        ).delete(synchronize_session=False)
+        ), synchronize_session=False)
 
         db.query(Task).filter(
             Task.project_id.in_(project_ids),
@@ -26,12 +27,12 @@ def clear_reschedulable_slots(db: Session, project_ids: list[int] | None = None)
         TimeSlot.tier == "frozen"
     ).distinct()
 
-    db.query(TimeSlot).filter(
+    delete_time_slots_and_refresh(db, db.query(TimeSlot).filter(
         TimeSlot.tier.in_(["forecast", "confirmed"]),
         TimeSlot.status.in_(["scheduled", "blocked"]),
         ~TimeSlot.task_id.in_(frozen_task_ids),
         ~TimeSlot.task_id.in_(done_task_ids),
-    ).delete(synchronize_session=False)
+    ), synchronize_session=False)
 
     db.query(Task).filter(
         Task.status.in_(["scheduled", "blocked"]),

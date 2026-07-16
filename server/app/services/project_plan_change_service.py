@@ -9,6 +9,7 @@ from app.services.project_hours_validation_service import (
     validate_project_estimated_hours,
 )
 from app.services.project_task_rollup_service import recalculate_project_parent_hours
+from app.services.instrument_status_service import delete_time_slots_and_refresh
 
 
 SCHEDULE_FIELDS = {
@@ -50,7 +51,10 @@ def delete_task_plan(db, task_id: int) -> None:
         (TaskDependency.predecessor_id == task_id) | (TaskDependency.task_id == task_id)
     ).delete(synchronize_session=False)
     db.query(TaskCapabilityRequirement).filter(TaskCapabilityRequirement.task_id == task_id).delete()
-    db.query(TimeSlot).filter(TimeSlot.task_id == task_id).delete()
+    delete_time_slots_and_refresh(
+        db,
+        db.query(TimeSlot).filter(TimeSlot.task_id == task_id),
+    )
     db.delete(task)
     db.flush()
     _restore_bridged_dependencies(db, bridge_pairs)

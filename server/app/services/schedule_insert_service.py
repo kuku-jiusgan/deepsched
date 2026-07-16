@@ -9,6 +9,7 @@ from app.schemas.schemas import (
     InsertOrderRequest,
     InsertOrderResult,
 )
+from app.services.instrument_status_service import delete_time_slots_and_refresh
 
 
 class ScheduleInsertNotFoundError(Exception):
@@ -61,11 +62,11 @@ def _execute_insert(db, data: InsertOrderRequest, commit: bool) -> InsertOrderPr
     replan_task_ids = {task.id for task in replan_tasks}
     old_windows = _task_windows(db, replan_task_ids)
 
-    db.query(TimeSlot).filter(
+    delete_time_slots_and_refresh(db, db.query(TimeSlot).filter(
         TimeSlot.task_id.in_(replan_task_ids),
         TimeSlot.tier.in_(["confirmed", "forecast"]),
         TimeSlot.status.in_(["scheduled", "blocked"]),
-    ).delete(synchronize_session=False)
+    ), synchronize_session=False)
     for task in replan_tasks:
         task.status = "pending"
     db.flush()

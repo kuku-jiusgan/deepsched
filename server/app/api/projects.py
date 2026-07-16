@@ -28,6 +28,7 @@ from app.services.project_plan_change_service import (
     update_task_plan,
 )
 from app.services.project_status_service import calculate_project_status
+from app.services.instrument_status_service import delete_time_slots_and_refresh
 
 router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 
@@ -91,7 +92,11 @@ def delete_project(proj_id: int, db: Session = Depends(get_db)):
             (TaskDependency.predecessor_id == tid) | (TaskDependency.task_id == tid)
         ).delete()
         db.query(TaskCapabilityRequirement).filter(TaskCapabilityRequirement.task_id == tid).delete()
-        db.query(TimeSlot).filter(TimeSlot.task_id == tid).delete()
+    if task_ids:
+        delete_time_slots_and_refresh(
+            db,
+            db.query(TimeSlot).filter(TimeSlot.task_id.in_(task_ids)),
+        )
     db.query(Task).filter(Task.project_id == proj_id).delete()
     db.query(Milestone).filter(Milestone.project_id == proj_id).delete()
     db.delete(proj)

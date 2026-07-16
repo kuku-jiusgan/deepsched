@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Task, TimeSlot
 from app.schemas.schemas import RescheduleRequest
+from app.services.instrument_status_service import delete_time_slots_and_refresh
 
 
 def reschedule(db: Session, data: RescheduleRequest) -> dict:
@@ -18,11 +19,11 @@ def _local_repair(db: Session, data: RescheduleRequest) -> dict:
     if data.affected_task_id:
         task = db.query(Task).filter(Task.id == data.affected_task_id).first()
         if task and task.status not in {"running", "done", "completed"}:
-            db.query(TimeSlot).filter(
+            delete_time_slots_and_refresh(db, db.query(TimeSlot).filter(
                 TimeSlot.task_id == data.affected_task_id,
                 TimeSlot.tier.in_(["confirmed", "forecast"]),
                 TimeSlot.status.in_(["scheduled", "blocked"]),
-            ).delete()
+            ))
             task.status = "pending"
             db.commit()
     return _generate(db)
@@ -32,13 +33,13 @@ def _project_reschedule(db: Session, data: RescheduleRequest) -> dict:
     if data.affected_task_id:
         task = db.query(Task).filter(Task.id == data.affected_task_id).first()
         if task and task.status not in {"running", "done", "completed"}:
-            db.query(TimeSlot).filter(
+            delete_time_slots_and_refresh(db, db.query(TimeSlot).filter(
                 TimeSlot.task_id.in_(
                     db.query(Task.id).filter(Task.project_id == task.project_id)
                 ),
                 TimeSlot.tier.in_(["confirmed", "forecast"]),
                 TimeSlot.status.in_(["scheduled", "blocked"]),
-            ).delete()
+            ))
             db.query(Task).filter(
                 Task.project_id == task.project_id,
                 Task.status == "scheduled",
@@ -62,7 +63,11 @@ def _global_reschedule(db: Session) -> dict:
         TimeSlot.task_id,
     ).distinct().all()
     movable_task_ids = {task_id for task_id, in movable_task_rows}
-    movable_slots.delete(synchronize_session=False)
+    delete_time_slots_and_refresh(
+        db,
+        movable_slots,
+        synchronize_session=False,
+    )
     if movable_task_ids:
         db.query(Task).filter(
             Task.id.in_(movable_task_ids),

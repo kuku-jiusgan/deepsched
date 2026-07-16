@@ -4,7 +4,10 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from app.models import TimeSlot
-from app.services.instrument_status_service import mark_instrument_running
+from app.services.instrument_status_service import (
+    delete_time_slot_and_refresh,
+    mark_instrument_running,
+)
 
 
 class ScheduleNightRunNotFoundError(Exception):
@@ -60,7 +63,7 @@ def _merge_or_create_night_slot(
         slot.plan_end = end_time
         if existing_slot:
             slot.plan_end = max(slot.plan_end, existing_slot.plan_end)
-            db.delete(existing_slot)
+            delete_time_slot_and_refresh(db, existing_slot)
         return slot
     if existing_slot:
         existing_slot.plan_end = end_time

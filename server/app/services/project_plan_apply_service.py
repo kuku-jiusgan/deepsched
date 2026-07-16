@@ -15,6 +15,7 @@ from app.services.project_hours_validation_service import (
     ProjectHoursExceededError,
     validate_project_estimated_hours,
 )
+from app.services.instrument_status_service import delete_time_slots_and_refresh
 from app.services.project_instrument_validation_service import (
     RequiredInstrumentError,
     validate_required_task_instruments,
@@ -227,12 +228,12 @@ def _load_insert_movable_tasks(db, project: Project, selected_tasks: list[Task])
 
 
 def _delete_movable_slots(db, task_ids: set[int]) -> None:
-    db.query(TimeSlot).filter(
+    delete_time_slots_and_refresh(db, db.query(TimeSlot).filter(
         TimeSlot.task_id.in_(task_ids),
         TimeSlot.tier.in_(MOVABLE_TIERS),
         TimeSlot.status.in_(MOVABLE_SLOT_STATUSES),
         TimeSlot.actual_start.is_(None),
-    ).delete(synchronize_session=False)
+    ), synchronize_session=False)
 
 
 def _project_completions(db, project_ids: set[int]) -> dict[int, datetime]:

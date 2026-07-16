@@ -12,6 +12,7 @@ from app.schemas.approval_gate_schemas import (
     ApprovalGateTaskRef,
 )
 from app.schemas.schemas import ProjectPlanInsertConfirmRequest
+from app.services.instrument_status_service import delete_time_slots_and_refresh
 from app.services.project_access_service import FULL_PROJECT_ACCESS_ROLES, can_view_project
 from app.services.push_notification_service import push_by_rule
 from app.services.task_execution_service import (
@@ -449,11 +450,11 @@ def _latest_approval_at(db, gate: Task, unlock_tasks: list[ApprovalGateTaskRef])
 def _clear_descendant_slots(db, task_ids: set[int]) -> None:
     if not task_ids:
         return
-    db.query(TimeSlot).filter(
+    delete_time_slots_and_refresh(db, db.query(TimeSlot).filter(
         TimeSlot.task_id.in_(task_ids),
         TimeSlot.status.in_(MOVABLE_SLOT_STATUSES),
         TimeSlot.actual_start.is_(None),
-    ).delete(synchronize_session=False)
+    ), synchronize_session=False)
 
 
 def _downstream_ids(db, seed_ids: set[int]) -> set[int]:
