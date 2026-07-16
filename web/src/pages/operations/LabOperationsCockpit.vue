@@ -205,7 +205,7 @@ function instrumentCardClass(code: string) {
 }
 function instrumentPhotoClass(code: string) {
   const classes = [`instrument-photo-${code.slice(-4)}`]
-  if (['ZBYY-002-0006', 'ZBYY-002-0007'].includes(code)) classes.push('instrument-photo-needs-cleanup')
+  if (code === 'ZBYY-002-0006') classes.push('instrument-photo-needs-cleanup')
   return classes
 }
 function instrumentModel(id: number) { return instruments.value.find(item => item.id === id)?.model }
