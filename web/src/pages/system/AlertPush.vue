@@ -48,8 +48,8 @@
                     <a-select v-model:value="rule._roles" mode="multiple" :options="roleOptions" placeholder="选择角色" />
                   </a-form-item>
                   <a-form-item v-if="rule.rule_type === 'task_start_delay'" label="超时阈值(分钟)">
-                    <a-input-number v-model:value="rule.threshold_minutes" :min="5" :max="480" :step="5" style="width: 100%" />
-                    <div style="font-size: 11px; color: #94a3b8; margin-top: 2px">计划开始时间后超过此分钟数未点击开始，触发预警</div>
+                    <a-input-number v-model:value="rule.threshold_minutes" :min="0" :max="480" :step="5" style="width: 100%" />
+                    <div style="font-size: 11px; color: #94a3b8; margin-top: 2px">计划开始时间后超过此分钟数未点击开始，触发预警；0 表示到点立即提醒</div>
                   </a-form-item>
                   <a-form-item v-if="rule.rule_type === 'task_end_delay'" label="预警说明">
                     <div style="font-size: 12px; color: #64748b">计划结束时间后未点击完成，自动标记为延期并通知</div>

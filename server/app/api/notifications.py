@@ -4,8 +4,17 @@ from typing import List, Optional
 from app.core.database import get_db
 from app.models import Notification
 from app.schemas.schemas import NotificationOut
+from app.services.task_action_reminder_service import (
+    start_task_action_reminder_worker,
+    stop_task_action_reminder_worker,
+)
 
-router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
+router = APIRouter(
+    prefix="/api/v1/notifications",
+    tags=["notifications"],
+    on_startup=[start_task_action_reminder_worker],
+    on_shutdown=[stop_task_action_reminder_worker],
+)
 
 @router.get("/history", response_model=List[NotificationOut])
 def list_notification_history(limit: int = 200, db: Session = Depends(get_db)):

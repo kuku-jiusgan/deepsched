@@ -49,7 +49,7 @@ DEFAULT_ALERT_RULES = [
         "rule_type": "task_start_delay",
         "enabled": True,
         "notify_roles": '["项目负责人","分析员"]',
-        "threshold_minutes": 30,
+        "threshold_minutes": 0,
         "threshold_percent": 0,
     },
     {

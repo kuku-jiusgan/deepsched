@@ -1,0 +1,137 @@
+from __future__ import annotations
+
+import threading
+from datetime import datetime, timedelta
+
+from app.core.database import SessionLocal
+from app.models import AlertRule, Notification, Task
+from app.services.push_notification_service import push_by_rule
+from app.services.task_execution_service import COMPLETED_TASK_STATUSES
+
+
+REMINDER_SCAN_INTERVAL_SECONDS = 30
+START_REMINDER_TYPE = "task_start_delay"
+END_REMINDER_TYPE = "task_end_delay"
+ACTIVE_SLOT_STATUSES = {"scheduled", "running", "blocked", "interrupted", "completed"}
+
+_stop_event = threading.Event()
+_worker_thread: threading.Thread | None = None
+
+
+def start_task_action_reminder_worker() -> None:
+    global _worker_thread
+    if _worker_thread and _worker_thread.is_alive():
+        return
+    _stop_event.clear()
+    _worker_thread = threading.Thread(
+        target=_reminder_loop,
+        name="task-action-reminder-worker",
+        daemon=True,
+    )
+    _worker_thread.start()
+
+
+def stop_task_action_reminder_worker() -> None:
+    _stop_event.set()
+    if _worker_thread:
+        _worker_thread.join(timeout=2)
+
+
+def scan_task_action_reminders(db, now: datetime | None = None) -> dict[str, int]:
+    current_time = now or datetime.now()
+    start_rule = _rule(db, START_REMINDER_TYPE)
+    end_rule = _rule(db, END_REMINDER_TYPE)
+    start_threshold = timedelta(minutes=max(0, start_rule.threshold_minutes if start_rule else 0))
+    start_count = 0
+    end_count = 0
+
+    tasks = db.query(Task).filter(Task.is_external_gate.is_(False)).all()
+    for task in tasks:
+        if task.children or task.status in COMPLETED_TASK_STATUSES:
+            continue
+        slots = [slot for slot in task.time_slots if slot.status in ACTIVE_SLOT_STATUSES]
+        if not slots:
+            continue
+        first_slot = min(slots, key=lambda slot: (slot.plan_start, slot.id))
+        last_slot = max(slots, key=lambda slot: (slot.plan_end, slot.id))
+        has_started = task.status == "running" or any(slot.actual_start for slot in slots)
+
+        if (
+            not has_started
+            and current_time >= first_slot.plan_start + start_threshold
+            and not _already_notified(db, START_REMINDER_TYPE, first_slot.id)
+        ):
+            start_count += _push_start_reminder(db, task, first_slot)
+
+        if (
+            has_started
+            and current_time >= last_slot.plan_end
+            and not _already_notified(db, END_REMINDER_TYPE, last_slot.id)
+        ):
+            end_count += _push_end_reminder(db, task, last_slot)
+
+    db.commit()
+    return {"start_reminders": start_count, "end_reminders": end_count}
+
+
+def _push_start_reminder(db, task: Task, slot) -> int:
+    return push_by_rule(
+        db,
+        START_REMINDER_TYPE,
+        _recipients(task),
+        "任务已到计划开始时间，请点击开始",
+        (
+            f"项目【{task.project.code if task.project else '-'}】任务【{task.name}】"
+            f"计划于 {slot.plan_start:%Y-%m-%d %H:%M} 开始，当前尚未点击开始，"
+            "请及时确认任务状态。"
+        ),
+        related_entity_type="time_slot",
+        related_entity_id=slot.id,
+        context_roles=["任务负责人", "项目负责人"],
+    )
+
+
+def _push_end_reminder(db, task: Task, slot) -> int:
+    return push_by_rule(
+        db,
+        END_REMINDER_TYPE,
+        _recipients(task),
+        "任务已到计划结束时间，请点击结束",
+        (
+            f"项目【{task.project.code if task.project else '-'}】任务【{task.name}】"
+            f"计划于 {slot.plan_end:%Y-%m-%d %H:%M} 结束，当前尚未点击结束，"
+            "请及时完成任务或上报延期。"
+        ),
+        related_entity_type="time_slot",
+        related_entity_id=slot.id,
+        context_roles=["任务负责人", "项目负责人"],
+    )
+
+
+def _recipients(task: Task) -> list:
+    return [task.assignee, task.project.manager if task.project else None]
+
+
+def _already_notified(db, reminder_type: str, slot_id: int) -> bool:
+    return db.query(Notification.id).filter(
+        Notification.n_type == reminder_type,
+        Notification.channel == "site",
+        Notification.related_entity_type == "time_slot",
+        Notification.related_entity_id == slot_id,
+    ).first() is not None
+
+
+def _rule(db, rule_type: str) -> AlertRule | None:
+    return db.query(AlertRule).filter(AlertRule.rule_type == rule_type).first()
+
+
+def _reminder_loop() -> None:
+    while not _stop_event.is_set():
+        db = SessionLocal()
+        try:
+            scan_task_action_reminders(db)
+        except Exception:
+            db.rollback()
+        finally:
+            db.close()
+        _stop_event.wait(REMINDER_SCAN_INTERVAL_SECONDS)
