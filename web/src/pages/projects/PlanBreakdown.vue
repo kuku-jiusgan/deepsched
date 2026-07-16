@@ -41,8 +41,8 @@
         <span style="margin-left: 8px; font-size: 12px; color: #94a3b8">点击左侧 &gt; 展开/收起子任务</span>
         <span style="margin-left: auto; font-size: 12px; color: #94a3b8">{{ flatTaskCount }} 个任务（{{ leafTaskCount }} 个叶子任务）</span>
       </div>
-      <a-table :dataSource="treeTasks" rowKey="id" size="small" :pagination="{ pageSize: 50, showSizeChanger: true }"
-        :defaultExpandAllRows="true" :indentSize="24">
+      <a-table v-model:expandedRowKeys="expandedTaskIds" :dataSource="treeTasks" rowKey="id" size="small" :pagination="{ pageSize: 50, showSizeChanger: true }"
+        :indentSize="24">
         <a-table-column title="任务名称" dataIndex="name" key="name">
           <template #default="{ record }">
             <span :style="{ fontWeight: record.children?.length ? 600 : 400 }">{{ record.name }}</span>
@@ -194,6 +194,7 @@ const projectId = Number(route.query.id)
 const project = ref<Project | null>(null)
 const dagData = ref<DAGData | null>(null)
 const allTasks = ref<Task[]>([])
+const expandedTaskIds = ref<number[]>([])
 const loading = ref(true)
 const taskOpen = ref(false)
 const editingTask = ref<Task | null>(null)
@@ -302,6 +303,14 @@ function sumChildrenHours(task: Task): number {
   return task.children.reduce((s, c) => s + sumChildrenHours(c), 0)
 }
 function isParentTask(id: number): boolean { return allTasks.value.some(t => t.parent_id === id) }
+function getParentTaskIds(tasks: Task[]): number[] {
+  return [...new Set(tasks.flatMap(task => task.parent_id == null ? [] : [task.parent_id]))]
+}
+function expandTask(taskId: number | null) {
+  if (taskId != null && !expandedTaskIds.value.includes(taskId)) {
+    expandedTaskIds.value = [...expandedTaskIds.value, taskId]
+  }
+}
 const isEditingParent = computed(() => editingTask.value ? isParentTask(editingTask.value.id) : false)
 const canEditScheduleFields = computed(() => editingTask.value?.can_edit_schedule_fields !== false)
 const isInstrumentRequired = computed(() => REQUIRED_INSTRUMENT_TASK_TYPES.has(tf.task_type))
@@ -317,6 +326,7 @@ async function fetchProject() {
   try {
     const [p, d] = await Promise.all([getProject(projectId), getProjectDAG(projectId)])
     project.value = p; dagData.value = d; allTasks.value = p.tasks || []
+    expandedTaskIds.value = getParentTaskIds(allTasks.value)
   } catch { message.error('加载项目失败') }
   finally { loading.value = false }
 }
@@ -355,6 +365,7 @@ async function handleTaskSubmit() {
     if (editingTask.value?.is_local_draft) {
       const index = allTasks.value.findIndex(task => task.id === editingTask.value?.id)
       if (index >= 0) allTasks.value[index] = buildDraftTask(payload, editingTask.value.id)
+      expandTask(payload.parent_id)
       message.success('草稿任务已更新')
     } else if (editingTask.value) {
       await updateTask(editingTask.value.id, payload)
@@ -362,6 +373,7 @@ async function handleTaskSubmit() {
       await fetchProject()
     } else {
       allTasks.value.push(buildDraftTask(payload, nextDraftId--))
+      expandTask(payload.parent_id)
       message.success('任务已加入本地草稿，保存前不会写入数据库')
     }
     taskOpen.value = false; editingTask.value = null
