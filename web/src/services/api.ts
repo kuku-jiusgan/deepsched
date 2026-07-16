@@ -293,7 +293,7 @@ export const calculateInsertCost = (data: InsertOrderRequest): Promise<InsertCos
 export const confirmInsert = (data: InsertOrderRequest): Promise<InsertOrderResult> =>
   api.post<InsertOrderResult>('/schedules/insert-order/confirm', data).then(r => r.data);
 
-export const reschedule = (data: { trigger_type: string; strategy: string }): Promise<{ status: string }> =>
+export const reschedule = (data: { trigger_type: string; strategy: string }): Promise<{ status: string; message?: string }> =>
   api.post('/schedules/reschedule', data).then(r => r.data);
 
 export const dailyRoll = (): Promise<{ status: string }> =>

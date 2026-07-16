@@ -54,11 +54,19 @@ def _global_reschedule(db: Session) -> dict:
         TimeSlot.status.in_(["scheduled", "blocked"]),
     ).delete()
     db.query(Task).filter(Task.status == "scheduled").update({"status": "pending"})
-    db.commit()
-    return _generate(db)
+    result = _generate(db, commit=False)
+    if result.get("status") == "ok":
+        db.commit()
+    else:
+        db.rollback()
+    return result
 
 
-def _generate(db: Session, project_ids: list[int] | None = None) -> dict:
+def _generate(
+    db: Session,
+    project_ids: list[int] | None = None,
+    commit: bool = True,
+) -> dict:
     from app.services.scheduler import SchedulerService
 
-    return SchedulerService(db).generate(project_ids)
+    return SchedulerService(db).generate(project_ids, commit=commit)
