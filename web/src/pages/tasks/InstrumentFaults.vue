@@ -343,9 +343,9 @@ onMounted(fetchData)
 
 <style scoped>
 .fault-page {
-  min-height: calc(100vh - 40px);
-  margin: -24px;
-  padding: 14px 24px 24px;
+  min-height: calc(100vh - 34px);
+  margin: 0;
+  padding: 0;
   background: #f7f8fa;
   box-sizing: border-box;
 }
@@ -524,10 +524,6 @@ onMounted(fetchData)
 }
 
 @media (max-width: 768px) {
-  .fault-page {
-    padding: 12px 18px 18px;
-  }
-
   .fault-card-grid {
     grid-template-columns: 1fr;
   }

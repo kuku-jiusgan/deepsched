@@ -56,7 +56,10 @@
       </div>
     </a-layout-sider>
     <a-layout style="background: #f7f8fa">
-      <a-layout-content class="app-content">
+      <a-layout-content
+        class="app-content"
+        :class="{ 'app-content-cockpit': route.path === '/operations/cockpit' }"
+      >
         <div v-if="route.path !== '/operations/cockpit'" class="page-top-actions">
           <a-dropdown trigger="click">
             <a-tag color="blue" class="current-user">
