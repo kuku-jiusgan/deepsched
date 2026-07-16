@@ -114,14 +114,23 @@ def _load_lower_priority_movable_tasks(
     insert_priority: int,
     excluded_task_ids: set[int],
     selected_instrument_ids: set[int],
+    include_same_priority: bool = False,
+    unstarted_projects_only: bool = False,
 ) -> list[Task]:
+    priority_filter = (
+        Project.priority >= insert_priority
+        if include_same_priority
+        else Project.priority > insert_priority
+    )
     candidate_tasks = db.query(Task).join(Project).filter(
-        Project.priority > insert_priority,
+        priority_filter,
         Task.status == "scheduled",
         ~Task.id.in_(excluded_task_ids),
     ).order_by(Project.priority, Task.created_at, Task.id).all()
     movable = []
     for task in candidate_tasks:
+        if unstarted_projects_only and _project_has_started(db, task.project_id):
+            continue
         has_protected_slot = db.query(TimeSlot.id).filter(
             TimeSlot.task_id == task.id,
             (
@@ -144,6 +153,23 @@ def _load_lower_priority_movable_tasks(
         if not has_protected_slot and has_future_slot:
             movable.append(task)
     return movable
+
+
+def _project_has_started(db, project_id: int) -> bool:
+    started_task = db.query(Task.id).filter(
+        Task.project_id == project_id,
+        Task.status.in_(["running", "completed", "done"]),
+    ).first()
+    if started_task:
+        return True
+    started_slot = db.query(TimeSlot.id).join(Task).filter(
+        Task.project_id == project_id,
+        (
+            TimeSlot.actual_start.isnot(None)
+            | TimeSlot.status.in_(["running", "completed"])
+        ),
+    ).first()
+    return started_slot is not None
 
 
 def _selected_instrument_ids(tasks: list[Task]) -> set[int]:

@@ -255,6 +255,17 @@ class ProjectPlanInsertConfirmRequest(BaseModel):
     project_id: int
     preview_token: str
 
+class ProjectScheduleImpact(BaseModel):
+    project_id: int
+    project_code: str
+    project_name: str
+    project_end_date: Optional[datetime] = None
+    original_completion: Optional[datetime] = None
+    new_completion: Optional[datetime] = None
+    delay_hours: float = 0
+    exceeds_end_date: bool = False
+    overdue_hours: float = 0
+
 class ProjectPlanApplyResponse(BaseModel):
     status: Literal["applied", "no_changes", "insert_confirmation_required", "error"]
     message: Optional[str] = None
@@ -265,6 +276,7 @@ class ProjectPlanApplyResponse(BaseModel):
     conflicts_checked: bool = False
     preview_token: Optional[str] = None
     impacts: List["InsertOrderImpact"] = []
+    project_impacts: List[ProjectScheduleImpact] = []
 
 class InsertOrderImpact(BaseModel):
     task_id: int

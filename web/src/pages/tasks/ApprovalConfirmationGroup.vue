@@ -153,7 +153,7 @@ function confirmImpact(gate: ApprovalGate) {
   if (!gate.preview_token) return
   Modal.confirm({
     title: '确认跨项目排程影响？',
-    content: gate.schedule_message || '该方案需要移动低优先级项目任务，确认后将应用新的排程。',
+    content: gate.schedule_message || '该方案需要移动同优先级或低优先级的未开始项目任务，确认后将应用新的排程。',
     okText: '确认应用',
     async onOk() {
       try {

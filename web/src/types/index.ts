@@ -243,6 +243,18 @@ export interface InsertOrderImpact {
   delay_hours: number;
 }
 
+export interface ProjectScheduleImpact {
+  project_id: number;
+  project_code: string;
+  project_name: string;
+  project_end_date: string | null;
+  original_completion: string | null;
+  new_completion: string | null;
+  delay_hours: number;
+  exceeds_end_date: boolean;
+  overdue_hours: number;
+}
+
 export type ProjectPlanApplyStatus = 'applied' | 'no_changes' | 'insert_confirmation_required' | 'error';
 
 export interface ProjectPlanApplyResult {
@@ -255,6 +267,7 @@ export interface ProjectPlanApplyResult {
   conflicts_checked: boolean;
   preview_token?: string | null;
   impacts: InsertOrderImpact[];
+  project_impacts: ProjectScheduleImpact[];
 }
 
 export interface InsertCost {

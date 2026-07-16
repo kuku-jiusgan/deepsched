@@ -9,6 +9,7 @@ from app.schemas.schemas import (
     InsertOrderImpact,
     ProjectPlanApplyResponse,
     ProjectPlanInsertConfirmRequest,
+    ProjectScheduleImpact,
 )
 from app.services.project_hours_validation_service import (
     ProjectHoursExceededError,
@@ -113,7 +114,7 @@ def _preview_plan_insert(
         )
     return ProjectPlanApplyResponse(
         status="insert_confirmation_required",
-        message="稳定重排不可行，需要移动低优先级任务，请确认插单影响",
+        message=_project_impact_message(preview.project_impacts),
         project_id=project.id,
         schedule_run_id=preview.schedule_run_id,
         timeslots_created=preview.timeslots_created,
@@ -121,6 +122,7 @@ def _preview_plan_insert(
         conflicts_checked=preview.conflicts_checked,
         preview_token=preview_token,
         impacts=preview.impacts,
+        project_impacts=preview.project_impacts,
     )
 
 
@@ -135,6 +137,8 @@ def _execute_replan(
     replan_task_ids = {task.id for task in replan_tasks}
     selected_task_ids = {task.id for task in selected_tasks}
     old_windows = _task_windows(db, replan_task_ids)
+    moved_project_ids = {task.project_id for task in movable_tasks}
+    old_project_completions = _project_completions(db, moved_project_ids)
 
     _delete_movable_slots(db, replan_task_ids)
     for task in replan_tasks:
@@ -159,6 +163,12 @@ def _execute_replan(
     schedule_run_id = str(solver_result.get("schedule_run_id") or "")
     new_windows = _task_windows(db, replan_task_ids, schedule_run_id)
     impacts = _build_impacts(replan_tasks, selected_task_ids, old_windows, new_windows)
+    new_project_completions = _project_completions(db, moved_project_ids)
+    project_impacts = _build_project_impacts(
+        movable_tasks,
+        old_project_completions,
+        new_project_completions,
+    )
     for task in db.query(Task).filter(Task.project_id == project.id).all():
         task.schedule_dirty = False
 
@@ -171,6 +181,7 @@ def _execute_replan(
         moved_tasks=sum(1 for impact in impacts if not impact.is_insert_task),
         conflicts_checked=True,
         impacts=impacts,
+        project_impacts=project_impacts,
     )
     if commit:
         db.commit()
@@ -209,6 +220,8 @@ def _load_insert_movable_tasks(db, project: Project, selected_tasks: list[Task])
         int(project.priority or 3),
         selected_ids,
         _selected_instrument_ids(selected_tasks),
+        include_same_priority=True,
+        unstarted_projects_only=True,
     )
     return _unique_tasks(movable)
 
@@ -220,6 +233,83 @@ def _delete_movable_slots(db, task_ids: set[int]) -> None:
         TimeSlot.status.in_(MOVABLE_SLOT_STATUSES),
         TimeSlot.actual_start.is_(None),
     ).delete(synchronize_session=False)
+
+
+def _project_completions(db, project_ids: set[int]) -> dict[int, datetime]:
+    if not project_ids:
+        return {}
+    slots = db.query(TimeSlot).join(Task).filter(
+        Task.project_id.in_(project_ids),
+        TimeSlot.status.in_([
+            "scheduled", "running", "blocked", "interrupted", "completed",
+        ]),
+    ).all()
+    completions: dict[int, datetime] = {}
+    for slot in slots:
+        project_id = slot.task.project_id
+        current = completions.get(project_id)
+        if current is None or slot.plan_end > current:
+            completions[project_id] = slot.plan_end
+    return completions
+
+
+def _build_project_impacts(
+    movable_tasks: list[Task],
+    old_completions: dict[int, datetime],
+    new_completions: dict[int, datetime],
+) -> list[ProjectScheduleImpact]:
+    projects = {
+        task.project_id: task.project
+        for task in movable_tasks
+        if task.project is not None
+    }
+    impacts = []
+    for project_id, project in sorted(projects.items()):
+        original_completion = old_completions.get(project_id)
+        new_completion = new_completions.get(project_id)
+        delay_hours = _hours_between(original_completion, new_completion)
+        overdue_hours = _hours_between(project.end_date, new_completion)
+        impacts.append(ProjectScheduleImpact(
+            project_id=project_id,
+            project_code=project.code,
+            project_name=project.name,
+            project_end_date=project.end_date,
+            original_completion=original_completion,
+            new_completion=new_completion,
+            delay_hours=round(delay_hours, 1),
+            exceeds_end_date=overdue_hours > 0,
+            overdue_hours=round(max(0, overdue_hours), 1),
+        ))
+    return impacts
+
+
+def _hours_between(start: datetime | None, end: datetime | None) -> float:
+    if start is None or end is None:
+        return 0
+    return (end - start).total_seconds() / 3600
+
+
+def _project_impact_message(impacts: list[ProjectScheduleImpact]) -> str:
+    if not impacts:
+        return "需要移动同优先级或低优先级的未开始项目任务，请确认排程影响"
+    details = []
+    for impact in impacts:
+        completion = (
+            impact.new_completion.strftime("%Y-%m-%d %H:%M")
+            if impact.new_completion
+            else "暂无"
+        )
+        delay = max(0, impact.delay_hours)
+        deadline = (
+            f"超过结题日期 {impact.overdue_hours:g} 小时"
+            if impact.exceeds_end_date
+            else "未超过结题日期"
+        )
+        details.append(
+            f"项目【{impact.project_code} {impact.project_name}】"
+            f"预计顺延 {delay:g} 小时，调整后完成时间 {completion}，{deadline}"
+        )
+    return "需要移动同优先级或低优先级的未开始项目任务，请确认影响：" + "；".join(details)
 
 
 def _downstream_ids(db, seed_ids: set[int], project_task_ids: set[int]) -> set[int]:
