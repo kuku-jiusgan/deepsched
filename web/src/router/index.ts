@@ -8,17 +8,13 @@ const routes = [
     meta: { guest: true }
   },
   {
-    path: '/operations/cockpit',
-    component: () => import('@/pages/operations/LabOperationsCockpit.vue'),
-    meta: { requiresAuth: true }
-  },
-  {
     path: '/',
     component: AppLayout,
     meta: { requiresAuth: true },
     children: [
       { path: '', redirect: '/operations/cockpit' },
       { path: 'dashboard', component: () => import('@/pages/Dashboard.vue') },
+      { path: 'operations/cockpit', component: () => import('@/pages/operations/LabOperationsCockpit.vue') },
       { path: 'operations/lab-dashboard', component: () => import('@/pages/operations/LabOperationsDashboard.vue') },
       { path: 'operations/reports', component: () => import('@/pages/operations/DetailedReports.vue') },
       { path: 'operations/project-tasks', component: () => import('@/pages/operations/ProjectTaskDetail.vue') },
