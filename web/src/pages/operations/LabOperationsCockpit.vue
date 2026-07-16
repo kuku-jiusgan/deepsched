@@ -38,7 +38,11 @@
                 <em :class="statusClass(item)">{{ statusText(item) }}</em>
               </div>
               <div class="instrument-picture">
-                <InstrumentModelVisual :name="item.name" :model="item.model" />
+                <img
+                  :src="instrumentImage(item.code)"
+                  :alt="`${item.name} ${item.model || ''}`"
+                  decoding="async"
+                />
               </div>
               <div class="utilization-row">
                 <span>利用率</span><i><b :style="{ width: `${utilizationRate(item.id)}%` }"></b></i><strong>{{ utilizationRate(item.id) }}%</strong>
@@ -119,7 +123,6 @@ import dayjs, { type Dayjs } from 'dayjs'
 import { CalendarOutlined, ClockCircleOutlined, DashboardOutlined, DownOutlined, ExperimentOutlined, SafetyCertificateOutlined, ThunderboltOutlined, ToolOutlined, UserOutlined } from '@ant-design/icons-vue'
 import { getDashboard, getInstruments, getLabStatus, getTimeslots, getUtilization, type LabStatusInstrument } from '@/services/api'
 import type { DashboardData, Instrument, TimeSlot, UtilizationStats } from '@/types'
-import InstrumentModelVisual from './components/InstrumentModelVisual.vue'
 import './LabOperationsCockpit.css'
 
 interface CockpitInstrument extends LabStatusInstrument { model: string | null; availability_status: Instrument['availability_status'] }
@@ -134,6 +137,15 @@ const dashboard = ref<DashboardData | null>(null)
 const weeklyTrend = ref<TrendItem[]>([])
 let clockTimer: ReturnType<typeof setInterval> | undefined
 let dataTimer: ReturnType<typeof setInterval> | undefined
+const INSTRUMENT_IMAGES: Record<string, string> = {
+  'ZBYY-002-0001': '/assets/instruments/ab-api5500.png',
+  'ZBYY-002-0002': '/assets/instruments/agilent-7000b.png',
+  'ZBYY-002-0004': '/assets/instruments/shimadzu-lcms-8050-0004.png',
+  'ZBYY-002-0005': '/assets/instruments/shimadzu-lcms-8050-0005.png',
+  'ZBYY-002-0006': '/assets/instruments/agilent-7800-icp-ms.png',
+  'ZBYY-002-0007': '/assets/instruments/shimadzu-gcms-tq8050-nx.png',
+  'ZBYY-002-0011': '/assets/instruments/ab-api5500-plus.png',
+}
 
 const currentUserLabel = computed(() => { try { const user = JSON.parse(localStorage.getItem('user') || '{}') as { display_name?: string; username?: string }; return user.display_name || user.username || '系统管理员' } catch { return '系统管理员' } })
 const runningCount = computed(() => instruments.value.filter(item => statusClass(item) === 'running').length)
@@ -180,6 +192,7 @@ function statusText(item: CockpitInstrument) { return ({ running: '运行中', i
 function percentage(value: number) { return instruments.value.length ? Math.round(value / instruments.value.length * 1000) / 10 : 0 }
 function roundedRate(value: number) { return Math.max(0, Math.min(100, Math.round(Number(value) || 0))) }
 function utilizationRate(id: number) { return utilizationMap.value.get(id) || 0 }
+function instrumentImage(code: string) { return INSTRUMENT_IMAGES[code] || '/assets/instruments/ab-api5500.png' }
 function instrumentModel(id: number) { return instruments.value.find(item => item.id === id)?.model }
 function trendX(index: number) { return weeklyTrend.value.length > 1 ? 18 + index * (584 / (weeklyTrend.value.length - 1)) : 310 }
 function trendY(value: number) { return 100 - Math.max(0, Math.min(100, value)) * .86 }
