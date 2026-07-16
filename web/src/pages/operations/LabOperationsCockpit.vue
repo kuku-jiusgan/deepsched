@@ -101,21 +101,28 @@
       </section>
 
       <section class="chart-grid">
-        <article class="chart-card trend-card">
-          <header><h2>本周利用率趋势</h2><span><i></i>平均利用率（%）</span></header>
-          <div class="line-chart">
-            <div class="y-labels"><span>100</span><span>50</span><span>0</span></div>
-            <svg viewBox="0 0 620 120" preserveAspectRatio="none" aria-label="近七日平均利用率折线图">
-              <line v-for="y in [14, 57, 100]" :key="y" x1="0" :y1="y" x2="620" :y2="y" />
-              <path :d="trendAreaPath" class="trend-area" />
-              <polyline :points="trendPoints" />
-              <g v-for="(item, index) in weeklyTrend" :key="item.date">
-                <circle :cx="trendX(index)" :cy="trendY(item.value)" r="4" />
-                <text :x="trendX(index)" :y="trendY(item.value) - 10">{{ item.value }}%</text>
-              </g>
-            </svg>
-            <div class="x-labels"><span v-for="item in weeklyTrend" :key="item.date">{{ item.date }}</span></div>
+        <article class="chart-card anomaly-card">
+          <header><h2>异常任务</h2><span v-if="warningTasks.length">{{ warningTasks.length }} 项</span></header>
+          <div
+            v-if="warningTasks.length"
+            class="cockpit-warning-viewport"
+            :style="{ '--warning-scroll-duration': warningScrollDuration }"
+          >
+            <div class="cockpit-warning-track" :class="{ 'is-scrolling': isWarningScrollEnabled }">
+              <div v-for="copyIndex in warningCopyCount" :key="`warning-copy-${copyIndex}`" class="cockpit-warning-copy">
+                <article v-for="item in warningTasks" :key="`warning-task-${copyIndex}-${item.id}`" class="cockpit-warning-row">
+                  <div class="cockpit-warning-head">
+                    <strong>{{ item.project_code || '未关联项目' }}</strong>
+                    <em>{{ warningTaskStatus(item) }}</em>
+                  </div>
+                  <span>{{ item.task_name || '-' }}</span>
+                  <small>{{ item.instrument_code || item.instrument_name || '-' }} · {{ item.assignee_name || '未分配' }}</small>
+                  <small>{{ warningTaskReason(item) }}</small>
+                </article>
+              </div>
+            </div>
           </div>
+          <a-empty v-else description="暂无异常任务" />
         </article>
 
         <article class="chart-card distribution-card">
@@ -150,7 +157,6 @@ import type { DashboardData, Instrument, TimeSlot, UtilizationStats } from '@/ty
 import './LabOperationsCockpit.css'
 
 interface CockpitInstrument extends LabStatusInstrument { model: string | null; availability_status: Instrument['availability_status'] }
-interface TrendItem { date: string; value: number }
 const router = useRouter()
 const now = ref(dayjs())
 const isLoading = ref(true)
@@ -160,12 +166,14 @@ const instruments = ref<CockpitInstrument[]>([])
 const utilization = ref<UtilizationStats[]>([])
 const slots = ref<TimeSlot[]>([])
 const dashboard = ref<DashboardData | null>(null)
-const weeklyTrend = ref<TrendItem[]>([])
 let clockTimer: ReturnType<typeof setInterval> | undefined
 let dataTimer: ReturnType<typeof setInterval> | undefined
 let cockpitResizeObserver: ResizeObserver | undefined
 const COCKPIT_DESIGN_WIDTH = 1540
 const MIN_COCKPIT_SCALE = 0.78
+const WARNING_SCROLL_THRESHOLD = 2
+const WARNING_SCROLL_SECONDS_PER_ITEM = 6
+const WARNING_SCROLL_MIN_SECONDS = 18
 const INSTRUMENT_IMAGES: Record<string, string> = {
   'ZBYY-002-0001': '/assets/instruments/ab-api5500.png',
   'ZBYY-002-0002': '/assets/instruments/agilent-7000b.png',
@@ -196,6 +204,10 @@ const kpis = computed(() => [
 const topInstruments = computed(() => [...utilization.value].sort((a, b) => b.actual_utilization_rate - a.actual_utilization_rate).slice(0, 3))
 const utilizationMap = computed(() => new Map(utilization.value.map(item => [item.instrument_id, roundedRate(item.actual_utilization_rate)])))
 const feedScrollDuration = computed(() => `${Math.max(instruments.value.length * 9, 42)}s`)
+const warningTasks = computed(() => slots.value.filter(isWarningTask).sort((left, right) => warningSortTime(right) - warningSortTime(left)))
+const isWarningScrollEnabled = computed(() => warningTasks.value.length > WARNING_SCROLL_THRESHOLD)
+const warningCopyCount = computed(() => isWarningScrollEnabled.value ? 2 : 1)
+const warningScrollDuration = computed(() => `${Math.max(WARNING_SCROLL_MIN_SECONDS, warningTasks.value.length * WARNING_SCROLL_SECONDS_PER_ITEM)}s`)
 
 const completion = computed(() => {
   const start = dayjs().startOf('day').subtract(6, 'day')
@@ -209,8 +221,6 @@ const completion = computed(() => {
 const completionRate = computed(() => { const total = completion.value.completed + completion.value.pending + completion.value.late; return total ? Math.round(completion.value.completed / total * 100) : 100 })
 const completionRingStyle = computed(() => ({ background: `conic-gradient(#2878ef 0 ${completionRate.value}%, #e7eef8 ${completionRate.value}% 100%)` }))
 const donutStyle = computed(() => { const running = percentage(runningCount.value); const idle = running + percentage(idleCount.value); return { background: `conic-gradient(#32b86b 0 ${running}%, #4388ef ${running}% ${idle}%, #f59a3c ${idle}% 100%)` } })
-const trendPoints = computed(() => weeklyTrend.value.map((item, index) => `${trendX(index)},${trendY(item.value)}`).join(' '))
-const trendAreaPath = computed(() => weeklyTrend.value.length ? `M ${trendX(0)} ${trendY(weeklyTrend.value[0].value)} ${weeklyTrend.value.map((item, index) => `L ${trendX(index)} ${trendY(item.value)}`).join(' ')} L ${trendX(weeklyTrend.value.length - 1)} 100 L ${trendX(0)} 100 Z` : '')
 
 function statusClass(item: CockpitInstrument) { const value = item.status.toLowerCase(); if (value.includes('fault')) return 'fault'; if (value.includes('maint')) return 'maint'; return item.current_task || value === 'running' ? 'running' : 'idle' }
 function statusText(item: CockpitInstrument) { return ({ running: '运行中', idle: '空闲', maint: '维护中', fault: '故障' } as const)[statusClass(item) as 'running' | 'idle' | 'maint' | 'fault'] }
@@ -231,8 +241,10 @@ function instrumentPhotoClass(code: string) {
   if (code === 'ZBYY-002-0006') classes.push('instrument-photo-needs-cleanup')
   return classes
 }
-function trendX(index: number) { return weeklyTrend.value.length > 1 ? 18 + index * (584 / (weeklyTrend.value.length - 1)) : 310 }
-function trendY(value: number) { return 100 - Math.max(0, Math.min(100, value)) * .86 }
+function isWarningTask(slot: TimeSlot) { return Boolean(slot.delay_reason) || Boolean(slot.delay_hours && slot.delay_hours > 0) || ['blocked', 'interrupted'].includes(slot.status) }
+function warningSortTime(slot: TimeSlot) { return dayjs(slot.delay_reported_at || slot.plan_end || slot.plan_start).valueOf() }
+function warningTaskStatus(slot: TimeSlot) { if (slot.status === 'interrupted') return '已中断'; if (slot.status === 'blocked') return '已阻塞'; if (slot.delay_hours && slot.delay_hours > 0) return `延期 ${slot.delay_hours}h`; return '延期' }
+function warningTaskReason(slot: TimeSlot) { return slot.delay_reason || `${formatDateTime(slot.plan_start)} - ${formatDateTime(slot.plan_end)}` }
 function barHeight(value: number) { const max = Math.max(...completion.value.days.map(item => item.value), 1); return Math.max(8, value / max * 78) }
 function handleUserMenu({ key }: { key: string }) { if (key === 'home') router.push('/operations/lab-dashboard'); if (key === 'logout') { localStorage.removeItem('token'); localStorage.removeItem('user'); router.push('/login') } }
 function updateCockpitScale(width: number) { cockpitScale.value = Math.max(MIN_COCKPIT_SCALE, Math.min(1, width / COCKPIT_DESIGN_WIDTH)) }
@@ -241,9 +253,6 @@ async function loadData() {
   try {
     const [dashboardData, statusList, baseList, utilizationList, timeSlots] = await Promise.all([getDashboard(), getLabStatus(), getInstruments({ include_unavailable: true }), getUtilization(), getTimeslots()])
     dashboard.value = dashboardData; instruments.value = mergeInstruments(statusList, baseList); utilization.value = utilizationList; slots.value = timeSlots
-    const start = dayjs().startOf('day').subtract(6, 'day')
-    const daily = await Promise.all(Array.from({ length: 7 }, (_, index) => { const day = start.add(index, 'day'); const end = day.isSame(dayjs(), 'day') ? dayjs() : day.endOf('day'); return getDashboard({ start_date: day.format('YYYY-MM-DDTHH:mm:ss'), end_date: end.format('YYYY-MM-DDTHH:mm:ss') }).then(data => ({ date: day.format('MM-DD'), value: roundedRate(data.avg_utilization) })).catch(() => ({ date: day.format('MM-DD'), value: 0 })) }))
-    weeklyTrend.value = daily
   } finally { isLoading.value = false }
 }
 onMounted(() => {
