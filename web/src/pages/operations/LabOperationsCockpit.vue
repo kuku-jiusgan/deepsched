@@ -4,7 +4,7 @@
     <header class="cockpit-header">
       <div class="brand-lockup">
         <span class="brand-mark"><ExperimentOutlined /></span>
-        <h1>实验室运营驾驶舱</h1>
+        <h1>数字实验室运行态势图</h1>
       </div>
       <div class="header-meta">
         <span class="date-time"><CalendarOutlined />{{ now.format('YYYY-MM-DD') }}<strong>{{ now.format('HH:mm:ss') }}</strong></span>
@@ -31,7 +31,7 @@
 
       <section class="overview-grid">
         <article class="instrument-panel panel-frame">
-          <h2>{{ instruments.length }}台仪器模型阵列</h2>
+          <h2>药物分析研究所主要仪器</h2>
           <div v-if="instruments.length" class="instrument-grid">
             <article
               v-for="item in instruments"
@@ -171,7 +171,7 @@ let dataTimer: ReturnType<typeof setInterval> | undefined
 let cockpitResizeObserver: ResizeObserver | undefined
 const COCKPIT_DESIGN_WIDTH = 1540
 const MIN_COCKPIT_SCALE = 0.78
-const WARNING_SCROLL_THRESHOLD = 2
+const WARNING_SCROLL_THRESHOLD = 1
 const WARNING_SCROLL_SECONDS_PER_ITEM = 6
 const WARNING_SCROLL_MIN_SECONDS = 18
 const INSTRUMENT_IMAGES: Record<string, string> = {
