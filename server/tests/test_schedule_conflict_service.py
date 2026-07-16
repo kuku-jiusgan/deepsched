@@ -5,8 +5,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
-from app.models import Project, Task, TimeSlot, User
+from app.models import Instrument, Project, Task, TimeSlot, User
 from app.services.schedule_conflict_service import (
+    ScheduleConflictError,
+    ensure_no_human_conflicts,
+    ensure_no_instrument_conflicts,
     find_human_conflicts,
     find_instrument_conflicts,
 )
@@ -83,6 +86,38 @@ class ScheduleConflictServiceTest(unittest.TestCase):
 
         self.assertEqual([], find_instrument_conflicts(self.db))
 
+    def test_instrument_conflict_message_uses_business_details(self):
+        self._create_task(1, None, requires_human=False)
+        self._create_task(2, None, requires_human=False)
+        self.db.add(Instrument(id=1, code="GCMS-001", name="气相质谱仪"))
+        self.db.add_all([
+            TimeSlot(
+                task_id=1,
+                instrument_id=1,
+                plan_start=datetime(2026, 7, 16, 8, 30),
+                plan_end=datetime(2026, 7, 16, 12, 0),
+                status="scheduled",
+            ),
+            TimeSlot(
+                task_id=2,
+                instrument_id=1,
+                plan_start=datetime(2026, 7, 16, 10, 0),
+                plan_end=datetime(2026, 7, 16, 14, 0),
+                status="scheduled",
+            ),
+        ])
+        self.db.commit()
+
+        with self.assertRaises(ScheduleConflictError) as context:
+            ensure_no_instrument_conflicts(self.db)
+
+        message = str(context.exception)
+        self.assertIn("仪器【GCMS-001 气相质谱仪】", message)
+        self.assertIn("项目【TEST-001 测试项目】任务【任务1】", message)
+        self.assertIn("项目【TEST-001 测试项目】任务【任务2】", message)
+        self.assertIn("冲突时段为【2026-07-16 10:00 至 2026-07-16 12:00】", message)
+        self.assertNotIn("时间槽", message)
+
     def test_overlapping_human_tasks_for_same_assignee_create_conflict(self):
         self._create_user(1)
         self._create_task(1, 1)
@@ -103,6 +138,37 @@ class ScheduleConflictServiceTest(unittest.TestCase):
 
         self.assertEqual(1, len(conflicts))
         self.assertEqual(1, conflicts[0]["assignee_id"])
+
+    def test_human_conflict_message_uses_business_details(self):
+        self._create_user(1)
+        self._create_task(1, 1)
+        self._create_task(2, 1)
+        self.db.add_all([
+            TimeSlot(
+                task_id=1,
+                plan_start=datetime(2026, 7, 16, 8, 30),
+                plan_end=datetime(2026, 7, 16, 12, 0),
+                status="scheduled",
+            ),
+            TimeSlot(
+                task_id=2,
+                plan_start=datetime(2026, 7, 16, 10, 0),
+                plan_end=datetime(2026, 7, 16, 14, 0),
+                status="scheduled",
+            ),
+        ])
+        self.db.commit()
+
+        with self.assertRaises(ScheduleConflictError) as context:
+            ensure_no_human_conflicts(self.db)
+
+        message = str(context.exception)
+        self.assertIn("负责人【人员1】", message)
+        self.assertIn("项目【TEST-001 测试项目】任务【任务1】", message)
+        self.assertIn("项目【TEST-001 测试项目】任务【任务2】", message)
+        self.assertIn("2026-07-16 08:30 至 2026-07-16 12:00", message)
+        self.assertIn("冲突时段为【2026-07-16 10:00 至 2026-07-16 12:00】", message)
+        self.assertNotIn("时间槽", message)
 
     def test_different_assignees_do_not_create_human_conflict(self):
         self._create_user(1)

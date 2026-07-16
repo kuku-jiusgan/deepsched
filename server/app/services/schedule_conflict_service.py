@@ -29,7 +29,7 @@ def find_instrument_conflicts(db) -> list[dict]:
         previous = None
         for slot, start, end in instrument_slots:
             if previous and start < previous[2]:
-                previous_slot, _, previous_end = previous
+                previous_slot, previous_start, previous_end = previous
                 conflicts.append({
                     "instrument_id": instrument_id,
                     "first_slot_id": previous_slot.id,
@@ -38,6 +38,13 @@ def find_instrument_conflicts(db) -> list[dict]:
                     "second_task_id": slot.task_id,
                     "overlap_start": start.isoformat(),
                     "overlap_end": min(previous_end, end).isoformat(),
+                    "instrument_name": _instrument_name(slot),
+                    "first_schedule": _schedule_context(
+                        previous_slot,
+                        previous_start,
+                        previous_end,
+                    ),
+                    "second_schedule": _schedule_context(slot, start, end),
                 })
                 if end > previous_end:
                     previous = (slot, start, end)
@@ -64,7 +71,7 @@ def find_human_conflicts(db) -> list[dict]:
         previous = None
         for slot, start, end in assignee_slots:
             if previous and start < previous[2]:
-                previous_slot, _, previous_end = previous
+                previous_slot, previous_start, previous_end = previous
                 conflicts.append({
                     "assignee_id": assignee_id,
                     "first_slot_id": previous_slot.id,
@@ -73,6 +80,13 @@ def find_human_conflicts(db) -> list[dict]:
                     "second_task_id": slot.task_id,
                     "overlap_start": start.isoformat(),
                     "overlap_end": min(previous_end, end).isoformat(),
+                    "assignee_name": _assignee_name(slot),
+                    "first_schedule": _schedule_context(
+                        previous_slot,
+                        previous_start,
+                        previous_end,
+                    ),
+                    "second_schedule": _schedule_context(slot, start, end),
                 })
                 if end > previous_end:
                     previous = (slot, start, end)
@@ -89,14 +103,55 @@ def _effective_slot_range(slot: TimeSlot):
     return None
 
 
+def _schedule_context(slot: TimeSlot, start, end) -> dict:
+    task = slot.task
+    project = task.project if task else None
+    return {
+        "project_code": project.code if project else None,
+        "project_name": project.name if project else None,
+        "task_name": task.name if task else "未知任务",
+        "start": start,
+        "end": end,
+    }
+
+
+def _assignee_name(slot: TimeSlot) -> str:
+    task = slot.task
+    return task.assignee_name if task and task.assignee_name else "未命名负责人"
+
+
+def _instrument_name(slot: TimeSlot) -> str:
+    instrument = slot.instrument
+    if not instrument:
+        return "未命名仪器"
+    return " ".join(part for part in [instrument.code, instrument.name] if part)
+
+
+def _format_schedule(context: dict) -> str:
+    project = " ".join(
+        part for part in [context["project_code"], context["project_name"]] if part
+    ) or "未知项目"
+    return (
+        f"项目【{project}】任务【{context['task_name']}】"
+        f"（{_format_time(context['start'])} 至 {_format_time(context['end'])}）"
+    )
+
+
+def _format_time(value) -> str:
+    return value.strftime("%Y-%m-%d %H:%M")
+
+
 def ensure_no_instrument_conflicts(db) -> None:
     conflicts = find_instrument_conflicts(db)
     if not conflicts:
         return
     conflict = conflicts[0]
     raise ScheduleConflictError(
-        "仪器排程冲突：时间槽 "
-        f"{conflict['first_slot_id']} 与 {conflict['second_slot_id']} 时间重叠"
+        f"仪器排程冲突：仪器【{conflict['instrument_name']}】的"
+        f"{_format_schedule(conflict['first_schedule'])}与"
+        f"{_format_schedule(conflict['second_schedule'])}发生重叠，"
+        f"冲突时段为【{_format_time_from_iso(conflict['overlap_start'])} 至 "
+        f"{_format_time_from_iso(conflict['overlap_end'])}】"
     )
 
 
@@ -106,7 +161,13 @@ def ensure_no_human_conflicts(db) -> None:
         return
     conflict = conflicts[0]
     raise ScheduleConflictError(
-        "人员排程冲突：负责人 "
-        f"{conflict['assignee_id']} 的时间槽 "
-        f"{conflict['first_slot_id']} 与 {conflict['second_slot_id']} 时间重叠"
+        f"人员排程冲突：负责人【{conflict['assignee_name']}】的"
+        f"{_format_schedule(conflict['first_schedule'])}与"
+        f"{_format_schedule(conflict['second_schedule'])}发生重叠，"
+        f"冲突时段为【{_format_time_from_iso(conflict['overlap_start'])} 至 "
+        f"{_format_time_from_iso(conflict['overlap_end'])}】"
     )
+
+
+def _format_time_from_iso(value: str) -> str:
+    return value.replace("T", " ")[:16]
