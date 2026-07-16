@@ -87,6 +87,48 @@ class ProjectPlanDraftServiceTest(unittest.TestCase):
 
         self.assertEqual(0, self.db.query(Task).count())
 
+    def test_method_parent_uses_child_instruments(self):
+        data = ProjectPlanDraftCommitIn(tasks=[
+            self._task(
+                -1,
+                "方法开发",
+                "FFKF_001",
+                30,
+                instrument_ids=[],
+            ),
+            self._task(
+                -2,
+                "LCMS方法开发",
+                "FFKF_001",
+                10,
+                parent_id=-1,
+                instrument_ids=[1],
+            ),
+            self._task(
+                -3,
+                "GCMS方法开发",
+                "FFKF_001",
+                20,
+                parent_id=-1,
+                instrument_ids=[2],
+            ),
+        ])
+
+        commit_project_plan_drafts(self.db, 1, data, self.manager)
+
+        tasks = {
+            task.name: task
+            for task in self.db.query(Task).filter(Task.project_id == 1).all()
+        }
+        parent = tasks["方法开发"]
+        self.assertEqual("group", parent.task_type)
+        self.assertFalse(parent.requires_instrument)
+        self.assertFalse(parent.requires_human)
+        self.assertEqual([], parent.instrument_ids)
+        self.assertIsNone(parent.assignee_id)
+        self.assertEqual(parent.id, tasks["LCMS方法开发"].parent_id)
+        self.assertEqual(parent.id, tasks["GCMS方法开发"].parent_id)
+
     def test_deleting_saved_approval_gate_restores_plan_chain(self):
         data = ProjectPlanDraftCommitIn(tasks=[
             self._task(-1, "方案撰写", "QCFA_001", 5),
@@ -117,6 +159,7 @@ class ProjectPlanDraftServiceTest(unittest.TestCase):
         predecessors: list[int] | None = None,
         is_gate: bool = False,
         instrument_ids: list[int] | None = None,
+        parent_id: int | None = None,
     ) -> ProjectPlanDraftTaskIn:
         return ProjectPlanDraftTaskIn(
             client_id=client_id,
@@ -126,6 +169,7 @@ class ProjectPlanDraftServiceTest(unittest.TestCase):
             requires_human=not is_gate,
             estimated_hours=hours,
             assignee_id=None if is_gate else 1,
+            parent_id=parent_id,
             predecessor_ids=predecessors or [],
             instrument_ids=(instrument_ids if instrument_ids is not None else ([1] if task_type in {"FFKF_001", "FFYZ_001"} else [])),
             is_external_gate=is_gate,

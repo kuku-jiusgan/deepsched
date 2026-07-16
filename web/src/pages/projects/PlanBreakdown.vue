@@ -499,7 +499,7 @@ async function loadTaskTypes() {
 const scheduling = ref(false)
 async function handleStartSchedule() {
   const missingInstrumentTasks = allTasks.value.filter(task => (
-    !task.children?.length
+    !isParentTask(task.id)
     && !task.is_external_gate
     && REQUIRED_INSTRUMENT_TASK_TYPES.has(task.task_type)
     && !task.instrument_ids.length
@@ -533,18 +533,19 @@ async function handleStartSchedule() {
   } finally { scheduling.value = false }
 }
 function toDraftPayload(task: Task): ProjectPlanDraftTaskPayload {
+  const isParent = isParentTask(task.id)
   return {
     client_id: task.id,
     name: task.name,
-    task_type: task.task_type,
-    requires_instrument: task.requires_instrument,
-    requires_human: task.requires_human,
-    estimated_hours: task.est_duration_hours ?? null,
-    switchover_hours: task.switchover_hours,
-    assignee_id: task.assignee_id,
+    task_type: isParent ? 'group' : task.task_type,
+    requires_instrument: isParent ? false : task.requires_instrument,
+    requires_human: isParent ? false : task.requires_human,
+    estimated_hours: isParent ? null : (task.est_duration_hours ?? null),
+    switchover_hours: isParent ? 0 : task.switchover_hours,
+    assignee_id: isParent ? null : task.assignee_id,
     parent_id: task.parent_id,
-    predecessor_ids: [...task.predecessor_ids],
-    instrument_ids: [...task.instrument_ids],
+    predecessor_ids: isParent ? [] : [...task.predecessor_ids],
+    instrument_ids: isParent ? [] : [...task.instrument_ids],
     is_external_gate: Boolean(task.is_external_gate),
   }
 }

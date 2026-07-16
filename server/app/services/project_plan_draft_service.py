@@ -47,22 +47,49 @@ def commit_project_plan_drafts(
 
     id_map: dict[int, int] = {}
     created_by_client_id: dict[int, Task] = {}
+    parent_client_ids = {
+        item.parent_id for item in data.tasks if item.parent_id is not None
+    }
     for item in data.tasks:
+        is_parent = item.client_id in parent_client_ids and not item.is_external_gate
         task = Task(
             project_id=project_id,
             name=item.name.strip(),
-            task_type="approval_gate" if item.is_external_gate else item.task_type,
-            requires_instrument=False if item.is_external_gate else item.requires_instrument,
-            requires_human=False if item.is_external_gate else item.requires_human,
-            est_duration_hours=None if item.is_external_gate else item.estimated_hours,
-            switchover_hours=0 if item.is_external_gate else item.switchover_hours,
-            assignee_id=project.manager_id if item.is_external_gate else item.assignee_id,
+            task_type=(
+                "approval_gate" if item.is_external_gate
+                else "group" if is_parent
+                else item.task_type
+            ),
+            requires_instrument=(
+                False if item.is_external_gate or is_parent
+                else item.requires_instrument
+            ),
+            requires_human=(
+                False if item.is_external_gate or is_parent
+                else item.requires_human
+            ),
+            est_duration_hours=(
+                None if item.is_external_gate or is_parent
+                else item.estimated_hours
+            ),
+            switchover_hours=(
+                0 if item.is_external_gate or is_parent
+                else item.switchover_hours
+            ),
+            assignee_id=(
+                project.manager_id if item.is_external_gate
+                else None if is_parent
+                else item.assignee_id
+            ),
             parent_id=None,
-            instrument_ids=[] if item.is_external_gate else item.instrument_ids,
+            instrument_ids=(
+                [] if item.is_external_gate or is_parent
+                else item.instrument_ids
+            ),
             is_external_gate=item.is_external_gate,
             gate_status="not_submitted" if item.is_external_gate else None,
             status="waiting_external" if item.is_external_gate else "pending",
-            schedule_dirty=not item.is_external_gate,
+            schedule_dirty=not item.is_external_gate and not is_parent,
         )
         db.add(task)
         db.flush()
@@ -113,7 +140,16 @@ def commit_project_plan_drafts(
 
 
 def _validate_task_types(db, data: ProjectPlanDraftCommitIn) -> None:
-    codes = {item.task_type for item in data.tasks if not item.is_external_gate and item.task_type != "group"}
+    parent_client_ids = {
+        item.parent_id for item in data.tasks if item.parent_id is not None
+    }
+    codes = {
+        item.task_type
+        for item in data.tasks
+        if item.client_id not in parent_client_ids
+        and not item.is_external_gate
+        and item.task_type != "group"
+    }
     active_codes = {
         item.code for item in db.query(TaskTypeConfig).filter(
             TaskTypeConfig.code.in_(codes), TaskTypeConfig.is_active.is_(True)
