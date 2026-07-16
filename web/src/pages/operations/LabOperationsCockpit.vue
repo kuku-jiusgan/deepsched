@@ -13,7 +13,6 @@
           <button class="user-menu" type="button"><UserOutlined />{{ currentUserLabel }}<DownOutlined /></button>
           <template #overlay>
             <a-menu @click="handleUserMenu">
-              <a-menu-item key="home">进入首页2</a-menu-item>
               <a-menu-item key="logout">退出登录</a-menu-item>
             </a-menu>
           </template>
@@ -255,7 +254,7 @@ function warningTaskReason(slot: TimeSlot) { return slot.delay_reason || `计划
 function taskStatusText(status: string) { return ({ pending: '待进行', ready: '待进行', scheduled: '待进行', waiting_external: '待进行', running: '运行中', done: '已完成', completed: '已完成', blocked: '已阻塞', interrupted: '已中断' } as Record<string, string>)[status] || status }
 function formatDelayDuration(slot: TimeSlot) { const end = slot.actual_end ? dayjs(slot.actual_end) : now.value; const minutes = Math.max(1, end.diff(dayjs(slot.plan_end), 'minute')); const hours = Math.floor(minutes / 60); const remainingMinutes = minutes % 60; return hours ? `${hours}小时${remainingMinutes ? `${remainingMinutes}分钟` : ''}` : `${minutes}分钟` }
 function barHeight(value: number) { const max = Math.max(...completion.value.days.map(item => item.value), 1); return Math.max(8, value / max * 78) }
-function handleUserMenu({ key }: { key: string }) { if (key === 'home') router.push('/operations/lab-dashboard'); if (key === 'logout') { localStorage.removeItem('token'); localStorage.removeItem('user'); router.push('/login') } }
+function handleUserMenu({ key }: { key: string }) { if (key === 'logout') { localStorage.removeItem('token'); localStorage.removeItem('user'); router.push('/login') } }
 function updateCockpitScale(width: number) { cockpitScale.value = Math.max(MIN_COCKPIT_SCALE, Math.min(1, width / COCKPIT_DESIGN_WIDTH)) }
 function mergeInstruments(statusList: LabStatusInstrument[], baseList: Instrument[]) { const base = new Map(baseList.map(item => [item.id, item])); return statusList.filter(item => base.get(item.id)?.availability_status === 'available').map(item => ({ ...item, model: base.get(item.id)?.model || null, availability_status: 'available' as const })) }
 async function loadData() {
