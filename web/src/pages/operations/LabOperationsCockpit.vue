@@ -177,7 +177,11 @@ const INSTRUMENT_IMAGES: Record<string, string> = {
 }
 
 const currentUserLabel = computed(() => { try { const user = JSON.parse(localStorage.getItem('user') || '{}') as { display_name?: string; username?: string }; return user.display_name || user.username || '系统管理员' } catch { return '系统管理员' } })
-const cockpitPageStyle = computed(() => ({ zoom: cockpitScale.value, width: `${100 / cockpitScale.value}%` }))
+const cockpitPageStyle = computed(() => ({
+  zoom: cockpitScale.value,
+  width: `${COCKPIT_DESIGN_WIDTH}px`,
+  minWidth: `${COCKPIT_DESIGN_WIDTH}px`,
+}))
 const runningCount = computed(() => instruments.value.filter(item => statusClass(item) === 'running').length)
 const idleCount = computed(() => instruments.value.filter(item => statusClass(item) === 'idle').length)
 const maintenanceCount = computed(() => instruments.value.filter(item => ['maint', 'fault'].includes(statusClass(item))).length)
