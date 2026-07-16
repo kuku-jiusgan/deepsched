@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime
 
-from app.services.scheduler_helpers import natural_day_boundary
+from app.services.scheduler_helpers import natural_day_boundary, to_units
 
 
 class SchedulerHelpersTest(unittest.TestCase):
@@ -24,6 +24,11 @@ class SchedulerHelpersTest(unittest.TestCase):
 
         self.assertEqual(now, natural_day_boundary(now, 0))
 
+    def test_fractional_hours_round_up_to_full_time_units(self):
+        self.assertEqual(1, to_units(0.25))
+        self.assertEqual(1, to_units(0.5))
+        self.assertEqual(2, to_units(0.75))
+        self.assertEqual(3, to_units(1.25))
 
 if __name__ == "__main__":
     unittest.main()

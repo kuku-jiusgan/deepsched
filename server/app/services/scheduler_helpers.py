@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import date, datetime, timedelta
 from typing import Dict, List
 
@@ -44,7 +45,7 @@ def time_horizon() -> tuple[datetime, datetime, int]:
 
 
 def to_units(hours: float) -> int:
-    return max(1, int(hours * 60 / TIME_UNIT_MINUTES))
+    return max(1, math.ceil(hours * 60 / TIME_UNIT_MINUTES))
 
 
 def datetime_to_units(dt: datetime, horizon_start: datetime) -> int:
