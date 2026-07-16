@@ -66,6 +66,38 @@ class TaskExecutionServiceTest(unittest.TestCase):
         self.assertEqual("running", self.db.get(TimeSlot, self.slot.id).status)
         self.assertIsNotNone(self.db.get(TimeSlot, self.slot.id).actual_start)
 
+    def test_parent_predecessor_uses_all_leaf_children(self):
+        self.predecessor.task_type = "group"
+        self.predecessor.status = "pending"
+        lcms = Task(
+            id=3,
+            project_id=1,
+            parent_id=self.predecessor.id,
+            name="LCMS方法开发",
+            task_type="FFKF_001",
+            status="done",
+        )
+        gcms = Task(
+            id=4,
+            project_id=1,
+            parent_id=self.predecessor.id,
+            name="GCMS方法开发",
+            task_type="FFKF_001",
+            status="running",
+        )
+        self.db.add_all([lcms, gcms])
+        self.db.commit()
+
+        with self.assertRaisesRegex(TaskExecutionInvalidError, "GCMS方法开发.*尚未完成"):
+            start_task_execution(self.db, self.slot.id)
+
+        gcms.status = "done"
+        self.db.commit()
+        result = start_task_execution(self.db, self.slot.id)
+
+        self.assertEqual("ok", result["status"])
+        self.assertEqual("running", self.db.get(Task, self.task.id).status)
+
     def test_instrument_task_can_start_early_when_instrument_is_idle(self):
         self.predecessor.status = "done"
         self.slot.plan_start = datetime.now() + timedelta(hours=1)

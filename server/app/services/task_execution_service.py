@@ -43,14 +43,24 @@ def start_task_execution(db, slot_id: int) -> dict[str, str]:
 
 
 def ensure_predecessors_completed(task: Task) -> None:
-    incomplete = [
-        dependency.predecessor.name
-        for dependency in task.predecessors
-        if dependency.predecessor.status not in COMPLETED_TASK_STATUSES
-    ]
+    incomplete = []
+    for dependency in task.predecessors:
+        for name in _incomplete_leaf_task_names(dependency.predecessor):
+            if name not in incomplete:
+                incomplete.append(name)
     if incomplete:
         names = "、".join(incomplete[:3])
         raise TaskExecutionInvalidError(f"前置任务【{names}】尚未完成，不能操作【{task.name}】")
+
+
+def _incomplete_leaf_task_names(task: Task) -> list[str]:
+    if task.children:
+        return [
+            name
+            for child in task.children
+            for name in _incomplete_leaf_task_names(child)
+        ]
+    return [] if task.status in COMPLETED_TASK_STATUSES else [task.name]
 
 
 def _ensure_can_start(db, task: Task, slot: TimeSlot) -> None:
