@@ -35,7 +35,7 @@ def frozen_schedule_message(
     tasks,
     compatibility: dict[int, list[Instrument]],
     fixed_slots: list[TimeSlot],
-    working_prefix_sum: list[int],
+    instrument_prefix_sums: dict[int, list[int]],
     horizon_start,
     total_units: int,
     setup_units: int,
@@ -65,11 +65,19 @@ def frozen_schedule_message(
         )
         if window_end <= window_start:
             continue
-        if _working_units(working_prefix_sum, window_start, window_end) < required_units:
+        if all(
+            _working_units(
+                instrument_prefix_sums[instrument.id],
+                window_start,
+                window_end,
+            ) < required_units
+            for instrument in candidates
+        ):
             continue
 
         blocked_instruments = []
         for instrument in candidates:
+            working_prefix_sum = instrument_prefix_sums[instrument.id]
             frozen_slots = frozen_by_instrument.get(instrument.id, [])
             gaps = _available_gaps(
                 task,

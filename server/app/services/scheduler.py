@@ -111,11 +111,24 @@ class SchedulerService:
             total_units,
             day_start_minutes,
             day_end_minutes,
-            maint_windows,
+            [],
             calendar_days,
             include_weekends,
             include_holidays,
         )
+        instrument_prefix_sums = {
+            instrument.id: build_working_prefix_sum(
+                horizon_start,
+                total_units,
+                day_start_minutes,
+                day_end_minutes,
+                [window for window in maint_windows if window[0] == instrument.id],
+                calendar_days,
+                include_weekends,
+                include_holidays,
+            )
+            for instrument in instruments
+        }
 
         model = cp_model.CpModel()
 
@@ -191,7 +204,7 @@ class SchedulerService:
                     p_start_unit,
                     p_end_unit,
                     total_units,
-                    global_prefix_sum,
+                    instrument_prefix_sums,
                     task_starts[t.id],
                     task_ends[t.id],
                     presences,
@@ -208,6 +221,7 @@ class SchedulerService:
             alt_ends = []
             alt_presences = []
             for inst in candidates:
+                instrument_prefix_sum = instrument_prefix_sums[inst.id]
                 key = (t.id, inst.id)
                 presences[key] = model.NewBoolVar(f"presence_t{t.id}_i{inst.id}")
                 inst_start = model.NewIntVar(0, total_units, f"start_t{t.id}_i{inst.id}")
@@ -237,8 +251,8 @@ class SchedulerService:
                 # Prefix-sum constraint: effective working time within span == dur
                 start_work_acc = model.NewIntVar(0, total_units, f"start_acc_t{t.id}_i{inst.id}")
                 end_work_acc = model.NewIntVar(0, total_units, f"end_acc_t{t.id}_i{inst.id}")
-                model.AddElement(inst_start, global_prefix_sum, start_work_acc)
-                model.AddElement(inst_end, global_prefix_sum, end_work_acc)
+                model.AddElement(inst_start, instrument_prefix_sum, start_work_acc)
+                model.AddElement(inst_end, instrument_prefix_sum, end_work_acc)
                 model.Add(end_work_acc - start_work_acc == dur).OnlyEnforceIf(presences[key])
 
             # Exactly one instrument assigned
@@ -402,7 +416,7 @@ class SchedulerService:
                     tasks,
                     compat,
                     fixed_slots,
-                    global_prefix_sum,
+                    instrument_prefix_sums,
                     horizon_start,
                     total_units,
                     CROSS_PROJECT_SETUP_UNITS,

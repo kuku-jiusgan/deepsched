@@ -13,7 +13,7 @@ def add_split_task_variables(
     project_start_unit: int,
     project_end_unit: int,
     total_units: int,
-    working_prefix_sum: list[int],
+    instrument_prefix_sums: dict[int, list[int]],
     task_start,
     task_end,
     presences,
@@ -25,14 +25,19 @@ def add_split_task_variables(
     choices = []
     start_candidates = []
     end_candidates = []
-    valid_units = [
-        unit for unit in range(max(0, project_start_unit), min(total_units, project_end_unit))
-        if working_prefix_sum[unit + 1] - working_prefix_sum[unit] == 1
-    ]
-    if len(valid_units) < duration_units:
-        return False
-
     for instrument in candidates:
+        working_prefix_sum = instrument_prefix_sums[instrument.id]
+        valid_units = [
+            unit
+            for unit in range(
+                max(0, project_start_unit),
+                min(total_units, project_end_unit),
+            )
+            if working_prefix_sum[unit + 1] - working_prefix_sum[unit] == 1
+        ]
+        if len(valid_units) < duration_units:
+            continue
+
         key = (task.id, instrument.id)
         choice = model.NewBoolVar(f"presence_t{task.id}_i{instrument.id}")
         presences[key] = choice
@@ -70,6 +75,9 @@ def add_split_task_variables(
         model.Add(inst_end == task_end).OnlyEnforceIf(choice)
         model.Add(inst_start == 0).OnlyEnforceIf(choice.Not())
         model.Add(inst_end == 0).OnlyEnforceIf(choice.Not())
+
+    if not choices:
+        return False
 
     model.AddExactlyOne(choices)
     model.AddMinEquality(task_start, start_candidates)
