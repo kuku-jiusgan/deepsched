@@ -58,7 +58,7 @@
         </article>
 
         <aside class="summary-column">
-          <section class="summary-card ranking-card">
+          <section v-if="isRankingVisible" class="summary-card ranking-card">
             <h2>利用率 TOP3</h2>
             <ol>
               <li v-for="(item, index) in topInstruments" :key="item.instrument_id">
@@ -161,6 +161,7 @@ const utilization = ref<UtilizationStats[]>([])
 const slots = ref<TimeSlot[]>([])
 const dashboard = ref<DashboardData | null>(null)
 const weeklyTrend = ref<TrendItem[]>([])
+const isRankingVisible = false
 let clockTimer: ReturnType<typeof setInterval> | undefined
 let dataTimer: ReturnType<typeof setInterval> | undefined
 const INSTRUMENT_IMAGES: Record<string, string> = {
