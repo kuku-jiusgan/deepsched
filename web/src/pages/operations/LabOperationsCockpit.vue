@@ -58,7 +58,7 @@
         </article>
 
         <aside class="summary-column">
-          <section v-if="isRankingVisible" class="summary-card ranking-card">
+          <section class="summary-card ranking-card">
             <h2>利用率 TOP3</h2>
             <ol>
               <li v-for="(item, index) in topInstruments" :key="item.instrument_id">
@@ -67,10 +67,6 @@
                 <strong>{{ roundedRate(item.actual_utilization_rate) }}%</strong>
               </li>
             </ol>
-            <div class="health-state" :class="{ warning: hasWarning }">
-              <SafetyCertificateOutlined />
-              <div><strong>{{ hasWarning ? '系统存在待处理事项' : '系统运行正常' }}</strong><span>{{ healthDescription }}</span></div>
-            </div>
           </section>
           <section class="summary-card instrument-feed-card">
             <h2>仪器实时运行信息</h2>
@@ -146,7 +142,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs, { type Dayjs } from 'dayjs'
-import { CalendarOutlined, ClockCircleOutlined, DashboardOutlined, DownOutlined, ExperimentOutlined, SafetyCertificateOutlined, ThunderboltOutlined, ToolOutlined, UserOutlined } from '@ant-design/icons-vue'
+import { CalendarOutlined, ClockCircleOutlined, DashboardOutlined, DownOutlined, ExperimentOutlined, ThunderboltOutlined, ToolOutlined, UserOutlined } from '@ant-design/icons-vue'
 import { getDashboard, getInstruments, getLabStatus, getTimeslots, getUtilization, type LabStatusInstrument } from '@/services/api'
 import type { DashboardData, Instrument, TimeSlot, UtilizationStats } from '@/types'
 import './LabOperationsCockpit.css'
@@ -161,7 +157,6 @@ const utilization = ref<UtilizationStats[]>([])
 const slots = ref<TimeSlot[]>([])
 const dashboard = ref<DashboardData | null>(null)
 const weeklyTrend = ref<TrendItem[]>([])
-const isRankingVisible = false
 let clockTimer: ReturnType<typeof setInterval> | undefined
 let dataTimer: ReturnType<typeof setInterval> | undefined
 const INSTRUMENT_IMAGES: Record<string, string> = {
@@ -187,8 +182,6 @@ const kpis = computed(() => [
   { label: '延期任务', value: delayedCount.value, unit: '项', icon: ClockCircleOutlined, tone: 'purple' },
 ])
 const topInstruments = computed(() => [...utilization.value].sort((a, b) => b.actual_utilization_rate - a.actual_utilization_rate).slice(0, 3))
-const hasWarning = computed(() => delayedCount.value > 0 || maintenanceCount.value > 0)
-const healthDescription = computed(() => hasWarning.value ? `当前有 ${delayedCount.value + maintenanceCount.value} 项需要关注` : '当前无告警与异常事件')
 const utilizationMap = computed(() => new Map(utilization.value.map(item => [item.instrument_id, roundedRate(item.actual_utilization_rate)])))
 const feedScrollDuration = computed(() => `${Math.max(instruments.value.length * 9, 42)}s`)
 
