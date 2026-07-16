@@ -6,7 +6,12 @@ from sqlalchemy.orm import selectinload
 from app.models import Instrument, Task
 
 
-def load_scheduler_data(db, project_ids=None, task_ids=None):
+def load_scheduler_data(
+    db,
+    project_ids=None,
+    task_ids=None,
+    excluded_task_ids: set[int] | None = None,
+):
     child_parent_ids = select(Task.parent_id).where(Task.parent_id.isnot(None))
     query = db.query(Task).filter(
         Task.status.in_(["pending", "ready"]),
@@ -22,6 +27,8 @@ def load_scheduler_data(db, project_ids=None, task_ids=None):
         query = query.filter(Task.project_id.in_(project_ids))
     if task_ids:
         query = query.filter(Task.id.in_(task_ids))
+    if excluded_task_ids:
+        query = query.filter(~Task.id.in_(excluded_task_ids))
     tasks = query.order_by(Task.priority_weight.desc(), Task.created_at, Task.id).all()
 
     instruments = db.query(Instrument).filter(

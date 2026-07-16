@@ -49,12 +49,30 @@ def _project_reschedule(db: Session, data: RescheduleRequest) -> dict:
 
 
 def _global_reschedule(db: Session) -> dict:
-    db.query(TimeSlot).filter(
+    locked_task_ids = _locked_task_ids(db)
+    movable_slots = db.query(TimeSlot).filter(
         TimeSlot.tier.in_(["confirmed", "forecast"]),
         TimeSlot.status.in_(["scheduled", "blocked"]),
-    ).delete()
-    db.query(Task).filter(Task.status == "scheduled").update({"status": "pending"})
-    result = _generate(db, commit=False)
+    )
+    if locked_task_ids:
+        movable_slots = movable_slots.filter(
+            ~TimeSlot.task_id.in_(locked_task_ids),
+        )
+    movable_task_rows = movable_slots.with_entities(
+        TimeSlot.task_id,
+    ).distinct().all()
+    movable_task_ids = {task_id for task_id, in movable_task_rows}
+    movable_slots.delete(synchronize_session=False)
+    if movable_task_ids:
+        db.query(Task).filter(
+            Task.id.in_(movable_task_ids),
+            Task.status == "scheduled",
+        ).update({"status": "pending"}, synchronize_session=False)
+    result = _generate(
+        db,
+        commit=False,
+        excluded_task_ids=locked_task_ids,
+    )
     if result.get("status") == "ok":
         db.commit()
     else:
@@ -66,7 +84,20 @@ def _generate(
     db: Session,
     project_ids: list[int] | None = None,
     commit: bool = True,
+    excluded_task_ids: set[int] | None = None,
 ) -> dict:
     from app.services.scheduler import SchedulerService
 
-    return SchedulerService(db).generate(project_ids, commit=commit)
+    return SchedulerService(db).generate(
+        project_ids,
+        commit=commit,
+        excluded_task_ids=excluded_task_ids,
+    )
+
+
+def _locked_task_ids(db: Session) -> set[int]:
+    rows = db.query(TimeSlot.task_id).filter(
+        (TimeSlot.tier == "frozen")
+        | TimeSlot.status.in_(["running", "completed"]),
+    ).distinct().all()
+    return {task_id for task_id, in rows}

@@ -50,8 +50,14 @@ class SchedulerService:
         mode: str = "normal",
         task_ids: Optional[List[int]] = None,
         commit: bool = True,
+        excluded_task_ids: set[int] | None = None,
     ) -> dict:
-        tasks, instruments = load_scheduler_data(self.db, project_ids, task_ids)
+        tasks, instruments = load_scheduler_data(
+            self.db,
+            project_ids,
+            task_ids,
+            excluded_task_ids,
+        )
         if not tasks:
             return {"status": "ok", "message": "没有待排仪器任务", "timeslots_created": 0}
         unassigned_human_tasks = [
