@@ -1,5 +1,6 @@
 <template>
-  <div class="cockpit-page">
+  <div ref="cockpitViewport" class="cockpit-viewport">
+    <div class="cockpit-page" :style="cockpitPageStyle">
     <header class="cockpit-header">
       <div class="brand-lockup">
         <span class="brand-mark"><ExperimentOutlined /></span>
@@ -135,6 +136,7 @@
         </article>
       </section>
     </main>
+    </div>
   </div>
 </template>
 
@@ -152,6 +154,8 @@ interface TrendItem { date: string; value: number }
 const router = useRouter()
 const now = ref(dayjs())
 const isLoading = ref(true)
+const cockpitViewport = ref<HTMLElement | null>(null)
+const cockpitScale = ref(1)
 const instruments = ref<CockpitInstrument[]>([])
 const utilization = ref<UtilizationStats[]>([])
 const slots = ref<TimeSlot[]>([])
@@ -159,6 +163,9 @@ const dashboard = ref<DashboardData | null>(null)
 const weeklyTrend = ref<TrendItem[]>([])
 let clockTimer: ReturnType<typeof setInterval> | undefined
 let dataTimer: ReturnType<typeof setInterval> | undefined
+let cockpitResizeObserver: ResizeObserver | undefined
+const COCKPIT_DESIGN_WIDTH = 1540
+const MIN_COCKPIT_SCALE = 0.78
 const INSTRUMENT_IMAGES: Record<string, string> = {
   'ZBYY-002-0001': '/assets/instruments/ab-api5500.png',
   'ZBYY-002-0002': '/assets/instruments/agilent-7000b.png',
@@ -170,6 +177,7 @@ const INSTRUMENT_IMAGES: Record<string, string> = {
 }
 
 const currentUserLabel = computed(() => { try { const user = JSON.parse(localStorage.getItem('user') || '{}') as { display_name?: string; username?: string }; return user.display_name || user.username || '系统管理员' } catch { return '系统管理员' } })
+const cockpitPageStyle = computed(() => ({ zoom: cockpitScale.value, width: `${100 / cockpitScale.value}%` }))
 const runningCount = computed(() => instruments.value.filter(item => statusClass(item) === 'running').length)
 const idleCount = computed(() => instruments.value.filter(item => statusClass(item) === 'idle').length)
 const maintenanceCount = computed(() => instruments.value.filter(item => ['maint', 'fault'].includes(statusClass(item))).length)
@@ -223,6 +231,7 @@ function trendX(index: number) { return weeklyTrend.value.length > 1 ? 18 + inde
 function trendY(value: number) { return 100 - Math.max(0, Math.min(100, value)) * .86 }
 function barHeight(value: number) { const max = Math.max(...completion.value.days.map(item => item.value), 1); return Math.max(8, value / max * 78) }
 function handleUserMenu({ key }: { key: string }) { if (key === 'home') router.push('/operations/lab-dashboard'); if (key === 'logout') { localStorage.removeItem('token'); localStorage.removeItem('user'); router.push('/login') } }
+function updateCockpitScale(width: number) { cockpitScale.value = Math.max(MIN_COCKPIT_SCALE, Math.min(1, width / COCKPIT_DESIGN_WIDTH)) }
 function mergeInstruments(statusList: LabStatusInstrument[], baseList: Instrument[]) { const base = new Map(baseList.map(item => [item.id, item])); return statusList.filter(item => base.get(item.id)?.availability_status === 'available').map(item => ({ ...item, model: base.get(item.id)?.model || null, availability_status: 'available' as const })) }
 async function loadData() {
   try {
@@ -233,6 +242,19 @@ async function loadData() {
     weeklyTrend.value = daily
   } finally { isLoading.value = false }
 }
-onMounted(() => { loadData(); clockTimer = setInterval(() => { now.value = dayjs() }, 1000); dataTimer = setInterval(loadData, 60000) })
-onBeforeUnmount(() => { if (clockTimer) clearInterval(clockTimer); if (dataTimer) clearInterval(dataTimer) })
+onMounted(() => {
+  loadData()
+  clockTimer = setInterval(() => { now.value = dayjs() }, 1000)
+  dataTimer = setInterval(loadData, 60000)
+  if (cockpitViewport.value) {
+    updateCockpitScale(cockpitViewport.value.clientWidth)
+    cockpitResizeObserver = new ResizeObserver(entries => updateCockpitScale(entries[0]?.contentRect.width || COCKPIT_DESIGN_WIDTH))
+    cockpitResizeObserver.observe(cockpitViewport.value)
+  }
+})
+onBeforeUnmount(() => {
+  if (clockTimer) clearInterval(clockTimer)
+  if (dataTimer) clearInterval(dataTimer)
+  cockpitResizeObserver?.disconnect()
+})
 </script>
