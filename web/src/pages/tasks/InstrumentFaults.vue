@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="fault-page">
     <div class="page-header">
       <h2>故障提报</h2>
     </div>
@@ -342,6 +342,14 @@ onMounted(fetchData)
 </script>
 
 <style scoped>
+.fault-page {
+  min-height: calc(100vh - 40px);
+  margin: -24px;
+  padding: 24px;
+  background: #f7f8fa;
+  box-sizing: border-box;
+}
+
 .fault-card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
@@ -512,6 +520,10 @@ onMounted(fetchData)
 }
 
 @media (max-width: 768px) {
+  .fault-page {
+    padding: 18px;
+  }
+
   .fault-card-grid {
     grid-template-columns: 1fr;
   }
