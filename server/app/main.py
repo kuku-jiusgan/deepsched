@@ -4,6 +4,10 @@ from app.core.database import engine, Base
 from app.core.config import get_settings
 from app.core.schema_migrations import ensure_runtime_schema
 from app.models import models
+from app.services.wecom_delivery_service import (
+    start_wecom_delivery_worker,
+    stop_wecom_delivery_worker,
+)
 from app.api import approval_gates, project_plan_drafts, project_plan_templates, users, schedule_rules, instruments, projects, schedules, stats, notifications, task_types, alert_rules, calendar_api, project_plan_schedules
 
 Base.metadata.create_all(bind=engine)
@@ -12,6 +16,16 @@ ensure_runtime_schema(engine)
 app = FastAPI(title="资源智能调度平台", version="1.0.0")
 settings = get_settings()
 cors_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
+
+
+@app.on_event("startup")
+def start_background_workers():
+    start_wecom_delivery_worker()
+
+
+@app.on_event("shutdown")
+def stop_background_workers():
+    stop_wecom_delivery_worker()
 
 app.add_middleware(
     CORSMiddleware,

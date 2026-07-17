@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div class="page-header"><h2>系统基础管理</h2></div>
+    <div class="page-header"><h2>标准任务类型</h2></div>
 
     <a-card title="标准任务类型" style="margin-top: 16px">
       <template #extra>

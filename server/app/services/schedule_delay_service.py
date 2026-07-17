@@ -57,13 +57,17 @@ def report_task_delay(db, slot_id: int, delay_hours: float, reason: str) -> dict
         slot.status = "blocked"
         task.status = "blocked"
 
-    shifted_count = _apply_delay_with_working_hours(
-        db,
-        slot,
-        affected_slot_ids - {slot.id},
-        delay,
-        cutoff,
-    )
+    try:
+        shifted_count = _apply_delay_with_working_hours(
+            db,
+            slot,
+            affected_slot_ids - {slot.id},
+            delay,
+            cutoff,
+        )
+    except ScheduleDelayInvalidError:
+        db.rollback()
+        raise
     _write_audit_log(db, task.id, slot, delay_hours, clean_reason, shifted_count)
 
     db.commit()
@@ -142,7 +146,11 @@ def _apply_delay_with_working_hours(
 
     options = _load_working_options(db, cutoff)
     delay_minutes = int(delay.total_seconds() / 60)
-    _extend_delayed_task(db, delayed_slot, delay_minutes, options)
+    delayed_end = _extend_delayed_task(db, delayed_slot, delay_minutes, options)
+    _ensure_within_project_end(
+        db.query(Task).filter(Task.id == delayed_slot.task_id).first(),
+        delayed_end,
+    )
 
     shifted_count = 0
     for snapshots in snapshots_by_task.values():
@@ -165,6 +173,8 @@ def _apply_delay_with_working_hours(
         )
         if not ranges:
             raise ScheduleDelayInvalidError("延期后的排程超出可规划范围")
+        shifted_task = db.query(Task).filter(Task.id == first_slot["task_id"]).first()
+        _ensure_within_project_end(shifted_task, ranges[-1][1])
         for start, end in ranges:
             db.add(TimeSlot(
                 task_id=first_slot["task_id"],
@@ -185,7 +195,7 @@ def _extend_delayed_task(
     slot: TimeSlot,
     delay_minutes: int,
     options: dict,
-) -> None:
+) -> datetime:
     ranges = _allocate_working_ranges(
         db,
         slot.instrument_id,
@@ -212,6 +222,20 @@ def _extend_delayed_task(
             status=slot.status,
         ))
     db.flush()
+    return ranges[-1][1]
+
+
+def _ensure_within_project_end(task: Task | None, planned_end: datetime) -> None:
+    if not task or not task.project or not task.project.end_date:
+        return
+    if planned_end <= task.project.end_date:
+        return
+    raise ScheduleDelayInvalidError(
+        f"延期失败：项目【{task.project.name}】任务【{task.name}】顺延后预计结束时间 "
+        f"{planned_end:%Y-%m-%d %H:%M}，超过项目结题时间 "
+        f"{task.project.end_date:%Y-%m-%d %H:%M}。"
+        "请缩短延期时长或先调整项目结题日期。"
+    )
 
 
 def _group_slot_snapshots(slots: list[TimeSlot]) -> dict[int, list[dict]]:

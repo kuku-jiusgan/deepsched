@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 
 from app.models import Instrument, TimeSlot
-from app.services.scheduler_helpers import TIME_UNIT_MINUTES, datetime_to_units, to_units
+from app.services.scheduler_helpers import (
+    TIME_UNIT_MINUTES,
+    datetime_to_units,
+    to_units,
+    units_to_datetime,
+)
 
 
 def unavailable_instrument_message(db, tasks, compatibility: dict[int, list[Instrument]]) -> str | None:
@@ -105,11 +110,125 @@ def frozen_schedule_message(
                 names = "、".join(_instrument_label(item) for item in blocked_instruments)
                 required_hours = required_units * TIME_UNIT_MINUTES / 60
                 return (
-                    f"排程失败：项目【{task.project.name}】时间窗口内，冻结期内指定仪器"
+                    f"排程失败：项目【{task.project.name}】时间窗"
+                    f"（{_format_datetime(task.project.start_date)} 至 "
+                    f"{_format_datetime(task.project.end_date)}）内，冻结期内指定仪器"
                     f"【{names}】日程已满，任务【{task.name}】需要约 {required_hours:g} 小时，"
                     "无法完成排程。请延长项目日期或调整冻结排程后重试。"
                 )
     return None
+
+
+def schedule_infeasibility_message(
+    tasks,
+    task_dependencies: list[tuple[int, int]],
+    missing_predecessor_ends: dict[int, int],
+    compatibility: dict[int, list[Instrument]],
+    global_prefix_sum: list[int],
+    instrument_prefix_sums: dict[int, list[int]],
+    horizon_start,
+    total_units: int,
+) -> str:
+    predecessor_ids_by_task: dict[int, list[int]] = {}
+    for task_id, predecessor_id in task_dependencies:
+        if predecessor_id in missing_predecessor_ends:
+            predecessor_ids_by_task.setdefault(task_id, []).append(predecessor_id)
+
+    for task in tasks:
+        project = task.project
+        if not project or not project.start_date or not project.end_date:
+            continue
+        window_start = max(0, datetime_to_units(project.start_date, horizon_start))
+        window_end = min(total_units, datetime_to_units(project.end_date, horizon_start))
+        fixed_predecessor_ends = [
+            missing_predecessor_ends[predecessor_id]
+            for predecessor_id in predecessor_ids_by_task.get(task.id, [])
+        ]
+        earliest_start = max([window_start, *fixed_predecessor_ends])
+        required_units = to_units(
+            (task.est_duration_hours or 4) + (task.switchover_hours or 0)
+        )
+        prefix_sums = _task_prefix_sums(
+            task,
+            compatibility,
+            global_prefix_sum,
+            instrument_prefix_sums,
+        )
+        available_units = max(
+            (
+                _working_units(prefix_sum, earliest_start, window_end)
+                for prefix_sum in prefix_sums
+            ),
+            default=0,
+        )
+        if available_units >= required_units:
+            continue
+
+        required_hours = required_units * TIME_UNIT_MINUTES / 60
+        available_hours = available_units * TIME_UNIT_MINUTES / 60
+        earliest_time = units_to_datetime(earliest_start, horizon_start)
+        reason = (
+            "受已开始、冻结或已完成的前置任务限制"
+            if fixed_predecessor_ends
+            else "受项目时间窗和有效工作时段限制"
+        )
+        return (
+            f"时间配置冲突：项目【{project.name}】的任务【{task.name}】无法在项目时间窗内完成。"
+            f"项目时间：{_format_datetime(project.start_date)} 至 "
+            f"{_format_datetime(project.end_date)}；最早可开始时间："
+            f"{_format_datetime(earliest_time)}（{reason}）；任务需要约 "
+            f"{required_hours:g} 小时，剩余有效工时约 {available_hours:g} 小时。"
+            "请延长项目结束时间、缩短任务工时，或调整前置任务排程。"
+        )
+
+    return _project_summary_message(tasks)
+
+
+def _task_prefix_sums(
+    task,
+    compatibility: dict[int, list[Instrument]],
+    global_prefix_sum: list[int],
+    instrument_prefix_sums: dict[int, list[int]],
+) -> list[list[int]]:
+    if not task.requires_instrument:
+        return [global_prefix_sum]
+    return [
+        instrument_prefix_sums[instrument.id]
+        for instrument in compatibility.get(task.id, [])
+        if instrument.id in instrument_prefix_sums
+    ]
+
+
+def _project_summary_message(tasks) -> str:
+    tasks_by_project = {}
+    for task in tasks:
+        if task.project:
+            tasks_by_project.setdefault(task.project_id, []).append(task)
+
+    project_details = []
+    for project_tasks in tasks_by_project.values():
+        project = project_tasks[0].project
+        total_hours = sum(task.est_duration_hours or 4 for task in project_tasks)
+        instrument_hours = sum(
+            task.est_duration_hours or 4
+            for task in project_tasks
+            if task.requires_instrument
+        )
+        project_details.append(
+            f"【{project.name}】项目时间：{_format_datetime(project.start_date)} 至 "
+            f"{_format_datetime(project.end_date)}，待排总工时约 {total_hours:g} 小时"
+            f"（其中仪器工时 {instrument_hours:g} 小时）"
+        )
+
+    details = "；".join(project_details)
+    return (
+        f"时间配置冲突：本次重排涉及的项目无法同时满足时间窗、前置依赖和资源占用约束。"
+        f"{details}。请检查上述项目时间、任务工时、负责人及仪器占用。"
+    )
+
+
+def _format_datetime(value) -> str:
+    return value.strftime("%Y-%m-%d %H:%M") if value else "未设置"
 
 
 def _available_gaps(

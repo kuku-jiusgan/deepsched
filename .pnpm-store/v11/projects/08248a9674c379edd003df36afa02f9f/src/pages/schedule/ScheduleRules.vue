@@ -110,6 +110,19 @@
               <a-input-number :value="getNumberParam(rule, 'freeze_days', 3)" :min="0" :max="30" size="small" style="width: 70px" :disabled="!rule.is_enabled" @change="(v: number | null) => saveRuleParam(rule, 'freeze_days', v ?? 3)" />
               <span style="font-size: 12px; color: #94a3b8">天（按自然日，1天=今天24点）</span>
             </template>
+            <template v-else-if="rule.code === 'sibling_task_cohesion'">
+              <span style="font-size: 12px; color: #94a3b8">靠拢权重</span>
+              <a-input-number
+                :value="getNumberParam(rule, 'weight', 1)"
+                :min="0"
+                :max="10"
+                :step="0.1"
+                size="small"
+                style="width: 80px"
+                :disabled="!rule.is_enabled"
+                @change="(v: number | null) => saveRuleParam(rule, 'weight', v ?? 1)"
+              />
+            </template>
           </div>
           <div class="rule-toggle">
             <a-switch v-model:checked="rule.is_enabled" size="small" :disabled="isRuleLocked(rule)" @change="toggleRule(rule)" />

@@ -1,4 +1,32 @@
 
-  [32m[1mVITE[22m v6.4.3[39m  [2mready in [0m[1m2432[22m[2m[0m ms[22m
+  [32m[1mVITE[22m v6.4.3[39m  [2mready in [0m[1m1729[22m[2m[0m ms[22m
 
   [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m3000[22m/[39m
+[2m16:16:28[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/operations/LabOperationsCockpit.css[22m
+[2m16:16:28[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/operations/LabOperationsCockpit.vue[22m
+[2m16:21:49[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/operations/LabOperationsCockpit.vue[22m
+[2m16:31:40[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/router/index.ts[22m
+[2m16:31:40[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/AppLayout.vue[22m
+[2m16:31:40[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/operations/LabOperationsCockpit.vue[22m
+[2m16:31:40[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/pages/operations/LabOperationsDashboard.css[22m
+[2m16:31:40[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/operations/LabOperationsDashboard.vue[22m
+[2m16:37:32[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/operations/LabOperationsCockpit.vue[22m
+[2m16:46:55[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/tasks/InstrumentFaults.vue, /src/pages/tasks/InstrumentFaults.vue?vue&type=style&index=0&scoped=d465d55f&lang.css[22m
+[2m16:50:52[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/tasks/InstrumentFaults.vue?vue&type=style&index=0&scoped=d465d55f&lang.css[22m
+[2m16:56:46[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/AppLayout.css?vue&type=style&index=0&src=6f6437fc&scoped=6f6437fc&lang.css[22m
+[2m16:56:46[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/operations/LabOperationsCockpit.css[22m
+[2m16:56:46[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/index.css[22m
+[2m16:56:46[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/AppLayout.vue[22m
+[2m16:56:46[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/tasks/InstrumentFaults.vue?vue&type=style&index=0&scoped=d465d55f&lang.css[22m
+[2m17:04:52[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/operations/LabOperationsCockpit.css[22m
+[2m17:04:52[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/operations/LabOperationsCockpit.vue[22m
+[2m17:57:27[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/operations/LabOperationsCockpit.css[22m
+[2m17:57:27[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/operations/LabOperationsCockpit.vue[22m
+[2m17:57:58[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/operations/LabOperationsCockpit.css[22m
+[2m18:04:53[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/operations/LabOperationsCockpit.css[22m
+[2m08:57:25[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/ScheduleManager.vue[22m
+[2m09:54:15[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/ProjectBoard.vue[22m
+[2m09:55:15[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/ProjectBoard.vue[22m
+[2m10:07:49[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/InstrumentGantt.vue?vue&type=style&index=0&scoped=3483692d&lang.css[22m
+[2m10:33:26[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/system/AlertPush.vue, /src/pages/system/AlertPush.vue?vue&type=style&index=0&scoped=7968d34a&lang.css[22m
+[2m11:04:17[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/system/AlertPush.vue[22m

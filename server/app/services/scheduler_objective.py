@@ -14,6 +14,8 @@ def add_scheduler_objective(
     switch_penalties,
     project_inst_used_vars,
     total_units: int,
+    sibling_group_completion_weight: int,
+    sibling_counts: dict[int, int],
 ) -> None:
     weighted_tardiness = [
         task_tardiness[task.id] * int(task.priority_weight * 10)
@@ -39,9 +41,33 @@ def add_scheduler_objective(
         stable_weight = len(ordered_tasks) - index
         priority_completion.append(task_ends[task.id] * project_weight * stable_weight)
 
+    tasks_by_parent = {}
+    for task in tasks:
+        if task.parent_id is not None:
+            tasks_by_parent.setdefault(task.parent_id, []).append(task)
+
+    parent_group_completions = []
+    for parent_id, sibling_tasks in tasks_by_parent.items():
+        if sibling_counts.get(parent_id, len(sibling_tasks)) < 2:
+            continue
+        if len(sibling_tasks) == 1:
+            parent_group_completions.append(task_ends[sibling_tasks[0].id])
+            continue
+        group_completion = model.NewIntVar(
+            0,
+            total_units,
+            f"parent_{parent_id}_completion",
+        )
+        model.AddMaxEquality(
+            group_completion,
+            [task_ends[task.id] for task in sibling_tasks],
+        )
+        parent_group_completions.append(group_completion)
+
     model.Minimize(
         (sum(weighted_tardiness) + makespan) * 1000
         + sum(priority_completion) * 10
+        + sum(parent_group_completions) * sibling_group_completion_weight
         + sum(spans)
         + sum(switch_penalties) * 500
         + sum(project_inst_used_vars) * 30

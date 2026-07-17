@@ -41,8 +41,8 @@
         <span style="margin-left: 8px; font-size: 12px; color: #94a3b8">点击左侧 &gt; 展开/收起子任务</span>
         <span style="margin-left: auto; font-size: 12px; color: #94a3b8">{{ flatTaskCount }} 个任务（{{ leafTaskCount }} 个叶子任务）</span>
       </div>
-      <a-table :dataSource="treeTasks" rowKey="id" size="small" :pagination="{ pageSize: 50, showSizeChanger: true }"
-        :defaultExpandAllRows="true" :indentSize="24">
+      <a-table v-model:expandedRowKeys="expandedTaskIds" :dataSource="treeTasks" rowKey="id" size="small" :pagination="{ pageSize: 50, showSizeChanger: true }"
+        :indentSize="24">
         <a-table-column title="任务名称" dataIndex="name" key="name">
           <template #default="{ record }">
             <span :style="{ fontWeight: record.children?.length ? 600 : 400 }">{{ record.name }}</span>
@@ -194,6 +194,7 @@ const projectId = Number(route.query.id)
 const project = ref<Project | null>(null)
 const dagData = ref<DAGData | null>(null)
 const allTasks = ref<Task[]>([])
+const expandedTaskIds = ref<number[]>([])
 const loading = ref(true)
 const taskOpen = ref(false)
 const editingTask = ref<Task | null>(null)
@@ -302,6 +303,14 @@ function sumChildrenHours(task: Task): number {
   return task.children.reduce((s, c) => s + sumChildrenHours(c), 0)
 }
 function isParentTask(id: number): boolean { return allTasks.value.some(t => t.parent_id === id) }
+function getParentTaskIds(tasks: Task[]): number[] {
+  return [...new Set(tasks.flatMap(task => task.parent_id == null ? [] : [task.parent_id]))]
+}
+function expandTask(taskId: number | null) {
+  if (taskId != null && !expandedTaskIds.value.includes(taskId)) {
+    expandedTaskIds.value = [...expandedTaskIds.value, taskId]
+  }
+}
 const isEditingParent = computed(() => editingTask.value ? isParentTask(editingTask.value.id) : false)
 const canEditScheduleFields = computed(() => editingTask.value?.can_edit_schedule_fields !== false)
 const isInstrumentRequired = computed(() => REQUIRED_INSTRUMENT_TASK_TYPES.has(tf.task_type))
@@ -317,6 +326,7 @@ async function fetchProject() {
   try {
     const [p, d] = await Promise.all([getProject(projectId), getProjectDAG(projectId)])
     project.value = p; dagData.value = d; allTasks.value = p.tasks || []
+    expandedTaskIds.value = getParentTaskIds(allTasks.value)
   } catch { message.error('加载项目失败') }
   finally { loading.value = false }
 }
@@ -355,6 +365,7 @@ async function handleTaskSubmit() {
     if (editingTask.value?.is_local_draft) {
       const index = allTasks.value.findIndex(task => task.id === editingTask.value?.id)
       if (index >= 0) allTasks.value[index] = buildDraftTask(payload, editingTask.value.id)
+      expandTask(payload.parent_id)
       message.success('草稿任务已更新')
     } else if (editingTask.value) {
       await updateTask(editingTask.value.id, payload)
@@ -362,6 +373,7 @@ async function handleTaskSubmit() {
       await fetchProject()
     } else {
       allTasks.value.push(buildDraftTask(payload, nextDraftId--))
+      expandTask(payload.parent_id)
       message.success('任务已加入本地草稿，保存前不会写入数据库')
     }
     taskOpen.value = false; editingTask.value = null
@@ -413,6 +425,7 @@ function buildDraftTask(
     est_duration_hours: payload.est_duration_hours ?? undefined,
     switchover_hours: payload.switchover_hours,
     status: 'pending',
+    delay_status: 'not_delayed',
     schedule_dirty: true,
     schedule_lock_status: 'none',
     can_edit_schedule_fields: true,
@@ -463,7 +476,7 @@ function openTemplateImport() {
   const restriction: Task = {
     id: restrictionId, project_id: projectId, name: '方案签批', task_type: 'approval_gate',
     requires_instrument: false, requires_human: false, switchover_hours: 0,
-    status: 'waiting_external', schedule_dirty: false, schedule_lock_status: 'none',
+    status: 'waiting_external', delay_status: 'not_delayed', schedule_dirty: false, schedule_lock_status: 'none',
     can_edit_schedule_fields: true, priority_weight: 1, allow_split: false,
     instrument_ids: [], predecessor_ids: [scheme.id], assignee_id: null,
     assignee_name: null, parent_id: null, is_external_gate: true,
@@ -499,7 +512,7 @@ async function loadTaskTypes() {
 const scheduling = ref(false)
 async function handleStartSchedule() {
   const missingInstrumentTasks = allTasks.value.filter(task => (
-    !task.children?.length
+    !isParentTask(task.id)
     && !task.is_external_gate
     && REQUIRED_INSTRUMENT_TASK_TYPES.has(task.task_type)
     && !task.instrument_ids.length
@@ -533,18 +546,19 @@ async function handleStartSchedule() {
   } finally { scheduling.value = false }
 }
 function toDraftPayload(task: Task): ProjectPlanDraftTaskPayload {
+  const isParent = isParentTask(task.id)
   return {
     client_id: task.id,
     name: task.name,
-    task_type: task.task_type,
-    requires_instrument: task.requires_instrument,
-    requires_human: task.requires_human,
-    estimated_hours: task.est_duration_hours ?? null,
-    switchover_hours: task.switchover_hours,
-    assignee_id: task.assignee_id,
+    task_type: isParent ? 'group' : task.task_type,
+    requires_instrument: isParent ? false : task.requires_instrument,
+    requires_human: isParent ? false : task.requires_human,
+    estimated_hours: isParent ? null : (task.est_duration_hours ?? null),
+    switchover_hours: isParent ? 0 : task.switchover_hours,
+    assignee_id: isParent ? null : task.assignee_id,
     parent_id: task.parent_id,
-    predecessor_ids: [...task.predecessor_ids],
-    instrument_ids: [...task.instrument_ids],
+    predecessor_ids: isParent ? [] : [...task.predecessor_ids],
+    instrument_ids: isParent ? [] : [...task.instrument_ids],
     is_external_gate: Boolean(task.is_external_gate),
   }
 }

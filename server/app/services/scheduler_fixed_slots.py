@@ -11,6 +11,14 @@ from app.services.scheduler_helpers import datetime_to_units
 FIXED_SLOT_STATUSES = ["scheduled", "running", "completed", "blocked", "interrupted"]
 
 
+def _is_protected_slot(slot: TimeSlot) -> bool:
+    return (
+        slot.tier == "frozen"
+        or slot.status == "running"
+        or (slot.actual_start is not None and slot.actual_end is None)
+    )
+
+
 def load_fixed_slots(db, excluded_task_ids: set[int] | None = None) -> list[TimeSlot]:
     query = db.query(TimeSlot).filter(
         TimeSlot.status.in_(FIXED_SLOT_STATUSES),
@@ -103,6 +111,32 @@ def add_instrument_capacity_constraints(
 
         if instrument_intervals and non_overlap_enabled:
             model.AddNoOverlap(instrument_intervals)
+
+        protected_ends = [
+            end_unit
+            for slot, _, end_unit in fixed_by_instrument.get(instrument.id, [])
+            if _is_protected_slot(slot)
+        ]
+        if protected_ends:
+            protected_queue_end = max(protected_ends)
+            for key, presence in presences.items():
+                task_id, instrument_id = key
+                if instrument_id != instrument.id:
+                    continue
+                task = task_by_id[task_id]
+                if task.allow_split:
+                    for split_key, unit_presence in split_unit_presences.items():
+                        split_task_id, split_instrument_id, unit = split_key
+                        if (
+                            split_task_id == task_id
+                            and split_instrument_id == instrument.id
+                            and unit < protected_queue_end
+                        ):
+                            model.Add(unit_presence == 0)
+                    continue
+                model.Add(
+                    inst_starts[key] >= protected_queue_end
+                ).OnlyEnforceIf(presence)
 
         if setup_units <= 0:
             continue

@@ -199,7 +199,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.lab-screen { min-height: calc(100vh - 112px); margin: -24px; padding: 18px; display: grid; grid-template-rows: auto auto 1fr; gap: 12px; background: #eef4fb; color: #1e293b; overflow: hidden; }
+.lab-screen { min-height: calc(100vh - 34px); margin: 0; padding: 18px; display: grid; grid-template-rows: auto auto 1fr; gap: 12px; background: #eef4fb; color: #1e293b; overflow: hidden; box-sizing: border-box; }
 .screen-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 2px 4px; }
 .screen-head h2 { margin: 0; font-size: 21px; line-height: 1.2; }
 .screen-head p { margin: 5px 0 0; color: #64748b; font-size: 13px; }
@@ -263,7 +263,7 @@ onUnmounted(() => {
 @keyframes scan { 0%, 45% { transform: translateX(-100%); } 70%, 100% { transform: translateX(100%); } }
 @keyframes bounce { 0%, 80%, 100% { transform: translateY(0); opacity: .5; } 40% { transform: translateY(-7px); opacity: 1; } }
 @media (max-width: 960px) {
-  .lab-screen { margin: -16px; padding: 12px; min-height: calc(100vh - 88px); }
+  .lab-screen { margin: 0; padding: 12px; min-height: calc(100vh - 30px); }
   .screen-head { flex-direction: column; }
   .head-actions { justify-content: flex-start; }
   .summary-strip { grid-template-columns: repeat(2, 1fr); }

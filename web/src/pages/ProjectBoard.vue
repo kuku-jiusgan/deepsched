@@ -288,7 +288,8 @@ import { PlusOutlined, EditOutlined, SearchOutlined, DeleteOutlined } from '@ant
 
 import { getProjects, createProject, updateProject, deleteProject, getProject, getProjectDAG, addTask, updateTask, deleteTask, getUsers, getTaskTypes, getInstruments, generateSchedule, type Project, type Task, type DAGData, type TaskTypeConfig } from '@/services/api'
 
-import dayjs from 'dayjs'
+  import dayjs from 'dayjs'
+  import type { Dayjs } from 'dayjs'
 
 
 
@@ -466,7 +467,11 @@ async function handleCreate() {
 
   try {
 
-    await createProject({ ...cf, start_date: cf.start_date ? dayjs(cf.start_date).toISOString() : undefined, end_date: cf.end_date ? dayjs(cf.end_date).toISOString() : undefined } as any)
+    await createProject({
+      ...cf,
+      start_date: formatProjectStart(cf.start_date),
+      end_date: formatProjectEnd(cf.end_date),
+    } as any)
 
     message.success('项目创建成功'); createOpen.value = false; fetchProjects()
 
@@ -483,7 +488,11 @@ async function handleUpdateProject() {
 
   try {
 
-    await updateProject(selectedProject.value.id, { ...ef, start_date: ef.start_date ? dayjs(ef.start_date).toISOString() : undefined, end_date: ef.end_date ? dayjs(ef.end_date).toISOString() : undefined } as any)
+    await updateProject(selectedProject.value.id, {
+      ...ef,
+      start_date: formatProjectStart(ef.start_date),
+      end_date: formatProjectEnd(ef.end_date),
+    } as any)
 
     message.success('项目更新成功'); editOpen.value = false; fetchProjects()
 
@@ -496,6 +505,14 @@ async function handleUpdateProject() {
 function errorDetail(error: unknown, fallback: string) {
   if (isAxiosError<{ detail?: string }>(error)) return error.response?.data?.detail || fallback
   return fallback
+}
+
+function formatProjectStart(value: Dayjs | null) {
+  return value ? dayjs(value).startOf('day').format('YYYY-MM-DDTHH:mm:ss') : undefined
+}
+
+function formatProjectEnd(value: Dayjs | null) {
+  return value ? dayjs(value).endOf('day').format('YYYY-MM-DDTHH:mm:ss') : undefined
 }
 
 function ensureCanManageProjectInfo() {

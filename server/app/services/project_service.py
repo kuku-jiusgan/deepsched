@@ -1,7 +1,9 @@
-from datetime import datetime
-
 from app.models import Project
 from app.schemas.schemas import ProjectCreate
+from app.services.project_date_service import (
+    normalize_project_end,
+    normalize_project_start,
+)
 
 
 class ProjectCodeExistsError(Exception):
@@ -21,16 +23,10 @@ def create_project(db, data: ProjectCreate) -> Project:
         priority=data.priority,
         status="pending",
         manager_id=data.manager_id,
-        start_date=_naive_datetime(data.start_date),
-        end_date=_naive_datetime(data.end_date),
+        start_date=normalize_project_start(data.start_date),
+        end_date=normalize_project_end(data.end_date),
     )
     db.add(project)
     db.commit()
     db.refresh(project)
     return project
-
-
-def _naive_datetime(value: datetime | None) -> datetime | None:
-    if value is None or value.tzinfo is None:
-        return value
-    return value.replace(tzinfo=None)

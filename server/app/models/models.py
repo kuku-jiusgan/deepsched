@@ -275,7 +275,7 @@ class AlertRule(Base):
     rule_type = Column(String(30), nullable=False, comment="task_start_delay/task_end_delay/schedule_changed/hours_exceeded")
     enabled = Column(Boolean, default=True)
     enable_site = Column(Boolean, default=True)
-    enable_wecom = Column(Boolean, default=False)
+    enable_wecom = Column(Boolean, default=True)
     notify_roles = Column(Text, comment="JSON array of roles")
     threshold_minutes = Column(Integer, default=30)
     threshold_percent = Column(Integer, default=120)
@@ -285,7 +285,7 @@ class AlertRule(Base):
 class PushChannelConfig(Base):
     __tablename__ = "push_channel_config"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    wecom_enabled = Column(Boolean, default=False)
+    wecom_enabled = Column(Boolean, default=True)
     wecom_corp_id = Column(String(200))
     wecom_agent_id = Column(String(50))
     wecom_secret = Column(String(300))

@@ -5,9 +5,6 @@
         <h2>智能预警推送</h2>
         <p>统一管理预警触发条件、接收对象与双通道发送结果。</p>
       </div>
-      <a-button v-if="activeTab === 'rules'" type="primary" :loading="savingRules" @click="saveAll">
-        <SaveOutlined /> 保存规则
-      </a-button>
     </header>
 
     <div v-if="loading" class="loading-panel">
@@ -84,7 +81,12 @@
                 <h3>规则清单</h3>
                 <p>关闭规则后将停止对应预警；接收对象为空时不会产生通知。</p>
               </div>
-              <span class="rule-count">共 {{ rules.length }} 条</span>
+              <div class="rules-heading-actions">
+                <span class="rule-count">共 {{ rules.length }} 条</span>
+                <a-button type="primary" :loading="savingRules" @click="saveAll">
+                  <SaveOutlined /> 保存规则
+                </a-button>
+              </div>
             </div>
 
             <div class="rule-list">
@@ -369,7 +371,7 @@ function ruleDescription(type: string) {
     task_start_delay: '任务到达计划开始时间后仍未点击开始。',
     task_end_delay: '已开始任务超过计划结束时间仍未点击结束。',
     schedule_changed: '重排或插单改变任务原定时间。',
-    task_schedule_advanced: '前序任务提前完成，后续任务随排程前移。',
+    task_schedule_advanced: '任何排程操作使任务计划开始时间提前。',
     hours_exceeded: '任务实际投入工时超过预计工时。',
     instrument_fault_reschedule: '仪器故障导致相关任务后移。',
     instrument_fault_schedule_conflict: '故障处理后无法生成无冲突排程。',
@@ -484,6 +486,7 @@ onMounted(fetchData)
 .channel-save-item :deep(.ant-form-item-control-input-content) { display: flex; }
 
 .rules-heading { padding: var(--space-md) var(--space-lg); border-bottom: 1px solid var(--color-border-light); }
+.rules-heading-actions { display: flex; flex-shrink: 0; align-items: center; gap: var(--space-md); }
 .rule-count { color: var(--color-text-tertiary); font-size: 12px; }
 .rule-list { min-width: 0; }
 .rule-row { display: grid; grid-template-columns: minmax(210px, 1.05fr) minmax(260px, 1.2fr) minmax(260px, 1.15fr) 82px; align-items: center; gap: var(--space-lg); padding: 14px var(--space-lg); border-bottom: 1px solid var(--color-border-light); transition: background-color 160ms ease-out; }
@@ -533,12 +536,12 @@ onMounted(fetchData)
 
 @media (max-width: 760px) {
   .alert-page-header { align-items: stretch; flex-direction: column; }
-  .alert-page-header .ant-btn { align-self: flex-start; }
   .summary-strip { flex-wrap: wrap; }
   .summary-item { flex: 1 1 50%; border-bottom: 1px solid var(--color-border-light); }
   .summary-item:nth-child(2) { border-right: 0; }
   .summary-item:nth-last-child(-n + 2) { border-bottom: 0; }
   .section-heading { flex-direction: column; }
+  .rules-heading-actions { width: 100%; justify-content: space-between; }
   .wecom-form { grid-template-columns: 1fr; }
   .channel-save-item { grid-column: auto; }
   .rule-row { grid-template-columns: 1fr auto; align-items: start; }

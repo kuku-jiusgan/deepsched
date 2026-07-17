@@ -1,12 +1,17 @@
 import unittest
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
-from app.models import AlertRule, Notification, User
+from app.models import AlertRule, Notification, PushChannelConfig, User
 from app.services.push_notification_service import push_by_rule
+from app.services.wecom_delivery_service import (
+    WeComSendResult,
+    _process_pending_wecom_notifications,
+)
 
 
 class PushNotificationServiceTest(unittest.TestCase):
@@ -61,12 +66,11 @@ class PushNotificationServiceTest(unittest.TestCase):
         )
         self.db.flush()
 
-        recipients = [
-            item.user_name
-            for item in self.db.query(Notification).order_by(Notification.id).all()
-        ]
+        notifications = self.db.query(Notification).order_by(Notification.id).all()
         self.assertEqual(sent, 1)
-        self.assertEqual(recipients, ["analyst"])
+        self.assertEqual([item.user_name for item in notifications], ["analyst", "analyst"])
+        self.assertEqual([item.channel for item in notifications], ["site", "wecom"])
+        self.assertEqual([item.delivery_status for item in notifications], ["success", "pending"])
 
     def test_project_manager_context_is_not_a_user_role(self):
         manager = User(
@@ -97,7 +101,9 @@ class PushNotificationServiceTest(unittest.TestCase):
         self.db.flush()
 
         self.assertEqual(sent, 1)
-        self.assertEqual(self.db.query(Notification).one().user_name, "manager")
+        notifications = self.db.query(Notification).order_by(Notification.id).all()
+        self.assertEqual([item.user_name for item in notifications], ["manager", "manager"])
+        self.assertEqual([item.channel for item in notifications], ["site", "wecom"])
 
     def test_empty_notify_roles_send_to_no_users(self):
         analyst = User(
@@ -128,6 +134,89 @@ class PushNotificationServiceTest(unittest.TestCase):
 
         self.assertEqual(sent, 0)
         self.assertEqual(self.db.query(Notification).count(), 0)
+
+    def test_every_notification_uses_site_and_wecom_when_configured(self):
+        analyst = User(
+            username="analyst",
+            display_name="分析员",
+            role="分析员",
+            wecom_id="wecom-analyst",
+            is_active=True,
+        )
+        rule = AlertRule(
+            name="排程变更",
+            rule_type="schedule_changed",
+            enabled=True,
+            enable_site=False,
+            enable_wecom=False,
+            notify_roles='["分析员"]',
+        )
+        config = PushChannelConfig(
+            wecom_enabled=True,
+            wecom_corp_id="corp",
+            wecom_agent_id="agent",
+            wecom_secret="secret",
+        )
+        self.db.add_all([analyst, rule, config])
+        self.db.commit()
+
+        sent = push_by_rule(
+            self.db,
+            "schedule_changed",
+            [analyst],
+            "测试通知",
+            "测试内容",
+        )
+        self.db.commit()
+        pending_notification = self.db.query(Notification).filter(
+            Notification.channel == "wecom",
+        ).one()
+        self.assertEqual("pending", pending_notification.delivery_status)
+
+        with patch(
+            "app.services.wecom_delivery_service._send_wecom_text",
+            return_value=WeComSendResult(True),
+        ):
+            processed = _process_pending_wecom_notifications(self.db)
+
+        notifications = self.db.query(Notification).order_by(Notification.id).all()
+        self.assertEqual(1, sent)
+        self.assertEqual(1, processed)
+        self.assertEqual([item.channel for item in notifications], ["site", "wecom"])
+        self.assertTrue(all(item.delivery_status == "success" for item in notifications))
+
+    def test_missing_wecom_config_fails_in_background_not_foreground(self):
+        analyst = User(
+            username="analyst",
+            display_name="分析员",
+            role="分析员",
+            wecom_id="wecom-analyst",
+            is_active=True,
+        )
+        self.db.add(analyst)
+        self.db.commit()
+
+        sent = push_by_rule(
+            self.db,
+            "unconfigured_test",
+            [analyst],
+            "测试通知",
+            "测试内容",
+        )
+        self.db.commit()
+
+        pending_notification = self.db.query(Notification).filter(
+            Notification.channel == "wecom",
+        ).one()
+        self.assertEqual(1, sent)
+        self.assertEqual("pending", pending_notification.delivery_status)
+
+        processed = _process_pending_wecom_notifications(self.db)
+
+        self.db.refresh(pending_notification)
+        self.assertEqual(1, processed)
+        self.assertEqual("failed", pending_notification.delivery_status)
+        self.assertIn("未配置完整", pending_notification.error_message)
 
 
 if __name__ == "__main__":

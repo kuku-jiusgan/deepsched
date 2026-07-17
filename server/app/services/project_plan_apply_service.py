@@ -154,6 +154,9 @@ def _execute_replan(
         task_ids=sorted(replan_task_ids),
         mode="insert" if movable_tasks else "normal",
         commit=False,
+        original_schedule_windows=old_windows,
+        advance_notification_reason="项目任务保存重排",
+        emit_advance_notifications=commit,
     )
     if solver_result.get("status") != "ok":
         db.rollback()

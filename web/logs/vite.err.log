@@ -1,0 +1,80 @@
+[2m15:56:38[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/stats/dashboard[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m15:56:38[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/stats/lab-status[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m15:56:38[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/instruments?include_unavailable=true[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m15:56:38[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/stats/utilization[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m15:56:38[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/schedules/timeslots[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m15:56:38[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/notifications?user_name=admin&channel=site&unread_only=true[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m09:56:13[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/notifications?user_name=admin&channel=site&unread_only=true[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m09:56:27[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/notifications?user_name=admin&channel=site&unread_only=true[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m09:56:43[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/notifications?user_name=admin&channel=site&unread_only=true[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:05:58[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/instruments[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:05:58[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/schedules/timeslots[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:05:58[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/task-types[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:05:58[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/notifications?user_name=admin&channel=site&unread_only=true[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:06:01[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/projects[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:06:01[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/schedules/timeslots[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:06:01[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/task-types[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:06:01[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/approval-gates?page_size=500[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:06:02[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/instruments[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:06:02[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/schedules/timeslots[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+[2m10:06:02[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/task-types[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)

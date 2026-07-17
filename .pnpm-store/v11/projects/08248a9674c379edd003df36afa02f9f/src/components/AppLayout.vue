@@ -9,11 +9,20 @@
       <div class="brand-panel" :class="{ 'brand-panel-collapsed': isSiderCollapsed }" aria-label="山东大学淄博生物医药研究院 资源智能调度协同平台">
         <div class="brand-panel-head">
           <div class="brand-mark" aria-hidden="true" />
-          <a-tooltip :title="isSiderCollapsed ? '展开菜单' : '收回菜单'" placement="right">
+          <a-tooltip
+            :title="isSiderCollapsed ? '展开菜单' : '收回菜单'"
+            placement="right"
+            :open="isSiderTooltipOpen"
+            :trigger="[]"
+          >
             <a-button
               type="text"
               class="sider-toggle"
               :aria-label="isSiderCollapsed ? '展开菜单' : '收回菜单'"
+              @mouseenter="showSiderTooltip"
+              @mouseleave="hideSiderTooltip"
+              @focus="showSiderTooltip"
+              @blur="hideSiderTooltip"
               @click="toggleSider"
             >
               <template #icon>
@@ -47,8 +56,11 @@
       </div>
     </a-layout-sider>
     <a-layout style="background: #f7f8fa">
-      <a-layout-content class="app-content">
-        <div class="page-top-actions">
+      <a-layout-content
+        class="app-content"
+        :class="{ 'app-content-cockpit': route.path === '/operations/cockpit' }"
+      >
+        <div v-if="route.path !== '/operations/cockpit'" class="page-top-actions">
           <a-dropdown trigger="click">
             <a-tag color="blue" class="current-user">
               <UserOutlined />
@@ -65,7 +77,6 @@
             <div class="notification-panel">
               <div class="notification-panel-head">
                 <span>站内通知</span>
-                <a-button type="link" size="small" @click="fetchNotifications">刷新</a-button>
               </div>
               <a-empty v-if="notifications.length === 0" :image="Empty.PRESENTED_IMAGE_SIMPLE" description="暂无未读通知" />
               <div v-else class="notification-list">
@@ -151,6 +162,8 @@ import {
 const router = useRouter()
 const route = useRoute()
 const isSiderCollapsed = ref(localStorage.getItem('siderCollapsed') === 'true')
+const isSiderTooltipOpen = ref(false)
+const canShowSiderTooltip = ref(true)
 const notificationOpen = ref(false)
 const notifications = ref<NotificationRecord[]>([])
 const passwordModalOpen = ref(false)
@@ -188,10 +201,10 @@ function icon(name: string) {
 }
 
 const ANALYST_ROLE = '分析员'
-const ANALYST_MENU_KEYS = new Set(['/operations/lab-dashboard', '/kanban', '/tasks', '/projects'])
+const ANALYST_MENU_KEYS = new Set(['/operations/cockpit', '/kanban', '/tasks', '/projects'])
 
 const baseMenuItems = [
-  { key: '/operations/lab-dashboard', icon: icon('HomeOutlined'), label: '首页' },
+  { key: '/operations/cockpit', icon: icon('HomeOutlined'), label: '首页' },
   { key: '/operations', icon: icon('FundOutlined'), label: '运营数据中台', hidden: true, children: [
     { key: '/dashboard', icon: icon('DashboardOutlined'), label: '核心 KPI 仪表盘' },
     { key: '/operations/reports', icon: icon('FileTextOutlined'), label: '精细化运营报表' },
@@ -220,7 +233,7 @@ const baseMenuItems = [
   { key: '/system', icon: icon('SettingOutlined'), label: '系统管理', children: [
     { key: '/system/alerts', icon: icon('BellOutlined'), label: '智能预警推送' },
     { key: '/system/users', icon: icon('TeamOutlined'), label: '用户管理' },
-    { key: '/system/basic', icon: icon('SettingOutlined'), label: '系统基础管理' },
+    { key: '/system/basic', icon: icon('SettingOutlined'), label: '标准任务类型' },
     { key: '/system/calendar', icon: icon('CalendarOutlined'), label: '工作日历管理' },
   ]},
 ]
@@ -343,8 +356,19 @@ function navigate({ key }: { key: string }) {
 }
 
 function toggleSider() {
+  isSiderTooltipOpen.value = false
+  canShowSiderTooltip.value = false
   isSiderCollapsed.value = !isSiderCollapsed.value
   localStorage.setItem('siderCollapsed', String(isSiderCollapsed.value))
+}
+
+function showSiderTooltip() {
+  if (canShowSiderTooltip.value) isSiderTooltipOpen.value = true
+}
+
+function hideSiderTooltip() {
+  isSiderTooltipOpen.value = false
+  canShowSiderTooltip.value = true
 }
 
 async function fetchNotifications() {

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import get_settings
 from app.models import Task, TimeSlot
 from app.services.instrument_status_service import refresh_instrument_status
+from app.services.schedule_advance_notification_service import notify_advanced_task_assignees
 from app.services.schedule_forward_slot_service import build_forward_slots
 from app.services.schedule_rule_service import get_solver_constraints
 from app.services.scheduler_helpers import (
@@ -62,6 +63,9 @@ def complete_task_and_shift(
             "released_instrument": False,
         }
     result = _forward_shift_instrument_queue(db, completed_slot.instrument_id, end_time)
+    moved_task_details = result.pop("moved_task_details", [])
+    notify_advanced_task_assignees(db, task, end_time, planned_end, moved_task_details)
+    db.commit()
     result["released_instrument"] = True
     return result
 
@@ -152,6 +156,7 @@ def _forward_shift_instrument_queue(
     db.flush()
 
     moved = 0
+    moved_task_details = []
     cursor = released_at
     for task in candidate_tasks:
         snapshots = slot_snapshots[task.id]
@@ -199,12 +204,20 @@ def _forward_shift_instrument_queue(
             )
         cursor = new_slots[-1][1]
         moved += 1
+        moved_task_details.append({
+            "task_id": task.id,
+            "original_start": original_start,
+            "original_end": original_end,
+            "new_start": new_slots[0][0],
+            "new_end": new_slots[-1][1],
+        })
 
     db.commit()
     return {
         "status": "ok",
         "message": f"任务已完成，该仪器跨项目前移 {moved} 个任务",
         "moved_tasks": moved,
+        "moved_task_details": moved_task_details,
     }
 
 
@@ -255,7 +268,6 @@ def _is_movable_instrument_task(
         and slot.instrument_id == instrument_id
         and slot.plan_start >= released_at
         and slot.actual_start is None
-        and slot.tier != "frozen"
         for slot in slots
     )
 

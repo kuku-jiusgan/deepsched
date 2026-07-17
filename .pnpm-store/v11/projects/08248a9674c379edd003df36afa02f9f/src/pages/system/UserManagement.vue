@@ -6,7 +6,6 @@
     </div>
     <div class="action-bar">
       <a-button type="primary" @click="openCreate"><PlusOutlined /> 添加用户</a-button>
-      <a-button @click="fetchData"><ReloadOutlined /> 刷新</a-button>
       <span style="margin-left: auto; font-size: 12px; color: #94a3b8; align-self: center">共 {{ users.length }} 个用户</span>
     </div>
     <a-spin v-if="loading" size="large" style="display: block; margin: 80px auto" />
@@ -74,7 +73,7 @@
 <script setup lang="ts">
 import { computed, ref, reactive, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
-import { PlusOutlined, ReloadOutlined, EditOutlined, DeleteOutlined, KeyOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, EditOutlined, DeleteOutlined, KeyOutlined } from '@ant-design/icons-vue'
 import { getUsers, createUser, updateUser, deleteUser, type User, type UserPayload } from '@/services/api'
 import dayjs from 'dayjs'
 

@@ -80,6 +80,23 @@ class ProjectServiceTest(unittest.TestCase):
 
         self.assertEqual(40, updated.estimated_hours)
         self.assertIsNone(updated.start_date.tzinfo)
+        self.assertEqual(datetime(2026, 7, 14, 0, 0), updated.start_date)
+        self.assertEqual(datetime(2026, 7, 20, 23, 59, 59, 999999), updated.end_date)
+
+    def test_create_project_uses_local_day_boundaries(self):
+        project = create_project(
+            self.db,
+            ProjectCreate(
+                name="日期边界项目",
+                code="PRJ-004",
+                priority=1,
+                start_date=datetime(2026, 7, 19, 16, 0, tzinfo=timezone.utc),
+                end_date=datetime(2026, 7, 19, 16, 0, tzinfo=timezone.utc),
+            ),
+        )
+
+        self.assertEqual(datetime(2026, 7, 20, 0, 0), project.start_date)
+        self.assertEqual(datetime(2026, 7, 20, 23, 59, 59, 999999), project.end_date)
 
 
 if __name__ == "__main__":

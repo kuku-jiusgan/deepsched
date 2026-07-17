@@ -61,7 +61,7 @@ body {
   line-height: 1.5;
 }
 
-#root { min-height: 100vh; }
+#app { min-height: 100vh; }
 
 /* Typography scale */
 h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.3px; }

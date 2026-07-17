@@ -3,7 +3,6 @@
     <div class="page-header"><h2>仪器基础信息</h2></div>
     <div class="action-bar">
       <a-button type="primary" @click="openCreate"><PlusOutlined /> 添加仪器</a-button>
-      <a-button @click="fetchData"><ReloadOutlined /> 刷新</a-button>
       <a-select placeholder="按分组筛选" allowClear style="width: 180px" v-model:value="groupFilter" :options="groupOptions" />
       <span style="margin-left: auto; font-size: 12px; color: #94a3b8; align-self: center">共 {{ filtered.length }} 台仪器</span>
     </div>
@@ -82,7 +81,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, reactive } from 'vue'
 import { message } from 'ant-design-vue'
-import { PlusOutlined, ReloadOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import { getInstruments, createInstrument, updateInstrument, deleteInstrument, type InstrumentPayload } from '@/services/api'
 import type { CapabilityReq, Instrument } from '@/types'
 

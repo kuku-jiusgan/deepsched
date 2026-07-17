@@ -12,7 +12,6 @@
       <span style="font-weight: 600; min-width: 160px; text-align: center">{{ periodLabel }}</span>
       <a-button @click="goNext"><RightOutlined /></a-button>
       <a-button @click="goToday">今天</a-button>
-      <a-button @click="fetchData"><ReloadOutlined /> 刷新</a-button>
       <a-button @click="toggleFullscreen">
         <component :is="isFullscreen ? FullscreenExitOutlined : FullscreenOutlined" />
         {{ isFullscreen ? '退出全屏' : '全屏' }}
@@ -96,7 +95,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import type { CSSProperties } from 'vue'
 import { message } from 'ant-design-vue'
-import { LeftOutlined, RightOutlined, ReloadOutlined, FullscreenOutlined, FullscreenExitOutlined, ExperimentOutlined, EditOutlined, CheckSquareOutlined, DotChartOutlined, FileTextOutlined } from '@ant-design/icons-vue'
+import { LeftOutlined, RightOutlined, FullscreenOutlined, FullscreenExitOutlined, ExperimentOutlined, EditOutlined, CheckSquareOutlined, DotChartOutlined, FileTextOutlined } from '@ant-design/icons-vue'
 import { getApprovalGates, getProjects, getTimeslots, getTaskTypes, type TaskTypeConfig } from '@/services/api'
 import type { ApprovalGate, Project, TimeSlot } from '@/types'
 import dayjs from 'dayjs'

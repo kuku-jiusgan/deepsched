@@ -20,7 +20,11 @@ from app.services.scheduler_fixed_slots import (
 from app.services.scheduler_persistence import persist_slots
 from app.services.scheduler_objective import add_scheduler_objective
 from app.services.scheduler_split_tasks import add_split_task_variables
-from app.services.scheduler_diagnostics import frozen_schedule_message, unavailable_instrument_message
+from app.services.scheduler_diagnostics import (
+    frozen_schedule_message,
+    schedule_infeasibility_message,
+    unavailable_instrument_message,
+)
 from app.services.scheduler_data import load_scheduler_data, load_task_children
 from app.services.project_hours_validation_service import (
     ProjectHoursExceededError,
@@ -38,6 +42,10 @@ from app.services.scheduler_helpers import (
     working_time_bounds,
 )
 from app.services.approval_gate_service import unapproved_gate_context
+from app.services.schedule_advance_notification_service import (
+    capture_task_schedule_windows,
+    notify_rescheduled_tasks_advanced,
+)
 
 
 class SchedulerService:
@@ -51,6 +59,9 @@ class SchedulerService:
         task_ids: Optional[List[int]] = None,
         commit: bool = True,
         excluded_task_ids: set[int] | None = None,
+        original_schedule_windows: dict[int, tuple[datetime, datetime]] | None = None,
+        advance_notification_reason: str = "重新排程",
+        emit_advance_notifications: bool = True,
     ) -> dict:
         tasks, instruments = load_scheduler_data(
             self.db,
@@ -60,6 +71,11 @@ class SchedulerService:
         )
         if not tasks:
             return {"status": "ok", "message": "没有待排仪器任务", "timeslots_created": 0}
+        if original_schedule_windows is None:
+            original_schedule_windows = capture_task_schedule_windows(
+                self.db,
+                {task.id for task in tasks},
+            )
         unassigned_human_tasks = [
             task for task in tasks if task.requires_human and not task.assignee_id
         ]
@@ -96,10 +112,8 @@ class SchedulerService:
         if diagnostic_message:
             return {"status": "error", "message": diagnostic_message}
 
-        task_deps = build_dependencies(
-            tasks,
-            load_task_children(self.db, tasks),
-        )
+        task_children = load_task_children(self.db, tasks)
+        task_deps = build_dependencies(tasks, task_children)
         maintenance_rule = constraints["maintenance_avoidance"]
         maint_windows = (
             build_maintenance_windows(instruments, horizon_start)
@@ -444,6 +458,11 @@ class SchedulerService:
             switch_penalties,
             project_inst_used_vars,
             total_units,
+            _sibling_cohesion_weight(constraints["sibling_task_cohesion"]),
+            {
+                parent_id: len(child_ids)
+                for parent_id, child_ids in task_children.items()
+            },
         )
 
         solver = cp_model.CpSolver()
@@ -451,7 +470,6 @@ class SchedulerService:
         solver.parameters.num_search_workers = 4
         status = solver.Solve(model)
 
-        total_req_hours = sum(t.est_duration_hours or 4 for t in tasks if t.requires_instrument)
         if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             frozen_message = (
                 frozen_schedule_message(
@@ -469,7 +487,19 @@ class SchedulerService:
             )
             if frozen_message:
                 return {"status": "error", "message": frozen_message}
-            return {"status": "error", "message": f"时间配置冲突：当前待排总工时约 {total_req_hours} 小时，请调整【项目开始/结束时间】或修改【项目工时】。"}
+            return {
+                "status": "error",
+                "message": schedule_infeasibility_message(
+                    tasks,
+                    task_deps,
+                    missing_pred_ends,
+                    compat,
+                    global_prefix_sum,
+                    instrument_prefix_sums,
+                    horizon_start,
+                    total_units,
+                ),
+            }
 
         # Persist results
         schedule_run_id = _new_schedule_run_id()
@@ -500,6 +530,12 @@ class SchedulerService:
         except ScheduleConflictError as exc:
             self.db.rollback()
             return {"status": "error", "message": str(exc), "timeslots_created": 0}
+        if emit_advance_notifications:
+            notify_rescheduled_tasks_advanced(
+                self.db,
+                original_schedule_windows,
+                advance_notification_reason,
+            )
         if commit:
             self.db.commit()
 
@@ -514,6 +550,17 @@ class SchedulerService:
 
 def _new_schedule_run_id() -> str:
     return f"{datetime.now():%Y%m%d%H%M%S}-{uuid4().hex[:8]}"
+
+
+def _sibling_cohesion_weight(rule) -> int:
+    if not rule.is_enabled:
+        return 0
+    raw_weight = (rule.params or {}).get("weight", 1.0)
+    try:
+        weight = float(raw_weight)
+    except (TypeError, ValueError):
+        weight = 1.0
+    return round(max(0.0, min(10.0, weight)) * 100)
 
 
 def _optional_time_domain(lower_bound: int, upper_bound: int) -> cp_model.Domain:

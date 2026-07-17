@@ -965,7 +965,8 @@ onUnmounted(() => {
   border-right: 1px solid #e2e8f0;
   position: sticky;
   left: 0;
-  z-index: 3;
+  z-index: 5;
+  isolation: isolate;
 }
 .gantt-left::-webkit-scrollbar { width: 0; }
 .gantt-header-cell {

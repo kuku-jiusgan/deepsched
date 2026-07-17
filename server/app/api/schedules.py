@@ -20,6 +20,11 @@ from app.services.schedule_delay_service import (
 )
 from app.services.schedule_completion_service import complete_task_and_shift
 from app.services.instrument_status_service import refresh_instrument_status
+from app.services.schedule_manual_update_service import (
+    ScheduleSlotInvalidError,
+    ScheduleSlotNotFoundError,
+    update_time_slot,
+)
 from app.services.schedule_insert_service import (
     ScheduleInsertInvalidError,
     ScheduleInsertNotFoundError,
@@ -39,7 +44,6 @@ from app.services.task_execution_service import (
     TaskExecutionNotFoundError,
     start_task_execution,
 )
-from app.services.task_delay_status_service import reset_task_delay
 from app.api.users import auth_token
 
 router = APIRouter(prefix="/api/v1/schedules", tags=["schedules"])
@@ -71,25 +75,12 @@ def list_timeslots(
 
 @router.put("/timeslots/{slot_id}", response_model=TimeSlotOut)
 def update_timeslot(slot_id: int, data: TimeSlotUpdate, db: Session = Depends(get_db)):
-    slot = db.query(TimeSlot).filter(TimeSlot.id == slot_id).first()
-    if not slot:
-        raise HTTPException(status_code=404, detail="时间槽不存在")
-    if slot.tier == "frozen":
-        raise HTTPException(status_code=400, detail="冻结期时间槽不可手动调整")
-    if data.plan_start is not None:
-        slot.plan_start = data.plan_start
-    if data.plan_end is not None:
-        slot.plan_end = data.plan_end
-    if data.instrument_id is not None:
-        slot.instrument_id = data.instrument_id
-    if data.tier is not None:
-        slot.tier = data.tier
-    task = db.query(Task).filter(Task.id == slot.task_id).first()
-    if task and task.schedule_lock_status == "none":
-        reset_task_delay(task)
-    db.commit()
-    db.refresh(slot)
-    return _enrich_slot(slot, db)
+    try:
+        return _enrich_slot(update_time_slot(db, slot_id, data), db)
+    except ScheduleSlotNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ScheduleSlotInvalidError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 @router.post("/timeslots/{slot_id}/start", response_model=TaskActionResponse)
 def start_task(slot_id: int, db: Session = Depends(get_db)):

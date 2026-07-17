@@ -97,6 +97,14 @@ CONSTRAINT_RULES = [
         "params": {"strict": False},
         "sort_order": 19,
     },
+    {
+        "category": "constraint",
+        "name": "同级子任务靠拢",
+        "code": "sibling_task_cohesion",
+        "description": "同一父任务的同级子任务尽量提前完成，减少后续任务等待最晚子任务的时间",
+        "params": {"weight": 1.0, "strict": False},
+        "sort_order": 20,
+    },
 ]
 
 DEFAULT_RULES = [

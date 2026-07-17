@@ -1,12 +1,11 @@
 <template>
-  <div>
+  <div class="fault-page">
     <div class="page-header">
       <h2>故障提报</h2>
     </div>
 
     <div class="action-bar">
       <a-button type="primary" danger @click="openFaultModal"><ToolOutlined /> 故障提报</a-button>
-      <a-button @click="fetchData"><ReloadOutlined /> 刷新</a-button>
     </div>
 
     <a-spin v-if="loading" size="large" style="display: block; margin: 80px auto" />
@@ -166,7 +165,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
-import { ReloadOutlined, ToolOutlined } from '@ant-design/icons-vue'
+import { ToolOutlined } from '@ant-design/icons-vue'
 import dayjs from 'dayjs'
 import {
   getInstruments,
@@ -343,6 +342,18 @@ onMounted(fetchData)
 </script>
 
 <style scoped>
+.fault-page {
+  min-height: calc(100vh - 34px);
+  margin: 0;
+  padding: 0;
+  background: #f7f8fa;
+  box-sizing: border-box;
+}
+
+.fault-page > .page-header {
+  margin-bottom: 14px;
+}
+
 .fault-card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));

@@ -15,7 +15,7 @@ class AlertRuleOut(BaseModel):
     rule_type: str
     enabled: bool
     enable_site: bool = True
-    enable_wecom: bool = False
+    enable_wecom: bool = True
     notify_roles: Optional[str] = None
     threshold_minutes: int = 0
     threshold_percent: int = 0
@@ -65,6 +65,14 @@ DEFAULT_ALERT_RULES = [
         "rule_type": "schedule_changed",
         "enabled": True,
         "notify_roles": '["项目负责人"]',
+        "threshold_minutes": 0,
+        "threshold_percent": 0,
+    },
+    {
+        "name": "任务提前前移通知",
+        "rule_type": "task_schedule_advanced",
+        "enabled": True,
+        "notify_roles": '["任务负责人"]',
         "threshold_minutes": 0,
         "threshold_percent": 0,
     },
@@ -138,10 +146,8 @@ def update_rule(rule_id: int, data: AlertRuleUpdate, db: Session = Depends(get_d
         raise HTTPException(status_code=404, detail="规则不存在")
     if data.enabled is not None:
         rule.enabled = data.enabled
-    if data.enable_site is not None:
-        rule.enable_site = data.enable_site
-    if data.enable_wecom is not None:
-        rule.enable_wecom = data.enable_wecom
+    rule.enable_site = True
+    rule.enable_wecom = True
     if data.notify_roles is not None:
         rule.notify_roles = data.notify_roles
     if data.threshold_minutes is not None:
@@ -160,6 +166,12 @@ def _ensure_default_rules(db: Session) -> None:
         if data["rule_type"] in existing_types:
             continue
         db.add(AlertRule(**data))
+        created = True
+    for rule in db.query(AlertRule).all():
+        if rule.enable_site and rule.enable_wecom:
+            continue
+        rule.enable_site = True
+        rule.enable_wecom = True
         created = True
     if created:
         db.commit()

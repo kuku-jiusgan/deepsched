@@ -21,6 +21,25 @@ def ensure_runtime_schema(engine) -> None:
                 connection.execute(text(f"ALTER TABLE project DROP COLUMN {column_name}"))
             connection.execute(text("UPDATE project SET priority = 1 WHERE priority IS NULL OR priority < 1"))
             connection.execute(text("UPDATE project SET priority = 3 WHERE priority > 3"))
+            if engine.dialect.name == "sqlite":
+                connection.execute(text(
+                    "UPDATE project SET start_date = datetime(date(start_date)) "
+                    "WHERE start_date IS NOT NULL"
+                ))
+                connection.execute(text(
+                    "UPDATE project SET end_date = datetime(date(end_date), '+1 day', '-1 second') "
+                    "WHERE end_date IS NOT NULL"
+                ))
+            elif engine.dialect.name == "mysql":
+                connection.execute(text(
+                    "UPDATE project SET start_date = DATE(start_date) "
+                    "WHERE start_date IS NOT NULL"
+                ))
+                connection.execute(text(
+                    "UPDATE project SET end_date = "
+                    "DATE_ADD(DATE(end_date), INTERVAL 1 DAY) - INTERVAL 1 SECOND "
+                    "WHERE end_date IS NOT NULL"
+                ))
     if "task" in table_names:
         task_columns = {column["name"] for column in inspector.get_columns("task")}
         with engine.begin() as connection:
@@ -116,7 +135,8 @@ def ensure_runtime_schema(engine) -> None:
             if "enable_site" not in alert_columns:
                 connection.execute(text("ALTER TABLE alert_rule ADD COLUMN enable_site BOOLEAN DEFAULT 1"))
             if "enable_wecom" not in alert_columns:
-                connection.execute(text("ALTER TABLE alert_rule ADD COLUMN enable_wecom BOOLEAN DEFAULT 0"))
+                connection.execute(text("ALTER TABLE alert_rule ADD COLUMN enable_wecom BOOLEAN DEFAULT 1"))
+            connection.execute(text("UPDATE alert_rule SET enable_site = 1, enable_wecom = 1"))
 
     if {"project", "task", "time_slot"}.issubset(table_names):
         with engine.begin() as connection:

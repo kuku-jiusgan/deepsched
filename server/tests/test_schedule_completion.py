@@ -6,11 +6,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
-from app.models import Task, TaskDependency, TimeSlot
+from app.models import Notification, Task, TaskDependency, TimeSlot, User
 from app.services.schedule_completion_service import (
     _forward_shift_instrument_queue,
     _mark_task_slots_completed,
     _select_completed_slot,
+    complete_task_and_shift,
 )
 
 
@@ -148,7 +149,7 @@ class ScheduleCompletionTest(unittest.TestCase):
         self.assertEqual(datetime(2026, 7, 13, 12, 0), slots[0].plan_start)
         self.assertEqual(datetime(2026, 7, 13, 14, 0), slots[1].plan_start)
 
-    def test_forward_shift_ignores_manual_and_frozen_tasks(self):
+    def test_forward_shift_moves_frozen_but_ignores_manual_and_running_tasks(self):
         manual = Task(project_id=1, name="manual", task_type="test", status="scheduled")
         frozen = Task(project_id=2, name="frozen", task_type="test", status="scheduled")
         partly_running = Task(
@@ -185,8 +186,9 @@ class ScheduleCompletionTest(unittest.TestCase):
         result = self._forward_shift(1, datetime(2026, 7, 13, 12, 0))
 
         frozen_slot = self.db.query(TimeSlot).filter(TimeSlot.task_id == frozen.id).one()
-        self.assertEqual(0, result["moved_tasks"])
-        self.assertEqual(original_start, frozen_slot.plan_start)
+        self.assertEqual(1, result["moved_tasks"])
+        self.assertEqual(datetime(2026, 7, 13, 12, 0), frozen_slot.plan_start)
+        self.assertNotEqual(original_start, frozen_slot.plan_start)
         self.assertEqual(1, self.db.query(TimeSlot).filter(TimeSlot.task_id == manual.id).count())
         self.assertEqual(
             2,
@@ -232,6 +234,87 @@ class ScheduleCompletionTest(unittest.TestCase):
         self.assertEqual(datetime(2026, 7, 13, 15, 0), moved_slot.plan_start)
         self.assertEqual(datetime(2026, 7, 13, 17, 0), moved_slot.plan_end)
 
+    def test_early_completion_notifies_each_moved_task_assignee(self):
+        assignee = User(
+            username="analyst",
+            display_name="任务负责人",
+            role="分析员",
+            is_active=True,
+        )
+        completed = Task(project_id=1, name="前序检测", task_type="test", status="running")
+        moved = Task(
+            project_id=2,
+            name="后续检测",
+            task_type="test",
+            status="scheduled",
+            requires_human=False,
+            assignee=assignee,
+        )
+        self.db.add_all([assignee, completed, moved])
+        self.db.flush()
+        self.db.add_all([
+            TimeSlot(
+                task_id=completed.id, instrument_id=1,
+                plan_start=datetime(2026, 7, 13, 8, 30),
+                plan_end=datetime(2026, 7, 13, 14, 0), status="running",
+            ),
+            TimeSlot(
+                task_id=moved.id, instrument_id=1,
+                plan_start=datetime(2026, 7, 13, 15, 0),
+                plan_end=datetime(2026, 7, 13, 17, 0), status="scheduled",
+            ),
+        ])
+        self.db.commit()
+
+        result = self._complete_and_shift(completed.id, datetime(2026, 7, 13, 12, 0))
+
+        notifications = self.db.query(Notification).order_by(Notification.id).all()
+        notification = next(item for item in notifications if item.channel == "site")
+        self.assertEqual(1, result["moved_tasks"])
+        self.assertEqual(["site", "wecom"], [item.channel for item in notifications])
+        self.assertEqual("analyst", notification.user_name)
+        self.assertEqual("task_schedule_advanced", notification.n_type)
+        self.assertIn("前序检测", notification.content)
+        self.assertIn("2026-07-13 12:00", notification.content)
+        self.assertIn("2026-07-13 15:00", notification.content)
+
+    def test_on_time_completion_does_not_send_advance_notification(self):
+        assignee = User(
+            username="analyst",
+            display_name="任务负责人",
+            role="分析员",
+            is_active=True,
+        )
+        completed = Task(project_id=1, name="前序检测", task_type="test", status="running")
+        moved = Task(
+            project_id=2,
+            name="后续检测",
+            task_type="test",
+            status="scheduled",
+            requires_human=False,
+            assignee=assignee,
+        )
+        self.db.add_all([assignee, completed, moved])
+        self.db.flush()
+        self.db.add_all([
+            TimeSlot(
+                task_id=completed.id, instrument_id=1,
+                plan_start=datetime(2026, 7, 13, 8, 30),
+                plan_end=datetime(2026, 7, 13, 14, 0), status="running",
+            ),
+            TimeSlot(
+                task_id=moved.id, instrument_id=1,
+                plan_start=datetime(2026, 7, 13, 15, 0),
+                plan_end=datetime(2026, 7, 13, 17, 0), status="scheduled",
+            ),
+        ])
+        self.db.commit()
+
+        result = self._complete_and_shift(completed.id, datetime(2026, 7, 13, 14, 0))
+
+        self.assertEqual(1, result["moved_tasks"])
+        self.assertEqual(0, self.db.query(Notification).count())
+
     def _forward_shift(self, instrument_id: int, released_at: datetime) -> dict:
         working_options = {
             "day_start_minutes": 8 * 60 + 30,
@@ -246,6 +329,25 @@ class ScheduleCompletionTest(unittest.TestCase):
             return_value=working_options,
         ):
             return _forward_shift_instrument_queue(self.db, instrument_id, released_at)
+
+    def _complete_and_shift(self, task_id: int, completed_at: datetime) -> dict:
+        working_options = {
+            "day_start_minutes": 8 * 60 + 30,
+            "day_end_minutes": 20 * 60,
+            "include_weekends": True,
+            "include_holidays": True,
+            "horizon_end": datetime(2026, 7, 20),
+            "calendar_days": {},
+        }
+        with patch(
+            "app.services.schedule_completion_service._load_working_options",
+            return_value=working_options,
+        ):
+            return complete_task_and_shift(
+                self.db,
+                task_id,
+                actual_end_time=completed_at,
+            )
 
 
 if __name__ == "__main__":

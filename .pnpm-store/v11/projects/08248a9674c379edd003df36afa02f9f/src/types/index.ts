@@ -23,6 +23,7 @@ export interface Task {
   est_duration_hours?: number;
   switchover_hours: number;
   status: string;
+  delay_status: 'delayed' | 'not_delayed';
   schedule_dirty: boolean;
   schedule_lock_status: 'none' | 'frozen' | 'running' | 'completed';
   can_edit_schedule_fields: boolean;
@@ -53,6 +54,8 @@ export type ApprovalRiskStatus = 'normal' | 'upcoming' | 'overdue' | 'deadline_r
 export interface ApprovalGateTaskRef {
   id: number;
   name: string;
+  status?: string | null;
+  completed_at?: string | null;
 }
 
 export interface ApprovalGate {
@@ -185,6 +188,8 @@ export interface TimeSlot {
   status: string;
   task_name?: string;
   task_type?: string | null;
+  task_status?: string | null;
+  delay_status?: 'delayed' | 'not_delayed';
   project_code?: string | null;
   project_name?: string;
   instrument_name?: string;
@@ -243,6 +248,18 @@ export interface InsertOrderImpact {
   delay_hours: number;
 }
 
+export interface ProjectScheduleImpact {
+  project_id: number;
+  project_code: string;
+  project_name: string;
+  project_end_date: string | null;
+  original_completion: string | null;
+  new_completion: string | null;
+  delay_hours: number;
+  exceeds_end_date: boolean;
+  overdue_hours: number;
+}
+
 export type ProjectPlanApplyStatus = 'applied' | 'no_changes' | 'insert_confirmation_required' | 'error';
 
 export interface ProjectPlanApplyResult {
@@ -255,6 +272,7 @@ export interface ProjectPlanApplyResult {
   conflicts_checked: boolean;
   preview_token?: string | null;
   impacts: InsertOrderImpact[];
+  project_impacts: ProjectScheduleImpact[];
 }
 
 export interface InsertCost {

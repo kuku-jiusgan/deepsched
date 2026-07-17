@@ -79,6 +79,9 @@ def _execute_insert(db, data: InsertOrderRequest, commit: bool) -> InsertOrderPr
         task_ids=sorted(replan_task_ids),
         mode="insert",
         commit=False,
+        original_schedule_windows=old_windows,
+        advance_notification_reason="插单重排",
+        emit_advance_notifications=commit,
     )
     if result.get("status") != "ok":
         db.rollback()

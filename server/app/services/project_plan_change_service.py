@@ -10,6 +10,10 @@ from app.services.project_hours_validation_service import (
 )
 from app.services.project_task_rollup_service import recalculate_project_parent_hours
 from app.services.instrument_status_service import delete_time_slots_and_refresh
+from app.services.project_date_service import (
+    normalize_project_end,
+    normalize_project_start,
+)
 
 
 SCHEDULE_FIELDS = {
@@ -70,8 +74,8 @@ def update_project_plan(db, project_id: int, data: ProjectCreate) -> Project:
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise PlanChangeNotFoundError("项目不存在")
-    start_date = _naive_datetime(data.start_date)
-    end_date = _naive_datetime(data.end_date)
+    start_date = normalize_project_start(data.start_date)
+    end_date = normalize_project_end(data.end_date)
 
     project_code = data.code.strip()
     duplicate = db.query(Project).filter(
@@ -224,12 +228,6 @@ def _ensure_project_window_keeps_protected_slots(
             raise PlanChangeInvalidError(f"项目开始时间晚于固定任务【{slot.task.name}】的排程时间")
         if end_date and slot.plan_end > end_date:
             raise PlanChangeInvalidError(f"项目结束时间早于固定任务【{slot.task.name}】的排程时间")
-
-
-def _naive_datetime(value: datetime | None) -> datetime | None:
-    if value is None or value.tzinfo is None:
-        return value
-    return value.replace(tzinfo=None)
 
 
 def _mark_task_and_downstream_dirty(db, task: Task) -> None:

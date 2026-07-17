@@ -15,7 +15,6 @@
       <span class="period-label">{{ periodLabel }}</span>
       <a-button @click="goFollowing"><RightOutlined /></a-button>
       <a-button @click="returnToday">今天</a-button>
-      <a-button @click="fetchData(false)"><ReloadOutlined /> 刷新</a-button>
       <a-button @click="toggleFullscreen">
         <component :is="isFullscreen ? FullscreenExitOutlined : FullscreenOutlined" />
         {{ isFullscreen ? '退出全屏' : '全屏' }}
@@ -133,7 +132,6 @@ import {
   FullscreenExitOutlined,
   FullscreenOutlined,
   LeftOutlined,
-  ReloadOutlined,
   RightOutlined,
   SearchOutlined,
   TeamOutlined,

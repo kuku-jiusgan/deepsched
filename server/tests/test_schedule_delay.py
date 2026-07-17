@@ -5,8 +5,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
-from app.models import Task, TimeSlot
-from app.services.schedule_delay_service import report_task_delay
+from app.models import Project, Task, TimeSlot
+from app.services.schedule_delay_service import (
+    ScheduleDelayInvalidError,
+    report_task_delay,
+)
 
 
 class ScheduleDelayTest(unittest.TestCase):
@@ -77,6 +80,99 @@ class ScheduleDelayTest(unittest.TestCase):
         self.assertEqual(1, len(shifted_slots))
         self.assertEqual(datetime(2026, 7, 14, 9, 0), shifted_slots[0].plan_start)
         self.assertEqual(datetime(2026, 7, 14, 10, 30), shifted_slots[0].plan_end)
+
+    def test_delay_rejects_delayed_task_past_project_end(self):
+        project = Project(
+            name="截止项目",
+            code="DELAY-END-1",
+            end_date=datetime(2026, 7, 14, 23, 59, 59),
+        )
+        task = Task(
+            project=project,
+            name="方法开发",
+            task_type="test",
+            status="scheduled",
+        )
+        self.db.add_all([project, task])
+        self.db.flush()
+        slot = TimeSlot(
+            task_id=task.id,
+            instrument_id=1,
+            plan_start=datetime(2026, 7, 14, 18, 0),
+            plan_end=datetime(2026, 7, 14, 20, 0),
+            status="scheduled",
+        )
+        self.db.add(slot)
+        self.db.commit()
+
+        with self.assertRaisesRegex(
+            ScheduleDelayInvalidError,
+            "项目【截止项目】任务【方法开发】.*超过项目结题时间",
+        ):
+            report_task_delay(self.db, slot.id, 2, "实验延迟")
+
+        self.db.refresh(task)
+        self.db.refresh(slot)
+        self.assertEqual("scheduled", task.status)
+        self.assertEqual("not_delayed", task.delay_status)
+        self.assertEqual(datetime(2026, 7, 14, 20, 0), slot.plan_end)
+
+    def test_delay_rejects_following_task_past_its_project_end(self):
+        delayed_project = Project(
+            name="延期项目",
+            code="DELAY-END-2",
+            end_date=datetime(2026, 7, 20, 23, 59, 59),
+        )
+        following_project = Project(
+            name="被影响项目",
+            code="DELAY-END-3",
+            end_date=datetime(2026, 7, 15, 23, 59, 59),
+        )
+        delayed_task = Task(
+            project=delayed_project,
+            name="延期任务",
+            task_type="test",
+            status="scheduled",
+        )
+        following_task = Task(
+            project=following_project,
+            name="后续任务",
+            task_type="test",
+            status="scheduled",
+        )
+        self.db.add_all([
+            delayed_project,
+            following_project,
+            delayed_task,
+            following_task,
+        ])
+        self.db.flush()
+        delayed_slot = TimeSlot(
+            task_id=delayed_task.id,
+            instrument_id=1,
+            plan_start=datetime(2026, 7, 14, 18, 0),
+            plan_end=datetime(2026, 7, 14, 20, 0),
+            status="scheduled",
+        )
+        following_slot = TimeSlot(
+            task_id=following_task.id,
+            instrument_id=1,
+            plan_start=datetime(2026, 7, 15, 18, 30),
+            plan_end=datetime(2026, 7, 15, 20, 0),
+            status="scheduled",
+        )
+        self.db.add_all([delayed_slot, following_slot])
+        self.db.commit()
+
+        with self.assertRaisesRegex(
+            ScheduleDelayInvalidError,
+            "项目【被影响项目】任务【后续任务】.*超过项目结题时间",
+        ):
+            report_task_delay(self.db, delayed_slot.id, 2, "实验延迟")
+
+        self.db.refresh(following_slot)
+        self.assertEqual(datetime(2026, 7, 15, 18, 30), following_slot.plan_start)
+        self.assertEqual(datetime(2026, 7, 15, 20, 0), following_slot.plan_end)
 
 
 if __name__ == "__main__":
