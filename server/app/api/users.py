@@ -1,6 +1,5 @@
 import hashlib
 import hmac
-import json as _json
 import os
 import re
 import secrets
@@ -20,7 +19,7 @@ router = APIRouter(prefix="/api/v1/users", tags=["users"])
 
 ROLE_OPTIONS = ["系统管理员", "项目管理员", "分析所所长", "分析员"]
 ADMIN_ROLE = "系统管理员"
-IDLE_TIMEOUT_SECONDS = 30 * 60
+IDLE_TIMEOUT_SECONDS = 3 * 60 * 60
 LOGIN_FAILURE_WINDOW_SECONDS = 10 * 60
 LOGIN_LOCK_SECONDS = 15 * 60
 MAX_LOGIN_FAILURES = 5
@@ -28,31 +27,8 @@ MAX_LOGIN_FAILURE_KEYS = 5000
 PBKDF2_ITERATIONS = 120_000
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{3,50}$")
 
-_TOKEN_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "..", "tokens.json")
-
-
-def _load_tokens() -> Dict[str, Dict]:
-    try:
-        with open(_TOKEN_FILE, "r", encoding="utf-8") as f:
-            tokens = _json.load(f)
-    except (FileNotFoundError, _json.JSONDecodeError):
-        return {}
-    now = time.time()
-    sanitized = {}
-    for token, entry in tokens.items():
-        expires_at = float(entry.get("expires_at", 0))
-        if now < expires_at <= now + IDLE_TIMEOUT_SECONDS:
-            sanitized[token] = entry
-    return sanitized
-
-
-def _save_tokens(tokens: Dict[str, Dict]):
-    os.makedirs(os.path.dirname(_TOKEN_FILE), exist_ok=True)
-    with open(_TOKEN_FILE, "w", encoding="utf-8") as f:
-        _json.dump(tokens, f)
-
-
-TOKENS: Dict[str, Dict] = _load_tokens()
+# 会话仅驻留服务端内存，避免 bearer token 被明文写入工作区或提交到仓库。
+TOKENS: Dict[str, Dict] = {}
 LOGIN_FAILURES: Dict[str, Dict[str, float | int]] = {}
 
 
@@ -95,7 +71,6 @@ def create_token(user_id: int, username: str = "") -> str:
         "expires_at": now + IDLE_TIMEOUT_SECONDS,
         "last_seen_at": now,
     }
-    _save_tokens(TOKENS)
     return token
 
 
@@ -115,17 +90,21 @@ def get_current_user(token: str, db: Session) -> User:
     if not entry or float(entry.get("expires_at", 0)) < now:
         if entry:
             TOKENS.pop(token, None)
-            _save_tokens(TOKENS)
         raise HTTPException(status_code=401, detail="未登录或登录已过期")
     user = db.query(User).filter(User.id == entry["user_id"]).first()
     if not user or not user.is_active:
         TOKENS.pop(token, None)
-        _save_tokens(TOKENS)
         raise HTTPException(status_code=401, detail="用户不存在或已停用")
     entry["last_seen_at"] = now
     entry["expires_at"] = now + IDLE_TIMEOUT_SECONDS
-    _save_tokens(TOKENS)
     return user
+
+
+def require_authenticated_user(
+    token: str = Depends(auth_token),
+    db: Session = Depends(get_db),
+) -> User:
+    return get_current_user(token, db)
 
 
 def require_admin(token: str, db: Session) -> User:
@@ -222,12 +201,16 @@ def prune_login_failures() -> None:
 def _seed_admin(db: Session):
     if db.query(User).filter(User.username == "admin").first():
         return
+    initial_password = os.getenv("INITIAL_ADMIN_PASSWORD")
+    if not initial_password:
+        return
+    validate_password_strength(initial_password)
     db.add(
         User(
             username="admin",
             display_name="系统管理员",
             role=ADMIN_ROLE,
-            password_hash=hash_password("Admin@123456"),
+            password_hash=hash_password(initial_password),
             is_active=True,
         )
     )
@@ -362,7 +345,6 @@ def change_my_password(data: ChangeMyPasswordRequest, token: str = Depends(auth_
     user.password_hash = hash_password(data.new_password)
     db.commit()
     TOKENS.pop(token, None)
-    _save_tokens(TOKENS)
     return {"detail": "密码已修改，请重新登录"}
 
 
@@ -375,5 +357,4 @@ def keep_alive(token: str = Depends(auth_token), db: Session = Depends(get_db)):
 @router.post("/logout")
 def logout(token: str = Depends(auth_token)):
     TOKENS.pop(token, None)
-    _save_tokens(TOKENS)
     return {"detail": "已退出"}

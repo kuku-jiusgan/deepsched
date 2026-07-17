@@ -8,7 +8,7 @@ from app.services.wecom_delivery_service import (
     start_wecom_delivery_worker,
     stop_wecom_delivery_worker,
 )
-from app.api import approval_gates, project_plan_drafts, project_plan_templates, users, schedule_rules, instruments, projects, schedules, stats, notifications, task_types, alert_rules, calendar_api, project_plan_schedules
+from app.api import protected_router, users
 
 Base.metadata.create_all(bind=engine)
 ensure_runtime_schema(engine)
@@ -50,20 +50,8 @@ async def add_json_utf8_charset(request, call_next):
 from app.core.logging_middleware import LoggingMiddleware
 app.add_middleware(LoggingMiddleware)
 
-app.include_router(instruments.router)
-app.include_router(projects.router)
-app.include_router(schedules.router)
-app.include_router(project_plan_schedules.router)
-app.include_router(schedule_rules.router)
+app.include_router(protected_router)
 app.include_router(users.router)
-app.include_router(stats.router)
-app.include_router(notifications.router)
-app.include_router(task_types.router)
-app.include_router(alert_rules.router)
-app.include_router(calendar_api.router)
-app.include_router(approval_gates.router)
-app.include_router(project_plan_templates.router)
-app.include_router(project_plan_drafts.router)
 
 @app.get("/api/v1/health")
 def health():

@@ -5,12 +5,10 @@ services:
     image: mysql:8.0
     container_name: cro-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: cro_scheduler
-      MYSQL_USER: cro_user
-      MYSQL_PASSWORD: cro_pass
-    ports:
-      - "3306:3306"
+      MYSQL_USER: ${MYSQL_USER:-cro_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请在 .env 中设置 MYSQL_PASSWORD}
     volumes:
       - mysql_data:/var/lib/mysql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
@@ -26,7 +24,8 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: mysql+pymysql://cro_user:cro_pass@mysql:3306/cro_scheduler
+      DATABASE_URL: ${DATABASE_URL:?请在 .env 中设置 DATABASE_URL}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:?请在 .env 中设置 INITIAL_ADMIN_PASSWORD}
     depends_on:
       mysql:
         condition: service_healthy

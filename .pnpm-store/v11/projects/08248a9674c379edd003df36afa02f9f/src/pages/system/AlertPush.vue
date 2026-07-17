@@ -67,7 +67,10 @@
                 <a-input v-model:value="pushConfig.wecom_agent_id" placeholder="应用 AgentId" allow-clear />
               </a-form-item>
               <a-form-item label="Secret">
-                <a-input-password v-model:value="pushConfig.wecom_secret" placeholder="应用 Secret" />
+                <a-input-password
+                  v-model:value="pushConfig.wecom_secret"
+                  :placeholder="pushConfig.has_wecom_secret ? '已配置，留空则不修改' : '应用 Secret'"
+                />
               </a-form-item>
               <a-form-item class="channel-save-item">
                 <a-button :loading="savingPushConfig" @click="savePushConfig">保存通道配置</a-button>
@@ -221,6 +224,7 @@ import {
 } from '@/services/api'
 
 interface RuleWithRoles extends AlertRule { _roles: string[] }
+interface PushChannelConfigForm extends PushChannelConfig { wecom_secret: string }
 
 const loading = ref(true)
 const savingRules = ref(false)
@@ -232,11 +236,12 @@ const historyKeyword = ref('')
 const historyType = ref<string | undefined>()
 const historyChannel = ref<string | undefined>()
 const historyStatus = ref<string | undefined>()
-const pushConfig = reactive<PushChannelConfig>({
+const pushConfig = reactive<PushChannelConfigForm>({
   id: 0,
   wecom_enabled: true,
   wecom_corp_id: '',
   wecom_agent_id: '',
+  has_wecom_secret: false,
   wecom_secret: '',
 })
 
@@ -273,7 +278,7 @@ const historyColumns = [
 const isWeComConfigured = computed(() => Boolean(
   pushConfig.wecom_corp_id?.trim()
   && pushConfig.wecom_agent_id?.trim()
-  && pushConfig.wecom_secret?.trim()
+  && (pushConfig.has_wecom_secret || pushConfig.wecom_secret?.trim())
 ))
 const activeRuleCount = computed(() => rules.value.filter(rule => rule.enabled).length)
 const pendingCount = computed(() => history.value.filter(item => item.delivery_status === 'pending').length)
@@ -341,13 +346,15 @@ async function savePushConfig() {
   }
   savingPushConfig.value = true
   try {
+    const secret = pushConfig.wecom_secret?.trim()
     const data = await updatePushConfig({
       wecom_enabled: true,
       wecom_corp_id: pushConfig.wecom_corp_id,
       wecom_agent_id: pushConfig.wecom_agent_id,
-      wecom_secret: pushConfig.wecom_secret,
+      ...(secret ? { wecom_secret: secret } : {}),
     })
     Object.assign(pushConfig, data)
+    pushConfig.wecom_secret = ''
     message.success('推送通道配置已保存')
   } catch {
     message.error('企业微信配置保存失败')

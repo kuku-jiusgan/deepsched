@@ -179,7 +179,7 @@ let hasNotifiedNotificationFailure = false
 let sessionKeepAliveTimer: number | undefined
 let idleLogoutTimer: number | undefined
 let lastActivityWriteAt = 0
-const IDLE_TIMEOUT_MS = 30 * 60 * 1000
+const IDLE_TIMEOUT_MS = 3 * 60 * 60 * 1000
 const ACTIVITY_THROTTLE_MS = 1000
 const SESSION_KEEP_ALIVE_MS = 5 * 60 * 1000
 const ACTIVITY_EVENTS = ['click', 'keydown', 'mousemove', 'scroll', 'touchstart'] as const

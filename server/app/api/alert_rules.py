@@ -34,7 +34,7 @@ class PushChannelConfigOut(BaseModel):
     wecom_enabled: bool = False
     wecom_corp_id: Optional[str] = None
     wecom_agent_id: Optional[str] = None
-    wecom_secret: Optional[str] = None
+    has_wecom_secret: bool = False
     model_config = {"from_attributes": True}
 
 class PushChannelConfigUpdate(BaseModel):
@@ -133,11 +133,12 @@ def list_rules(db: Session = Depends(get_db)):
 
 @router.get("/push-config", response_model=PushChannelConfigOut)
 def get_config(db: Session = Depends(get_db)):
-    return get_push_config(db)
+    return _push_config_response(get_push_config(db))
 
 @router.put("/push-config", response_model=PushChannelConfigOut)
 def save_config(data: PushChannelConfigUpdate, db: Session = Depends(get_db)):
-    return update_push_config(db, data.model_dump(exclude_unset=True))
+    config = update_push_config(db, data.model_dump(exclude_unset=True))
+    return _push_config_response(config)
 
 @router.put("/{rule_id}", response_model=AlertRuleOut)
 def update_rule(rule_id: int, data: AlertRuleUpdate, db: Session = Depends(get_db)):
@@ -157,6 +158,16 @@ def update_rule(rule_id: int, data: AlertRuleUpdate, db: Session = Depends(get_d
     db.commit()
     db.refresh(rule)
     return rule
+
+
+def _push_config_response(config) -> PushChannelConfigOut:
+    return PushChannelConfigOut(
+        id=config.id,
+        wecom_enabled=config.wecom_enabled,
+        wecom_corp_id=config.wecom_corp_id,
+        wecom_agent_id=config.wecom_agent_id,
+        has_wecom_secret=bool(config.wecom_secret),
+    )
 
 
 def _ensure_default_rules(db: Session) -> None:

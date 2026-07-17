@@ -4,3 +4,7 @@
   [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m3000[22m/[39m
   [32m➜[39m  [1mNetwork[22m: [36mhttp://198.18.0.1:[1m3000[22m/[39m
   [32m➜[39m  [1mNetwork[22m: [36mhttp://192.168.0.51:[1m3000[22m/[39m
+[2m16:53:53[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/AppLayout.vue[22m
+[2m17:13:10[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/AppLayout.vue, /src/pages/operations/LabOperationsCockpit.vue, /src/pages/tasks/PersonalWorkspace.vue, /src/pages/tasks/TodayTaskCards.vue, /src/pages/tasks/ApprovalConfirmationGroup.vue, /src/pages/system/UserManagement.vue[22m
+[2m17:21:08[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/AppLayout.vue, /src/pages/operations/LabOperationsCockpit.vue, /src/pages/tasks/PersonalWorkspace.vue, /src/pages/tasks/TodayTaskCards.vue, /src/pages/tasks/ApprovalConfirmationGroup.vue, /src/pages/system/UserManagement.vue[22m
+[2m17:24:48[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/AppLayout.vue, /src/pages/operations/LabOperationsCockpit.vue, /src/pages/tasks/PersonalWorkspace.vue, /src/pages/tasks/TodayTaskCards.vue, /src/pages/tasks/ApprovalConfirmationGroup.vue, /src/pages/system/UserManagement.vue[22m

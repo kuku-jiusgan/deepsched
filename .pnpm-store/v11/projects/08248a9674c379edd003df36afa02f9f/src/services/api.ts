@@ -481,13 +481,20 @@ export interface PushChannelConfig {
   wecom_enabled: boolean
   wecom_corp_id: string | null
   wecom_agent_id: string | null
-  wecom_secret: string | null
+  has_wecom_secret: boolean
+}
+
+export interface PushChannelConfigUpdate {
+  wecom_enabled?: boolean
+  wecom_corp_id?: string | null
+  wecom_agent_id?: string | null
+  wecom_secret?: string | null
 }
 
 export const getPushConfig = (): Promise<PushChannelConfig> =>
   api.get<PushChannelConfig>('/alert-rules/push-config').then(r => r.data)
 
-export const updatePushConfig = (data: Partial<PushChannelConfig>): Promise<PushChannelConfig> =>
+export const updatePushConfig = (data: PushChannelConfigUpdate): Promise<PushChannelConfig> =>
   api.put<PushChannelConfig>('/alert-rules/push-config', data).then(r => r.data)
 
 export interface NotificationRecord {
