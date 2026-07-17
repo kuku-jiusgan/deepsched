@@ -2,7 +2,6 @@
   <div class="gantt-page" :class="{ 'is-fullscreen': isFullscreen }">
     <div class="page-header">
       <h2>仪器甘特图</h2>
-      <p>按仪器查看排程负荷、运行状态与延期风险</p>
     </div>
 
     <div class="action-bar" :class="{ 'is-screen-toolbar': isFullscreen }">

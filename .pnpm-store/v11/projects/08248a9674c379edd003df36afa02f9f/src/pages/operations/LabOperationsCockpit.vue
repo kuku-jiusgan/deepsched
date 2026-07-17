@@ -101,7 +101,7 @@
 
       <section class="chart-grid">
         <article class="chart-card anomaly-card">
-          <header><h2>延期/异常任务预警</h2><span v-if="warningTasks.length">{{ warningTasks.length }} 项</span></header>
+          <header><h2>延期/异常任务预警</h2></header>
           <div
             v-if="warningTasks.length"
             class="cockpit-warning-viewport"

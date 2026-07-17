@@ -81,7 +81,7 @@ function Start-Frontend {
 
     Start-Process `
         -FilePath $Node `
-        -ArgumentList @($ViteScript, "--host", "127.0.0.1", "--port", "3000") `
+        -ArgumentList @($ViteScript, "--host", "0.0.0.0", "--port", "3000") `
         -WorkingDirectory $FrontendDir `
         -RedirectStandardOutput (Join-Path $FrontendLogDir "vite.out.log") `
         -RedirectStandardError (Join-Path $FrontendLogDir "vite.err.log") `

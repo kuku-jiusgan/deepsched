@@ -2,7 +2,6 @@
   <div class="human-gantt-page" :class="{ 'is-fullscreen': isFullscreen }">
     <div class="page-header">
       <h2>人力甘特图</h2>
-      <p>按任务负责人查看每日工作安排与并行任务情况</p>
     </div>
 
     <div class="action-bar">

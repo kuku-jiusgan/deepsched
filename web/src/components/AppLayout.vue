@@ -48,8 +48,8 @@
         @click="navigate"
       />
 
-      <div style="padding: 12px; border-top: 1px solid rgba(255,255,255,0.06); flex-shrink: 0">
-        <a-button type="text" block @click="handleLogout" style="color: rgba(255,255,255,0.65); text-align: left">
+      <div class="sider-footer" :class="{ 'sider-footer-collapsed': isSiderCollapsed }">
+        <a-button type="text" block class="logout-button" aria-label="退出登录" @click="handleLogout">
           <template #icon><LogoutOutlined /></template>
           <span v-if="!isSiderCollapsed">退出登录</span>
         </a-button>

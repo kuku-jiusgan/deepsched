@@ -16,7 +16,6 @@
 
       <a-range-picker :placeholder="['开始日期','结束日期']" style="width: 240px" v-model:value="filterDateRange" allowClear />
 
-      <span style="margin-left: auto; font-size: 12px; color: #94a3b8; align-self: center">{{ filtered.length }} / {{ projects.length }} 个项目</span>
 
     </div>
 
