@@ -238,6 +238,7 @@ def my_tasks(token: str = Depends(auth_token), db: Session = Depends(get_db)):
             "actual_start": task_actual_start.isoformat() if task_actual_start else None,
             "actual_end": task_actual_end.isoformat() if task_actual_end else None,
             "status": task.status,
+            "delay_status": task.delay_status,
             "tier": slot.tier if slot else "unscheduled",
             "est_duration_hours": task.est_duration_hours,
             **(

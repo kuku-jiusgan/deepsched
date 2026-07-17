@@ -106,7 +106,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onBeforeUnmount, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { CheckCircleOutlined, PlayCircleOutlined } from '@ant-design/icons-vue'
 import {
@@ -126,6 +126,7 @@ const actingId = ref<number | null>(null)
 const releaseConfirmOpen = ref(false)
 const releaseSubmitting = ref(false)
 const releaseConfirmTask = ref<MyTask | null>(null)
+let isFetching = false
 
 const EARLY_RELEASE_THRESHOLD_MINUTES = 30
 
@@ -211,7 +212,9 @@ const columns = [
   { title: '操作', key: 'actions', width: 160 },
 ]
 
-async function fetchData() {
+async function fetchData(isSilent = false) {
+  if (isFetching) return
+  isFetching = true
   try {
     const [taskResult, approvalResult] = await Promise.all([
       getMyTasks(),
@@ -221,10 +224,15 @@ async function fetchData() {
     approvalGates.value = approvalResult.items
     loadTaskTypes()
   } catch {
-    message.error('加载工作台失败')
+    if (!isSilent) message.error('加载工作台失败')
   } finally {
+    isFetching = false
     loading.value = false
   }
+}
+
+function refreshWorkspaceWhenActive() {
+  if (document.visibilityState === 'visible') void fetchData(true)
 }
 
 async function handleStart(record: MyTask) {
@@ -302,7 +310,16 @@ function errorDetail(error: unknown, fallback: string) {
   return candidate.response?.data?.detail || fallback
 }
 
-onMounted(fetchData)
+onMounted(() => {
+  void fetchData()
+  window.addEventListener('focus', refreshWorkspaceWhenActive)
+  document.addEventListener('visibilitychange', refreshWorkspaceWhenActive)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('focus', refreshWorkspaceWhenActive)
+  document.removeEventListener('visibilitychange', refreshWorkspaceWhenActive)
+})
 </script>
 
 <style scoped>

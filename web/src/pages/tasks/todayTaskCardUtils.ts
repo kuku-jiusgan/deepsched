@@ -52,11 +52,12 @@ export function canCompleteTask(task: MyTask) {
 }
 
 export function isExceptionConfirmTask(task: MyTask) {
+  const isMarkedDelayed = task.delay_status === 'delayed'
   const isProblemStatus = ['blocked', 'interrupted'].includes(task.status)
   const plannedEnd = task.task_plan_end || task.plan_end
   const isOverdue = Boolean(plannedEnd) && dayjs(plannedEnd).isBefore(dayjs()) && !isTaskClosed(task)
   const hasDelayReport = Boolean(task.delay_reason) || Boolean(task.delay_hours)
-  return isProblemStatus || isOverdue || hasDelayReport
+  return isMarkedDelayed || isProblemStatus || isOverdue || hasDelayReport
 }
 
 export function formatTaskTime(value: string | dayjs.Dayjs | null, fallback: string) {

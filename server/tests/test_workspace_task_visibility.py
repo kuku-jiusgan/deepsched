@@ -1,10 +1,16 @@
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.api.schedules import _filter_workspace_tasks_by_user, _select_workspace_slot, _task_actual_window
+from app.api.schedules import (
+    _filter_workspace_tasks_by_user,
+    _select_workspace_slot,
+    _task_actual_window,
+    my_tasks,
+)
 from app.core.database import Base
 from app.models import Project, Task, TimeSlot, User
 
@@ -115,6 +121,24 @@ class WorkspaceTaskVisibilityTest(unittest.TestCase):
 
         self.assertEqual(started_at, actual_start)
         self.assertIsNone(actual_end)
+
+    @patch("app.api.users.get_current_user")
+    def test_workspace_response_includes_persisted_delay_status(self, get_current_user):
+        get_current_user.return_value = self.owner
+        self.owner_task.delay_status = "delayed"
+        self.db.add(TimeSlot(
+            task_id=self.owner_task.id,
+            instrument_id=1,
+            plan_start=datetime(2099, 7, 17, 12, 30),
+            plan_end=datetime(2099, 7, 17, 13, 0),
+            status="scheduled",
+        ))
+        self.db.commit()
+
+        result = my_tasks(token="token", db=self.db)
+
+        task_result = next(item for item in result if item["task_id"] == self.owner_task.id)
+        self.assertEqual("delayed", task_result["delay_status"])
 
 
 if __name__ == "__main__":
