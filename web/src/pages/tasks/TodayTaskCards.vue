@@ -149,7 +149,9 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { getScheduleRules, recordNightRun, reportTaskDelay, type MyTask } from '@/services/api'
+import { getScheduleRules, recordNightRun, reportTaskDelay } from '@/services/api'
+import type { WorkspaceTask } from '@/domains/tasks/workspaceTask'
+import { actionableSlotId } from '@/domains/tasks/workspaceTask'
 import dayjs from 'dayjs'
 import {
   actualText, canCompleteTask, canStartTask, currentUserName, formatHours,
@@ -162,13 +164,13 @@ type TodayCardCategory = 'completion' | 'exception'
 type TodayCardGroupKey = TodayCardCategory
 
 interface Props {
-  tasks: MyTask[]
+  tasks: WorkspaceTask[]
 }
 
 interface TodayTaskCard {
   key: string
   category: TodayCardCategory
-  task: MyTask
+  task: WorkspaceTask
   projectText: string
   taskText: string
   instrumentText: string
@@ -213,8 +215,8 @@ interface DelayForm {
 
 const props = defineProps<Props>()
 const emit = defineEmits<{
-  start: [task: MyTask]
-  complete: [task: MyTask]
+  start: [task: WorkspaceTask]
+  complete: [task: WorkspaceTask]
   refreshed: []
 }>()
 
@@ -252,7 +254,7 @@ const todayCardGroups = computed<TodayCardGroup[]>(() => {
     .filter(task => !isExceptionConfirmTask(task))
     .map(task => buildTodayCard(task, 'completion'))
   const exceptionCards = todayTasks.value
-    .filter(isExceptionConfirmTask)
+    .filter(task => isExceptionConfirmTask(task))
     .map(task => buildTodayCard(task, 'exception'))
 
   return [
@@ -314,7 +316,7 @@ async function fetchWorkingHours() {
   }
 }
 
-function canNightRunTask(task: MyTask, storedNightRun?: StoredAutoSequenceForm | null) {
+function canNightRunTask(task: WorkspaceTask, storedNightRun?: StoredAutoSequenceForm | null) {
   if (storedNightRun) return true
   if (isWorkingHoursLoading.value) return false
   const nightEnd = nightRunEndTime(task)
@@ -323,15 +325,15 @@ function canNightRunTask(task: MyTask, storedNightRun?: StoredAutoSequenceForm |
   return Boolean(workdayEnd) && nightEnd.isSame(dayjs(), 'day') && !nightEnd.isBefore(workdayEnd)
 }
 
-function nightRunDisabledReason(task: MyTask, storedNightRun?: StoredAutoSequenceForm | null) {
+function nightRunDisabledReason(task: WorkspaceTask, storedNightRun?: StoredAutoSequenceForm | null) {
   if (canNightRunTask(task, storedNightRun)) return ''
-  if (!task.plan_end) return '任务没有计划结束时间，不能继续夜间运行'
+  if (!task.actionable_slot?.plan_end) return '当前可执行时间段没有计划结束时间，不能继续夜间运行'
   if (isWorkingHoursLoading.value) return '正在读取排程规则中的有效工作时段'
   if (!workdayEndTime.value) return '未读取到排程规则中的有效工作时段，暂不能继续夜间运行'
   return `首次设置夜间运行时，任务当天计划结束时间需不早于有效工作时段最晚时间 ${workdayEndTime.value}`
 }
 
-function buildTodayCard(task: MyTask, category: TodayCardCategory): TodayTaskCard {
+function buildTodayCard(task: WorkspaceTask, category: TodayCardCategory): TodayTaskCard {
   const nightStart = formatTaskTime(nightRunEndTime(task), DEFAULT_NIGHT_START)
   nightRunRevision.value
   const storedNightRun = readNightRunForm(task)
@@ -345,7 +347,7 @@ function buildTodayCard(task: MyTask, category: TodayCardCategory): TodayTaskCar
   }
 
   return {
-    key: `${category}-${task.slot_id || task.task_id}`,
+    key: `${category}-${actionableSlotId(task) || task.task_id}`,
     category,
     task,
     projectText: formatProjectText(task),
@@ -356,7 +358,7 @@ function buildTodayCard(task: MyTask, category: TodayCardCategory): TodayTaskCar
     actualText: actualText(task),
     tagText: tagTextMap[category],
     tagColor: tagColorMap[category],
-    statusText: statusLabel(task.status),
+    statusText: statusLabel(task.execution_status),
     earliestStart: nightStart,
     latestEnd: NIGHT_RESERVE_END,
     nightRunSummary: storedNightRun ? formatNightRunSummary(storedNightRun) : '',
@@ -399,6 +401,11 @@ function openDelayReport(card: TodayTaskCard) {
 
 async function submitAutoSequence() {
   if (!selectedCard.value) return
+  const slotId = actionableSlotId(selectedCard.value.task)
+  if (!slotId) {
+    message.warning('当前任务没有可执行时间段')
+    return
+  }
   if (typeof autoSequenceForm.durationHours !== 'number' || autoSequenceForm.durationHours <= 0) {
     message.warning('请填写夜间运行时长')
     return
@@ -417,7 +424,7 @@ async function submitAutoSequence() {
   }
   autoSequenceSubmitting.value = true
   try {
-      await recordNightRun(selectedCard.value.task.slot_id, {
+      await recordNightRun(slotId, {
         duration_hours: autoSequenceForm.durationHours,
         earliest_start: autoSequenceForm.startTime,
         latest_end: autoSequenceForm.endTime,
@@ -454,13 +461,13 @@ function resetAutoSequenceDraft() {
   selectedCard.value = null
 }
 
-function nightRunStorageKey(task: MyTask) {
+function nightRunStorageKey(task: WorkspaceTask) {
   const todayKey = dayjs().format('YYYY-MM-DD')
-  const resourceKey = task.instrument_id || task.slot_id
+  const resourceKey = task.actionable_slot?.instrument_id || actionableSlotId(task)
   return `${NIGHT_RUN_STORAGE_PREFIX}:${todayKey}:${task.task_id}:${resourceKey}`
 }
 
-function readNightRunForm(task: MyTask): StoredAutoSequenceForm | null {
+function readNightRunForm(task: WorkspaceTask): StoredAutoSequenceForm | null {
   try {
     const rawValue = localStorage.getItem(nightRunStorageKey(task))
     if (!rawValue) return null
@@ -486,7 +493,7 @@ function readNightRunForm(task: MyTask): StoredAutoSequenceForm | null {
   }
 }
 
-function saveNightRunForm(task: MyTask) {
+function saveNightRunForm(task: WorkspaceTask) {
   const storedForm: StoredAutoSequenceForm = {
     committed: true,
     durationHours: autoSequenceForm.durationHours,
@@ -534,13 +541,18 @@ function formatStoredEndTime(value: string, startTime?: dayjs.Dayjs) {
 
 async function submitDelayReport() {
   if (!selectedCard.value) return
+  const slotId = actionableSlotId(selectedCard.value.task)
+  if (!slotId) {
+    message.warning('当前任务没有可执行时间段')
+    return
+  }
   if (!delayForm.reason.trim()) {
     message.warning('请填写异常原因')
     return
   }
   delaySubmitting.value = true
   try {
-    const result = await reportTaskDelay(selectedCard.value.task.slot_id, {
+    const result = await reportTaskDelay(slotId, {
       delay_hours: delayForm.delayHours,
       reason: delayForm.reason.trim(),
     })

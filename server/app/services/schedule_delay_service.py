@@ -14,13 +14,14 @@ from app.services.scheduler_helpers import (
     time_horizon,
     working_time_bounds,
 )
+from app.domain.errors import DomainNotFoundError, DomainValidationError
 
 
-class ScheduleDelayNotFoundError(Exception):
+class ScheduleDelayNotFoundError(DomainNotFoundError):
     pass
 
 
-class ScheduleDelayInvalidError(Exception):
+class ScheduleDelayInvalidError(DomainValidationError):
     pass
 
 
@@ -57,20 +58,15 @@ def report_task_delay(db, slot_id: int, delay_hours: float, reason: str) -> dict
         slot.status = "blocked"
         task.status = "blocked"
 
-    try:
-        shifted_count = _apply_delay_with_working_hours(
-            db,
-            slot,
-            affected_slot_ids - {slot.id},
-            delay,
-            cutoff,
-        )
-    except ScheduleDelayInvalidError:
-        db.rollback()
-        raise
+    shifted_count = _apply_delay_with_working_hours(
+        db,
+        slot,
+        affected_slot_ids - {slot.id},
+        delay,
+        cutoff,
+    )
     _write_audit_log(db, task.id, slot, delay_hours, clean_reason, shifted_count)
 
-    db.commit()
     return {
         "status": "ok",
         "task_id": task.id,

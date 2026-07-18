@@ -1,0 +1,61 @@
+from app.models import Notification, Project, Task, TimeSlot
+
+
+MANAGEMENT_ROLES = {"系统管理员", "项目管理员", "分析所所长"}
+
+
+class AccessDeniedError(Exception):
+    pass
+
+
+class AccessResourceNotFoundError(Exception):
+    pass
+
+
+def is_management_user(user) -> bool:
+    return user.role in MANAGEMENT_ROLES
+
+
+def require_management_user(user) -> None:
+    if not is_management_user(user):
+        raise AccessDeniedError("当前账号无权执行管理操作")
+
+
+def require_project_editor(db, project_id: int, user) -> Project:
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project is None:
+        raise AccessResourceNotFoundError("项目不存在")
+    if not is_management_user(user) and project.manager_id != user.id:
+        raise AccessDeniedError("无权修改该项目")
+    return project
+
+
+def require_task_editor(db, task_id: int, user) -> Task:
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if task is None:
+        raise AccessResourceNotFoundError("任务不存在")
+    require_project_editor(db, task.project_id, user)
+    return task
+
+
+def require_slot_operator(db, slot_id: int, user) -> TimeSlot:
+    slot = db.query(TimeSlot).filter(TimeSlot.id == slot_id).first()
+    if slot is None:
+        raise AccessResourceNotFoundError("时间槽不存在")
+    task = db.query(Task).filter(Task.id == slot.task_id).first()
+    if task is None:
+        raise AccessResourceNotFoundError("任务不存在")
+    project = db.query(Project).filter(Project.id == task.project_id).first()
+    is_project_manager = project is not None and project.manager_id == user.id
+    if not is_management_user(user) and task.assignee_id != user.id and not is_project_manager:
+        raise AccessDeniedError("只能操作本人负责的任务")
+    return slot
+
+
+def require_notification_owner(db, notification_id: int, user) -> Notification:
+    notification = db.query(Notification).filter(Notification.id == notification_id).first()
+    if notification is None:
+        raise AccessResourceNotFoundError("通知不存在")
+    if not is_management_user(user) and notification.user_name != user.username:
+        raise AccessDeniedError("无权操作该通知")
+    return notification

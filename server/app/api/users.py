@@ -3,8 +3,7 @@ import hmac
 import os
 import re
 import secrets
-import time
-from typing import Dict, List
+from typing import List
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -13,6 +12,15 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models import User
 from app.services.user_directory_service import list_user_directory
+from app.services.auth_session_service import (
+    check_throttle,
+    clear_failure,
+    create_session,
+    record_failure,
+    resolve_session_user,
+    revoke_session,
+    revoke_user_sessions,
+)
 from app.schemas.schemas import UserCreate, UserDirectoryOut, UserOut
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
@@ -26,11 +34,6 @@ MAX_LOGIN_FAILURES = 5
 MAX_LOGIN_FAILURE_KEYS = 5000
 PBKDF2_ITERATIONS = 120_000
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{3,50}$")
-
-# 会话仅驻留服务端内存，避免 bearer token 被明文写入工作区或提交到仓库。
-TOKENS: Dict[str, Dict] = {}
-LOGIN_FAILURES: Dict[str, Dict[str, float | int]] = {}
-
 
 def hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
@@ -62,16 +65,8 @@ def needs_password_rehash(stored: str) -> bool:
     return not stored.startswith("pbkdf2_sha256$")
 
 
-def create_token(user_id: int, username: str = "") -> str:
-    token = secrets.token_hex(32)
-    now = time.time()
-    TOKENS[token] = {
-        "user_id": user_id,
-        "username": username,
-        "expires_at": now + IDLE_TIMEOUT_SECONDS,
-        "last_seen_at": now,
-    }
-    return token
+def create_token(user_id: int, username: str, db: Session) -> str:
+    return create_session(db, user_id, username, IDLE_TIMEOUT_SECONDS)
 
 
 def auth_token(
@@ -85,18 +80,11 @@ def auth_token(
 
 
 def get_current_user(token: str, db: Session) -> User:
-    entry = TOKENS.get(token)
-    now = time.time()
-    if not entry or float(entry.get("expires_at", 0)) < now:
-        if entry:
-            TOKENS.pop(token, None)
+    user = resolve_session_user(db, token, IDLE_TIMEOUT_SECONDS)
+    if user is None:
+        db.commit()
         raise HTTPException(status_code=401, detail="未登录或登录已过期")
-    user = db.query(User).filter(User.id == entry["user_id"]).first()
-    if not user or not user.is_active:
-        TOKENS.pop(token, None)
-        raise HTTPException(status_code=401, detail="用户不存在或已停用")
-    entry["last_seen_at"] = now
-    entry["expires_at"] = now + IDLE_TIMEOUT_SECONDS
+    db.commit()
     return user
 
 
@@ -156,46 +144,25 @@ def login_key(request: Request, username: str) -> str:
     return f"{client}:{username.lower()}"
 
 
-def check_login_throttle(request: Request, username: str) -> None:
-    prune_login_failures()
-    record = LOGIN_FAILURES.get(login_key(request, username))
-    now = time.time()
-    if record and float(record.get("locked_until", 0)) > now:
+def check_login_throttle(request: Request, username: str, db: Session) -> None:
+    if check_throttle(db, login_key(request, username)):
         raise HTTPException(status_code=429, detail="登录失败次数过多，请15分钟后再试")
 
 
-def record_login_failure(request: Request, username: str) -> None:
-    prune_login_failures()
-    key = login_key(request, username)
-    now = time.time()
-    record = LOGIN_FAILURES.get(key)
-    if not record or now - float(record.get("first_failed_at", 0)) > LOGIN_FAILURE_WINDOW_SECONDS:
-        LOGIN_FAILURES[key] = {"count": 1, "first_failed_at": now, "locked_until": 0}
-        return
-    count = int(record.get("count", 0)) + 1
-    record["count"] = count
-    if count >= MAX_LOGIN_FAILURES:
-        record["locked_until"] = now + LOGIN_LOCK_SECONDS
+def record_login_failure(request: Request, username: str, db: Session) -> None:
+    record_failure(
+        db,
+        login_key(request, username),
+        LOGIN_FAILURE_WINDOW_SECONDS,
+        LOGIN_LOCK_SECONDS,
+        MAX_LOGIN_FAILURES,
+        MAX_LOGIN_FAILURE_KEYS,
+    )
+    db.commit()
 
 
-def clear_login_failure(request: Request, username: str) -> None:
-    LOGIN_FAILURES.pop(login_key(request, username), None)
-
-
-def prune_login_failures() -> None:
-    now = time.time()
-    expired_keys = [
-        key for key, record in LOGIN_FAILURES.items()
-        if float(record.get("locked_until", 0)) < now
-        and now - float(record.get("first_failed_at", 0)) > LOGIN_FAILURE_WINDOW_SECONDS
-    ]
-    for key in expired_keys:
-        LOGIN_FAILURES.pop(key, None)
-    if len(LOGIN_FAILURES) <= MAX_LOGIN_FAILURE_KEYS:
-        return
-    sorted_items = sorted(LOGIN_FAILURES.items(), key=lambda item: float(item[1].get("first_failed_at", 0)))
-    for key, _ in sorted_items[: len(LOGIN_FAILURES) - MAX_LOGIN_FAILURE_KEYS]:
-        LOGIN_FAILURES.pop(key, None)
+def clear_login_failure(request: Request, username: str, db: Session) -> None:
+    clear_failure(db, login_key(request, username))
 
 
 def _seed_admin(db: Session):
@@ -306,21 +273,22 @@ class ChangeMyPasswordRequest(BaseModel):
 def login(data: LoginRequest, request: Request, db: Session = Depends(get_db)):
     _seed_admin(db)
     username = data.username.strip()
-    check_login_throttle(request, username)
+    check_login_throttle(request, username, db)
     user = db.query(User).filter(User.username == username).first()
     stored_hash = user.password_hash if user else DUMMY_PASSWORD_HASH
     password_ok = verify_password(data.password, stored_hash or DUMMY_PASSWORD_HASH)
     if not user or not password_ok:
-        record_login_failure(request, username)
+        record_login_failure(request, username, db)
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     if not user.is_active:
-        record_login_failure(request, username)
+        record_login_failure(request, username, db)
         raise HTTPException(status_code=403, detail="账号已停用")
     if needs_password_rehash(user.password_hash or ""):
         user.password_hash = hash_password(data.password)
         db.commit()
-    clear_login_failure(request, username)
-    token = create_token(user.id, user.username)
+    clear_login_failure(request, username, db)
+    token = create_token(user.id, user.username, db)
+    db.commit()
     return {
         "token": token,
         "expires_in": IDLE_TIMEOUT_SECONDS,
@@ -343,8 +311,8 @@ def change_my_password(data: ChangeMyPasswordRequest, token: str = Depends(auth_
     if data.old_password == data.new_password:
         raise HTTPException(status_code=400, detail="新密码不能与原密码相同")
     user.password_hash = hash_password(data.new_password)
+    revoke_user_sessions(db, user.id)
     db.commit()
-    TOKENS.pop(token, None)
     return {"detail": "密码已修改，请重新登录"}
 
 
@@ -355,6 +323,7 @@ def keep_alive(token: str = Depends(auth_token), db: Session = Depends(get_db)):
 
 
 @router.post("/logout")
-def logout(token: str = Depends(auth_token)):
-    TOKENS.pop(token, None)
+def logout(token: str = Depends(auth_token), db: Session = Depends(get_db)):
+    revoke_session(db, token)
+    db.commit()
     return {"detail": "已退出"}

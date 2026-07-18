@@ -54,7 +54,7 @@ def complete_task_and_shift(
     for instrument_id in affected_instrument_ids:
         refresh_instrument_status(db, instrument_id)
 
-    db.commit()
+    db.flush()
     if not release_instrument:
         return {
             "status": "ok",
@@ -65,7 +65,7 @@ def complete_task_and_shift(
     result = _forward_shift_instrument_queue(db, completed_slot.instrument_id, end_time)
     moved_task_details = result.pop("moved_task_details", [])
     notify_advanced_task_assignees(db, task, end_time, planned_end, moved_task_details)
-    db.commit()
+    db.flush()
     result["released_instrument"] = True
     return result
 
@@ -212,7 +212,7 @@ def _forward_shift_instrument_queue(
             "new_end": new_slots[-1][1],
         })
 
-    db.commit()
+    db.flush()
     return {
         "status": "ok",
         "message": f"任务已完成，该仪器跨项目前移 {moved} 个任务",

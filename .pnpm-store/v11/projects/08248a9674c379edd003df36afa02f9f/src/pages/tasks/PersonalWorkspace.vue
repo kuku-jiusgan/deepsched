@@ -31,7 +31,7 @@
         :pagination="{ pageSize: 20, showSizeChanger: true }">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">
-            <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
+            <a-tag :color="statusColor(record.execution_status)">{{ statusLabel(record.execution_status) }}</a-tag>
           </template>
           <template v-else-if="column.key === 'task_type'">
             <a-tag v-if="record.task_type" :color="taskTypeColor(record.task_type)" style="font-size: 11px">{{ taskTypeLabel(record.task_type) }}</a-tag>
@@ -54,25 +54,25 @@
             {{ formatTaskPlanEnd(record) }}
           </template>
           <template v-else-if="column.key === 'actions'">
-            <template v-if="!record.slot_id">
+            <template v-if="!record.actionable_slot">
               <a-tag color="default">未排程</a-tag>
             </template>
             <a-space v-else :size="4">
               <a-button
-                v-if="record.status === 'scheduled' || record.status === 'pending'"
+                v-if="record.execution_status === 'scheduled' || record.execution_status === 'pending'"
                 type="primary"
                 size="small"
                 class="task-action-button task-action-button-start"
                 @click="handleStart(record)"
-                :loading="actingId === record.slot_id"
+                :loading="actingId === record.actionable_slot?.id"
               >
                 <PlayCircleOutlined /> 开始
               </a-button>
               <a-button
-                v-if="record.status === 'running'"
+                v-if="record.execution_status === 'running'"
                 size="small"
                 class="task-action-button task-action-button-complete"
-                :loading="actingId === record.slot_id"
+                :loading="actingId === record.actionable_slot?.id"
                 @click="handleComplete(record)"
               >
                 <CheckCircleOutlined /> 完成
@@ -110,22 +110,29 @@ import { ref, computed, onBeforeUnmount, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { CheckCircleOutlined, PlayCircleOutlined } from '@ant-design/icons-vue'
 import {
-  getApprovalGates, getMyTasks, startTask, completeTask, getTaskTypes, type MyTask,
+  getApprovalGates, startTask, completeTask, getTaskTypes,
 } from '@/services/api'
+import { getMyTasks } from '@/services/workspaceApi'
 import type { ApprovalGate } from '@/types'
+import type { WorkspaceTask } from '@/domains/tasks/workspaceTask'
+import {
+  actionableSlotId,
+  isWorkspaceActiveTask,
+  isWorkspacePendingTask,
+} from '@/domains/tasks/workspaceTask'
 import TodayTaskCards from './TodayTaskCards.vue'
 import ApprovalConfirmationGroup from './ApprovalConfirmationGroup.vue'
 import './workspaceActionButtons.css'
 import dayjs from 'dayjs'
 
-const tasks = ref<MyTask[]>([])
+const tasks = ref<WorkspaceTask[]>([])
 const approvalGates = ref<ApprovalGate[]>([])
 const loading = ref(true)
 const activeTab = ref<string>('active')
 const actingId = ref<number | null>(null)
 const releaseConfirmOpen = ref(false)
 const releaseSubmitting = ref(false)
-const releaseConfirmTask = ref<MyTask | null>(null)
+const releaseConfirmTask = ref<WorkspaceTask | null>(null)
 let isFetching = false
 
 const EARLY_RELEASE_THRESHOLD_MINUTES = 30
@@ -133,22 +140,17 @@ const EARLY_RELEASE_THRESHOLD_MINUTES = 30
 
 const cardTasks = computed(() => {
   if (activeTab.value === 'active') {
-    return tasks.value.filter(task => ['running', 'blocked', 'interrupted'].includes(task.status) || isTodayPendingTask(task))
+    return tasks.value.filter(task => isWorkspaceActiveTask(task))
   }
   if (activeTab.value === 'pending') {
-    return tasks.value.filter(task => ['pending', 'scheduled'].includes(task.status) && !isTodayPendingTask(task))
+    return tasks.value.filter(task => isWorkspacePendingTask(task))
   }
   return []
 })
 
-function isTodayPendingTask(task: MyTask) {
-  if (!['pending', 'scheduled'].includes(task.status) || !task.plan_start) return false
-  return dayjs(task.plan_start).isSame(dayjs(), 'day')
-}
-
 const filtered = computed(() => {
   if (activeTab.value === 'completed') {
-    return tasks.value.filter(task => ['done', 'completed'].includes(task.status))
+    return tasks.value.filter(task => ['done', 'completed'].includes(task.execution_status))
   }
   return cardTasks.value
 })
@@ -185,19 +187,20 @@ function formatDateTime(value: string | null | undefined) {
   return value ? dayjs(value).format('MM-DD HH:mm') : '-'
 }
 
-function formatInstrument(record: MyTask) {
-  if (record.instrument_code && record.instrument_name) {
-    return `${record.instrument_code} · ${record.instrument_name}`
+function formatInstrument(record: WorkspaceTask) {
+  const slot = record.actionable_slot
+  if (slot?.instrument_code && slot.instrument_name) {
+    return `${slot.instrument_code} · ${slot.instrument_name}`
   }
-  return record.instrument_code || record.instrument_name || '-'
+  return slot?.instrument_code || slot?.instrument_name || '-'
 }
 
-function formatTaskPlanStart(record: MyTask) {
-  return formatDateTime(record.task_plan_start || record.plan_start)
+function formatTaskPlanStart(record: WorkspaceTask) {
+  return formatDateTime(record.task_window.start)
 }
 
-function formatTaskPlanEnd(record: MyTask) {
-  return formatDateTime(record.task_plan_end || record.plan_end)
+function formatTaskPlanEnd(record: WorkspaceTask) {
+  return formatDateTime(record.task_window.end)
 }
 
 const columns = [
@@ -235,10 +238,12 @@ function refreshWorkspaceWhenActive() {
   if (document.visibilityState === 'visible') void fetchData(true)
 }
 
-async function handleStart(record: MyTask) {
-  actingId.value = record.slot_id
+async function handleStart(record: WorkspaceTask) {
+  const slotId = actionableSlotId(record)
+  if (!slotId) return
+  actingId.value = slotId
   try {
-    await startTask(record.slot_id)
+    await startTask(slotId)
     message.success('任务已开始')
     fetchData()
   } catch (error: unknown) { message.error(errorDetail(error, '开始任务失败')) }
@@ -252,7 +257,7 @@ const releaseConfirmContent = computed(() => {
   return `当前完成时间比计划完成时间 ${formatTaskPlanEnd(record)} 提前约 ${earlyMinutes} 分钟。释放仪器后，同项目同仪器的后续任务可按约束前移。`
 })
 
-async function handleComplete(record: MyTask) {
+async function handleComplete(record: WorkspaceTask) {
   const earlyMinutes = getEarlyCompletionMinutes(record)
   if (earlyMinutes > EARLY_RELEASE_THRESHOLD_MINUTES) {
     releaseConfirmTask.value = record
@@ -277,16 +282,18 @@ async function confirmTaskCompletion(releaseInstrument: boolean) {
   if (isCompleted) closeReleaseConfirm()
 }
 
-function getEarlyCompletionMinutes(record: MyTask) {
-  const plannedEnd = record.task_plan_end || record.plan_end
+function getEarlyCompletionMinutes(record: WorkspaceTask) {
+  const plannedEnd = record.task_window.end
   if (!plannedEnd) return 0
   return dayjs(plannedEnd).diff(dayjs(), 'minute')
 }
 
-async function submitComplete(record: MyTask, releaseInstrument: boolean) {
-  actingId.value = record.slot_id
+async function submitComplete(record: WorkspaceTask, releaseInstrument: boolean) {
+  const slotId = actionableSlotId(record)
+  if (!slotId) return false
+  actingId.value = slotId
   try {
-    const result = await completeTask(record.slot_id, { release_instrument: releaseInstrument })
+    const result = await completeTask(slotId, { release_instrument: releaseInstrument })
     message.success(completionMessage(result, releaseInstrument))
     await fetchData()
     return true

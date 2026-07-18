@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.schemas.schemas import ScheduleRuleOut, ScheduleRuleUpdate
 from app.services import schedule_rule_service
+from app.api.access import require_management_user
 
 
 router = APIRouter(
@@ -24,6 +25,7 @@ def update_rule(
     rule_id: int,
     data: ScheduleRuleUpdate,
     db: Session = Depends(get_db),
+    _user=Depends(require_management_user),
 ):
     try:
         return schedule_rule_service.update_rule(db, rule_id, data)
@@ -34,7 +36,11 @@ def update_rule(
 
 
 @router.put("/{rule_id}/toggle", response_model=ScheduleRuleOut)
-def toggle_rule(rule_id: int, db: Session = Depends(get_db)):
+def toggle_rule(
+    rule_id: int,
+    db: Session = Depends(get_db),
+    _user=Depends(require_management_user),
+):
     try:
         return schedule_rule_service.toggle_rule(db, rule_id)
     except schedule_rule_service.ScheduleRuleNotFoundError:

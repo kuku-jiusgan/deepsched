@@ -29,6 +29,14 @@ from app.services.project_plan_change_service import (
 )
 from app.services.project_status_service import calculate_project_status
 from app.services.instrument_status_service import delete_time_slots_and_refresh
+from app.api.access import (
+    require_project_editor_by_proj_id,
+    require_task_editor,
+)
+from app.services.project_reference_validation_service import (
+    ProjectReferenceInvalidError,
+    validate_task_references,
+)
 
 router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 
@@ -81,7 +89,11 @@ def project_response(project: Project) -> dict:
     return data
 
 @router.delete("/{proj_id}")
-def delete_project(proj_id: int, db: Session = Depends(get_db)):
+def delete_project(
+    proj_id: int,
+    db: Session = Depends(get_db),
+    _user=Depends(require_project_editor_by_proj_id),
+):
     proj = db.query(Project).filter(Project.id == proj_id).first()
     if not proj:
         raise HTTPException(status_code=404, detail="项目不存在")
@@ -104,7 +116,12 @@ def delete_project(proj_id: int, db: Session = Depends(get_db)):
     return {"detail": "已删除"}
 
 @router.post("/{proj_id}/milestones", response_model=MilestoneOut)
-def add_milestone(proj_id: int, data: MilestoneCreate, db: Session = Depends(get_db)):
+def add_milestone(
+    proj_id: int,
+    data: MilestoneCreate,
+    db: Session = Depends(get_db),
+    _user=Depends(require_project_editor_by_proj_id),
+):
     ms = Milestone(project_id=proj_id, name=data.name, due_date=data.due_date)
     db.add(ms)
     db.commit()
@@ -112,7 +129,24 @@ def add_milestone(proj_id: int, data: MilestoneCreate, db: Session = Depends(get
     return ms
 
 @router.post("/{proj_id}/tasks", response_model=TaskOut)
-def add_task(proj_id: int, data: TaskCreate, db: Session = Depends(get_db)):
+def add_task(
+    proj_id: int,
+    data: TaskCreate,
+    db: Session = Depends(get_db),
+    _user=Depends(require_project_editor_by_proj_id),
+):
+    try:
+        validate_task_references(
+            db,
+            proj_id,
+            parent_id=data.parent_id,
+            milestone_id=data.milestone_id,
+            predecessor_ids=data.predecessor_ids,
+            assignee_id=data.assignee_id,
+            instrument_ids=data.instrument_ids,
+        )
+    except ProjectReferenceInvalidError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     task = Task(
         project_id=proj_id, name=data.name, task_type=data.task_type,
         requires_instrument=data.requires_instrument, requires_human=data.requires_human,
@@ -138,7 +172,11 @@ def add_task(proj_id: int, data: TaskCreate, db: Session = Depends(get_db)):
     return _task_to_out(task, db)
 
 @router.delete("/tasks/{task_id}")
-def delete_task(task_id: int, db: Session = Depends(get_db)):
+def delete_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    _user=Depends(require_task_editor),
+):
     try:
         delete_task_plan(db, task_id)
         return {"detail": "已删除"}
@@ -148,7 +186,12 @@ def delete_task(task_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail=str(exc))
 
 @router.put("/tasks/{task_id}", response_model=TaskOut)
-def update_task(task_id: int, data: TaskUpdate, db: Session = Depends(get_db)):
+def update_task(
+    task_id: int,
+    data: TaskUpdate,
+    db: Session = Depends(get_db),
+    _user=Depends(require_task_editor),
+):
     try:
         return _task_to_out(update_task_plan(db, task_id, data), db)
     except PlanChangeNotFoundError as exc:

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List
 from app.core.database import get_db
-from app.models import Instrument, InstrumentCapability, MaintenanceWindow, InstrumentFault
+from app.models import Instrument, InstrumentCapability, MaintenanceWindow, InstrumentFault, User
 from app.schemas.schemas import (
     InstrumentCreate, InstrumentOut, CapabilityCreate, CapabilityOut,
     MaintenanceCreate, MaintenanceOut, FaultCreate, FaultOut
@@ -17,11 +17,18 @@ from app.services.instrument_fault_service import (
     report_fault as report_fault_service,
     resolve_fault as resolve_fault_service,
 )
+from app.api.access import require_management_user
+from app.api.users import require_authenticated_user
+from app.services.access_control_service import is_management_user
 
 router = APIRouter(prefix="/api/v1/instruments", tags=["instruments"])
 
 @router.post("", response_model=InstrumentOut)
-def create_instrument(data: InstrumentCreate, db: Session = Depends(get_db)):
+def create_instrument(
+    data: InstrumentCreate,
+    db: Session = Depends(get_db),
+    _user=Depends(require_management_user),
+):
     existing = db.query(Instrument).filter(Instrument.code == data.code).first()
     if existing:
         raise HTTPException(status_code=409, detail=f"仪器编码 {data.code} 已存在")
@@ -67,7 +74,12 @@ def get_instrument(inst_id: int, db: Session = Depends(get_db)):
     return inst
 
 @router.put("/{inst_id}", response_model=InstrumentOut)
-def update_instrument(inst_id: int, data: InstrumentCreate, db: Session = Depends(get_db)):
+def update_instrument(
+    inst_id: int,
+    data: InstrumentCreate,
+    db: Session = Depends(get_db),
+    _user=Depends(require_management_user),
+):
     inst = db.query(Instrument).filter(Instrument.id == inst_id).first()
     if not inst:
         raise HTTPException(status_code=404, detail="仪器不存在")
@@ -95,7 +107,12 @@ def update_instrument(inst_id: int, data: InstrumentCreate, db: Session = Depend
     return inst
 
 @router.post("/{inst_id}/capabilities", response_model=CapabilityOut)
-def add_capability(inst_id: int, data: CapabilityCreate, db: Session = Depends(get_db)):
+def add_capability(
+    inst_id: int,
+    data: CapabilityCreate,
+    db: Session = Depends(get_db),
+    _user=Depends(require_management_user),
+):
     cap = InstrumentCapability(instrument_id=inst_id, tag_name=data.tag_name, tag_value=data.tag_value)
     db.add(cap)
     db.commit()
@@ -103,7 +120,12 @@ def add_capability(inst_id: int, data: CapabilityCreate, db: Session = Depends(g
     return cap
 
 @router.post("/{inst_id}/maintenance", response_model=MaintenanceOut)
-def add_maintenance(inst_id: int, data: MaintenanceCreate, db: Session = Depends(get_db)):
+def add_maintenance(
+    inst_id: int,
+    data: MaintenanceCreate,
+    db: Session = Depends(get_db),
+    _user=Depends(require_management_user),
+):
     mw = MaintenanceWindow(
         instrument_id=inst_id, start_time=data.start_time,
         end_time=data.end_time, mw_type=data.mw_type, description=data.description
@@ -118,7 +140,14 @@ def list_maintenance(inst_id: int, db: Session = Depends(get_db)):
     return db.query(MaintenanceWindow).filter(MaintenanceWindow.instrument_id == inst_id).all()
 
 @router.post("/{inst_id}/fault", response_model=FaultOut)
-def report_fault(inst_id: int, data: FaultCreate, db: Session = Depends(get_db)):
+def report_fault(
+    inst_id: int,
+    data: FaultCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_authenticated_user),
+):
+    if data.resolved_at is not None and not is_management_user(user):
+        raise HTTPException(status_code=403, detail="只有管理角色可以直接归档故障")
     try:
         fault = report_fault_service(
             db,
@@ -136,7 +165,11 @@ def report_fault(inst_id: int, data: FaultCreate, db: Session = Depends(get_db))
     return fault
 
 @router.delete("/{inst_id}")
-def delete_instrument(inst_id: int, db: Session = Depends(get_db)):
+def delete_instrument(
+    inst_id: int,
+    db: Session = Depends(get_db),
+    _user=Depends(require_management_user),
+):
     inst = db.query(Instrument).filter(Instrument.id == inst_id).first()
     if not inst:
         raise HTTPException(status_code=404, detail="仪器不存在")
@@ -145,7 +178,12 @@ def delete_instrument(inst_id: int, db: Session = Depends(get_db)):
     return {"status": "deleted"}
 
 @router.put("/{inst_id}/fault/{fault_id}/resolve", response_model=FaultOut)
-def resolve_fault(inst_id: int, fault_id: int, db: Session = Depends(get_db)):
+def resolve_fault(
+    inst_id: int,
+    fault_id: int,
+    db: Session = Depends(get_db),
+    _user=Depends(require_management_user),
+):
     fault = resolve_fault_service(db, inst_id, fault_id)
     if not fault:
         raise HTTPException(status_code=404, detail="故障记录不存在")

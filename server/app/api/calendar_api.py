@@ -5,8 +5,13 @@ from datetime import date, timedelta, datetime
 from app.core.database import get_db
 from app.models.models import SysCalendar
 from pydantic import BaseModel
+from app.api.access import require_management_user
 
-router = APIRouter(prefix="/api/v1/calendar", tags=["calendar"])
+router = APIRouter(
+    prefix="/api/v1/calendar",
+    tags=["calendar"],
+    dependencies=[Depends(require_management_user)],
+)
 
 class CalendarDayOut(BaseModel):
     id: int
@@ -119,8 +124,8 @@ def sync_holidays(year: int, db: Session = Depends(get_db)):
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         resp = urllib.request.urlopen(req, timeout=10)
         data = jmod.loads(resp.read().decode())
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"API请求失败: {str(e)}")
+    except Exception:
+        raise HTTPException(status_code=502, detail="节假日服务暂时不可用")
 
     if data.get("code") != 0:
         raise HTTPException(status_code=502, detail=f"API返回异常: {data.get('msg', '未知错误')}")

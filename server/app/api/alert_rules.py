@@ -4,10 +4,15 @@ from typing import List
 from app.core.database import get_db
 from app.models.models import AlertRule
 from app.services.push_notification_service import get_push_config, update_push_config
+from app.api.access import require_management_user
 from pydantic import BaseModel
 from typing import Optional
 
-router = APIRouter(prefix="/api/v1/alert-rules", tags=["alert-rules"])
+router = APIRouter(
+    prefix="/api/v1/alert-rules",
+    tags=["alert-rules"],
+    dependencies=[Depends(require_management_user)],
+)
 
 class AlertRuleOut(BaseModel):
     id: int

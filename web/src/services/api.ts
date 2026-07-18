@@ -1,4 +1,4 @@
-import axios from 'axios';
+import api from './http'
 import type {
   Project, Instrument, TimeSlot, DashboardData, UtilizationStats, ProjectPlanApplyResult,
   DAGData, InsertCost, InsertOrderResult, Task, CapabilityReq, InstrumentFault,
@@ -12,35 +12,6 @@ export type {
   ApprovalGate, ApprovalGateAction, ApprovalGateList,
   StandardPlanImportResult,
 }
-
-
-const api = axios.create({ baseURL: '/api/v1' });
-
-api.interceptors.request.use(config => {
-  const token = localStorage.getItem('token')
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
-  }
-  return config
-})
-
-api.interceptors.response.use(
-  r => r,
-  error => {
-    if (error && error.response && error.response.status === 401) {
-      const currentPath = window.location.pathname
-      if (currentPath !== '/login') {
-        console.warn('[Auth] 401 on', error.config?.url, '- redirecting to login')
-        localStorage.removeItem('token')
-        localStorage.removeItem('user')
-        // Use location.href for hard redirect to clear all state
-        window.location.href = '/login?expired=1'
-      }
-    }
-    return Promise.reject(error)
-  }
-)
-
 
 
 // Projects
@@ -386,21 +357,6 @@ export const updateScheduleRule = (id: number, data: { params?: Record<string, S
 
 export const toggleScheduleRule = (id: number): Promise<ScheduleRule> =>
   api.put<ScheduleRule>(`/schedule-rules/${id}/toggle`).then(r => r.data)
-
-// My Tasks
-export interface MyTask {
-  slot_id: number; task_id: number; task_name: string | null; task_type: string | null
-  assignee_id: number | null; assignee_name: string | null
-  project_id: number | null; project_name: string | null; project_code: string | null
-  instrument_id: number; instrument_name: string | null; instrument_code: string | null
-  plan_start: string | null; plan_end: string | null; actual_start: string | null; actual_end: string | null
-  task_plan_start?: string | null; task_plan_end?: string | null
-  status: string; delay_status: 'delayed' | 'not_delayed'; tier: string; est_duration_hours: number | null
-  delay_hours?: number | null; delay_reason?: string | null; delay_reported_at?: string | null
-}
-
-export const getMyTasks = (): Promise<MyTask[]> =>
-  api.get<MyTask[]>('/schedules/my-tasks').then(r => r.data)
 
 // Stats
 export interface StatsRangeParams {

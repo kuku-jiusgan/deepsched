@@ -1,6 +1,5 @@
 import unittest
 from datetime import datetime
-from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -9,10 +8,10 @@ from app.api.schedules import (
     _filter_workspace_tasks_by_user,
     _select_workspace_slot,
     _task_actual_window,
-    my_tasks,
 )
 from app.core.database import Base
 from app.models import Project, Task, TimeSlot, User
+from app.services.workspace_service import get_workspace_tasks
 
 
 class WorkspaceTaskVisibilityTest(unittest.TestCase):
@@ -122,9 +121,7 @@ class WorkspaceTaskVisibilityTest(unittest.TestCase):
         self.assertEqual(started_at, actual_start)
         self.assertIsNone(actual_end)
 
-    @patch("app.api.users.get_current_user")
-    def test_workspace_response_includes_persisted_delay_status(self, get_current_user):
-        get_current_user.return_value = self.owner
+    def test_workspace_response_includes_persisted_delay_status(self):
         self.owner_task.delay_status = "delayed"
         self.db.add(TimeSlot(
             task_id=self.owner_task.id,
@@ -135,10 +132,36 @@ class WorkspaceTaskVisibilityTest(unittest.TestCase):
         ))
         self.db.commit()
 
-        result = my_tasks(token="token", db=self.db)
+        result = get_workspace_tasks(self.db, self.owner)
 
-        task_result = next(item for item in result if item["task_id"] == self.owner_task.id)
-        self.assertEqual("delayed", task_result["delay_status"])
+        task_result = next(item for item in result if item.task_id == self.owner_task.id)
+        self.assertEqual("delayed", task_result.delay.status)
+
+    def test_workspace_uses_full_task_window_across_rest_periods(self):
+        first_slot = TimeSlot(
+            task_id=self.owner_task.id,
+            instrument_id=None,
+            plan_start=datetime(2026, 7, 17, 21, 0),
+            plan_end=datetime(2026, 7, 17, 22, 0),
+            status="scheduled",
+        )
+        second_slot = TimeSlot(
+            task_id=self.owner_task.id,
+            instrument_id=None,
+            plan_start=datetime(2026, 7, 20, 8, 30),
+            plan_end=datetime(2026, 7, 20, 9, 30),
+            status="scheduled",
+        )
+        self.db.add_all([first_slot, second_slot])
+        self.db.commit()
+
+        result = get_workspace_tasks(self.db, self.owner, datetime(2026, 7, 18, 9, 0))
+
+        task_result = next(item for item in result if item.task_id == self.owner_task.id)
+        self.assertEqual(datetime(2026, 7, 17, 21, 0), task_result.task_window.start)
+        self.assertEqual(datetime(2026, 7, 20, 9, 30), task_result.task_window.end)
+        self.assertEqual(second_slot.id, task_result.actionable_slot.id)
+        self.assertEqual(2, len(task_result.segments))
 
 
 if __name__ == "__main__":

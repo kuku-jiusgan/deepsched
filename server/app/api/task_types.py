@@ -1,20 +1,21 @@
 ﻿from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.core.database import get_db
 from app.models import TaskTypeConfig
+from app.api.access import require_management_user
 
 router = APIRouter(prefix="/api/v1/task-types", tags=["task-types"])
 
 class TaskTypeCreate(BaseModel):
-    name: str
-    code: str
+    name: str = Field(min_length=1, max_length=100)
+    code: str = Field(min_length=1, max_length=50, pattern=r"^[A-Za-z0-9_.-]+$")
     resource_type: str = "both"
-    description: Optional[str] = None
+    description: Optional[str] = Field(default=None, max_length=500)
     is_active: bool = True
     sort_order: int = 0
-    predecessor_type_ids: Optional[List[int]] = []
+    predecessor_type_ids: List[int] = Field(default_factory=list, max_length=100)
 
 class TaskTypeOut(BaseModel):
     id: int
@@ -24,7 +25,7 @@ class TaskTypeOut(BaseModel):
     description: Optional[str]
     is_active: bool
     sort_order: int
-    predecessor_type_ids: Optional[List[int]] = []
+    predecessor_type_ids: List[int] = Field(default_factory=list)
     model_config = {"from_attributes": True}
 
 @router.get("", response_model=List[TaskTypeOut])
@@ -32,7 +33,11 @@ def list_task_types(db: Session = Depends(get_db)):
     return db.query(TaskTypeConfig).order_by(TaskTypeConfig.sort_order).all()
 
 @router.post("", response_model=TaskTypeOut)
-def create_task_type(data: TaskTypeCreate, db: Session = Depends(get_db)):
+def create_task_type(
+    data: TaskTypeCreate,
+    db: Session = Depends(get_db),
+    _user=Depends(require_management_user),
+):
     existing = db.query(TaskTypeConfig).filter(TaskTypeConfig.code == data.code).first()
     if existing:
         raise HTTPException(status_code=400, detail="类型编码已存在")
@@ -43,7 +48,12 @@ def create_task_type(data: TaskTypeCreate, db: Session = Depends(get_db)):
     return item
 
 @router.put("/{item_id}", response_model=TaskTypeOut)
-def update_task_type(item_id: int, data: TaskTypeCreate, db: Session = Depends(get_db)):
+def update_task_type(
+    item_id: int,
+    data: TaskTypeCreate,
+    db: Session = Depends(get_db),
+    _user=Depends(require_management_user),
+):
     item = db.query(TaskTypeConfig).filter(TaskTypeConfig.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="任务类型不存在")
@@ -57,7 +67,11 @@ def update_task_type(item_id: int, data: TaskTypeCreate, db: Session = Depends(g
     return item
 
 @router.delete("/{item_id}")
-def delete_task_type(item_id: int, db: Session = Depends(get_db)):
+def delete_task_type(
+    item_id: int,
+    db: Session = Depends(get_db),
+    _user=Depends(require_management_user),
+):
     item = db.query(TaskTypeConfig).filter(TaskTypeConfig.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="任务类型不存在")

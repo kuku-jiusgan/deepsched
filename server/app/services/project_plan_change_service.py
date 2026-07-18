@@ -14,6 +14,10 @@ from app.services.project_date_service import (
     normalize_project_end,
     normalize_project_start,
 )
+from app.services.project_reference_validation_service import (
+    ProjectReferenceInvalidError,
+    validate_task_references,
+)
 
 
 SCHEDULE_FIELDS = {
@@ -121,6 +125,22 @@ def update_task_plan(db, task_id: int, data: TaskUpdate) -> Task:
         raise PlanChangeInvalidError("任务名称不能为空")
     if predecessor_ids is not None and task.id in predecessor_ids:
         raise PlanChangeInvalidError("任务不能依赖自身")
+    try:
+        validate_task_references(
+            db,
+            task.project_id,
+            parent_id=changes.get("parent_id", task.parent_id),
+            milestone_id=changes.get("milestone_id", task.milestone_id),
+            predecessor_ids=list(
+                predecessor_ids if predecessor_ids is not None else task.predecessor_ids or []
+            ),
+            assignee_id=changes.get("assignee_id", task.assignee_id),
+            instrument_ids=list(
+                instrument_ids if instrument_ids is not None else task.instrument_ids or []
+            ),
+        )
+    except ProjectReferenceInvalidError as exc:
+        raise PlanChangeInvalidError(str(exc))
     schedule_changed = _has_schedule_changes(task, changes, predecessor_ids)
     is_structure_change = "parent_id" in changes and task.parent_id != changes["parent_id"]
 

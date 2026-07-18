@@ -25,7 +25,17 @@ class OperationLogger:
             self._current_file = os.path.join(LOG_DIR, f"operations_{ts}.log")
         return self._current_file
 
-    def log(self, operator: str, action: str, target: str, success: bool, detail: str = "", method: str = "", path: str = ""):
+    def log(
+        self,
+        operator: str,
+        action: str,
+        target: str,
+        success: bool,
+        detail: str = "",
+        method: str = "",
+        path: str = "",
+        client_ip: str = "",
+    ):
         with self._lock:
             entry = {
                 "timestamp": datetime.now().isoformat(),
@@ -36,6 +46,7 @@ class OperationLogger:
                 "detail": detail,
                 "method": method,
                 "path": path,
+                "client_ip": client_ip,
             }
             filepath = self._get_file()
             with open(filepath, "a", encoding="utf-8") as f:

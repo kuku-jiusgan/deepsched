@@ -13,12 +13,13 @@ def ensure_runtime_schema(engine) -> None:
 
     if "project" in table_names:
         project_columns = {column["name"] for column in inspector.get_columns("project")}
-        obsolete_columns = project_columns & {"sla_level", "profit_weight"}
         with engine.begin() as connection:
             if "estimated_hours" not in project_columns:
                 connection.execute(text("ALTER TABLE project ADD COLUMN estimated_hours FLOAT"))
-            for column_name in sorted(obsolete_columns):
-                connection.execute(text(f"ALTER TABLE project DROP COLUMN {column_name}"))
+            if "sla_level" in project_columns:
+                connection.execute(text("ALTER TABLE project DROP COLUMN sla_level"))
+            if "profit_weight" in project_columns:
+                connection.execute(text("ALTER TABLE project DROP COLUMN profit_weight"))
             connection.execute(text("UPDATE project SET priority = 1 WHERE priority IS NULL OR priority < 1"))
             connection.execute(text("UPDATE project SET priority = 3 WHERE priority > 3"))
             if engine.dialect.name == "sqlite":

@@ -8,13 +8,14 @@ from app.services.instrument_status_service import (
     delete_time_slot_and_refresh,
     mark_instrument_running,
 )
+from app.domain.errors import DomainNotFoundError, DomainValidationError
 
 
-class ScheduleNightRunNotFoundError(Exception):
+class ScheduleNightRunNotFoundError(DomainNotFoundError):
     pass
 
 
-class ScheduleNightRunInvalidError(Exception):
+class ScheduleNightRunInvalidError(DomainValidationError):
     pass
 
 
@@ -40,7 +41,7 @@ def record_night_run(
     night_slot = _merge_or_create_night_slot(db, slot, start_time, end_time)
     if night_slot.status == "running":
         mark_instrument_running(db, night_slot.instrument_id)
-    db.commit()
+    db.flush()
     db.refresh(night_slot)
     return night_slot
 

@@ -8,8 +8,16 @@ from app.core.database import Base
 from app.models import Project, Task, TimeSlot
 from app.services.schedule_delay_service import (
     ScheduleDelayInvalidError,
-    report_task_delay,
+    report_task_delay as report_task_delay_service,
 )
+from app.api.transactions import execute_transaction
+
+
+def report_task_delay(db, slot_id, delay_hours, reason):
+    return execute_transaction(
+        db,
+        lambda: report_task_delay_service(db, slot_id, delay_hours, reason),
+    )
 
 
 class ScheduleDelayTest(unittest.TestCase):

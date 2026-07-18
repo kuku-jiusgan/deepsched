@@ -282,6 +282,36 @@ class AlertRule(Base):
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
+
+class AuthSession(Base):
+    __tablename__ = "auth_session"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    token_hash = Column(String(64), unique=True, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("user.id"), nullable=False, index=True)
+    username = Column(String(50), nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    last_seen_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+    user = relationship("User")
+
+
+class LoginFailure(Base):
+    __tablename__ = "login_failure"
+    key = Column(String(200), primary_key=True)
+    failure_count = Column(Integer, default=0, nullable=False)
+    first_failed_at = Column(DateTime, nullable=False)
+    locked_until = Column(DateTime)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
+
+class WorkerLease(Base):
+    __tablename__ = "worker_lease"
+    name = Column(String(100), primary_key=True)
+    owner_id = Column(String(64), nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
 class PushChannelConfig(Base):
     __tablename__ = "push_channel_config"
     id = Column(Integer, primary_key=True, autoincrement=True)

@@ -6,6 +6,7 @@ from app.models import Task, TimeSlot
 from app.services.instrument_status_service import mark_instrument_running
 from app.services.instrument_occupancy_service import current_occupying_slot
 from app.services.task_delay_status_service import mark_task_delayed
+from app.domain.errors import DomainConflictError, DomainNotFoundError
 
 
 COMPLETED_TASK_STATUSES = {"done", "completed"}
@@ -13,11 +14,11 @@ STARTABLE_SLOT_STATUSES = {"scheduled", "blocked"}
 RUNNING_CONTINUATION_STATUSES = {"scheduled", "running", "blocked"}
 
 
-class TaskExecutionNotFoundError(Exception):
+class TaskExecutionNotFoundError(DomainNotFoundError):
     pass
 
 
-class TaskExecutionInvalidError(Exception):
+class TaskExecutionInvalidError(DomainConflictError):
     pass
 
 
@@ -41,7 +42,6 @@ def start_task_execution(db, slot_id: int) -> dict[str, str]:
         if running_slot.id == slot.id:
             running_slot.actual_start = started_at
         mark_instrument_running(db, running_slot.instrument_id)
-    db.commit()
     return {"status": "ok"}
 
 

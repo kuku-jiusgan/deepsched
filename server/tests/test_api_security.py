@@ -3,27 +3,79 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.routing import APIRoute
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.api import protected_router
+from app.api.access import (
+    require_management_user,
+    require_notification_owner,
+    require_project_editor_by_proj_id,
+    require_slot_operator,
+    require_task_editor,
+)
 from app.api.alert_rules import _push_config_response
-from app.api.users import _seed_admin, auth_token, require_authenticated_user
+from app.api.users import (
+    MAX_LOGIN_FAILURES,
+    _seed_admin,
+    auth_token,
+    check_login_throttle,
+    create_token,
+    get_current_user,
+    record_login_failure,
+    require_authenticated_user,
+)
 from app.core.database import Base
-from app.models import User
+from app.models import AuthSession, User
+
+
+def _api_routes(router):
+    for route in router.routes:
+        if isinstance(route, APIRoute):
+            yield route
+            continue
+        original_router = getattr(route, "original_router", None)
+        if original_router is not None:
+            yield from _api_routes(original_router)
 
 
 class ApiSecurityTest(unittest.TestCase):
     def test_every_business_route_has_authentication_dependency(self):
-        routes = [route for route in protected_router.routes if isinstance(route, APIRoute)]
+        routes = list(_api_routes(protected_router))
         self.assertGreater(len(routes), 60)
 
-        for route in routes:
-            with self.subTest(path=route.path, methods=route.methods):
-                dependency_calls = {dependency.call for dependency in route.dependant.dependencies}
+        for included_router in protected_router.routes:
+            with self.subTest(router=type(included_router).__name__):
+                dependencies = getattr(included_router, "include_context").dependencies
+                dependency_calls = {
+                    getattr(dependency, "dependency", None) for dependency in dependencies
+                }
                 self.assertIn(require_authenticated_user, dependency_calls)
+
+    def test_sensitive_mutations_have_object_or_role_authorization(self):
+        expected_dependencies = {
+            ("POST", "/api/v1/instruments"): require_management_user,
+            ("DELETE", "/api/v1/projects/{proj_id}"): require_project_editor_by_proj_id,
+            ("PUT", "/api/v1/projects/tasks/{task_id}"): require_task_editor,
+            ("POST", "/api/v1/schedules/timeslots/{slot_id}/start"): require_slot_operator,
+            ("POST", "/api/v1/schedules/generate"): require_management_user,
+            ("PUT", "/api/v1/notifications/{nid}/read"): require_notification_owner,
+            ("PUT", "/api/v1/calendar/{day_id}"): require_management_user,
+        }
+        routes = list(_api_routes(protected_router))
+        route_by_operation = {
+            (method, route.path): route
+            for route in routes
+            for method in route.methods
+        }
+
+        for operation, required_dependency in expected_dependencies.items():
+            with self.subTest(operation=operation):
+                route = route_by_operation[operation]
+                dependency_calls = {dependency.call for dependency in route.dependant.dependencies}
+                self.assertIn(required_dependency, dependency_calls)
 
     def test_missing_authorization_header_is_rejected(self):
         with self.assertRaises(HTTPException) as context:
@@ -54,6 +106,52 @@ class ApiSecurityTest(unittest.TestCase):
             self.assertIsNone(db.query(User).filter(User.username == "admin").first())
         finally:
             db.close()
+
+    def test_repeated_login_failures_are_throttled_per_account_and_ip(self):
+        request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/api/v1/users/login",
+                "headers": [],
+                "client": ("203.0.113.10", 12345),
+            }
+        )
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        db = sessionmaker(bind=engine)()
+        try:
+            for _ in range(MAX_LOGIN_FAILURES):
+                record_login_failure(request, "target-user", db)
+            with self.assertRaises(HTTPException) as context:
+                check_login_throttle(request, "target-user", db)
+            self.assertEqual(429, context.exception.status_code)
+            check_login_throttle(request, "different-user", db)
+        finally:
+            db.close()
+
+    def test_auth_session_is_shared_through_database_and_stores_only_token_hash(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(bind=engine)
+        creator_db = session_factory()
+        user = User(username="analyst", display_name="分析员", role="分析员", is_active=True)
+        creator_db.add(user)
+        creator_db.commit()
+        user_id = user.id
+        token = create_token(user_id, user.username, creator_db)
+        creator_db.commit()
+        creator_db.close()
+
+        resolver_db = session_factory()
+        try:
+            resolved = get_current_user(token, resolver_db)
+            stored = resolver_db.query(AuthSession).one()
+            self.assertEqual(user_id, resolved.id)
+            self.assertNotEqual(token, stored.token_hash)
+            self.assertEqual(64, len(stored.token_hash))
+        finally:
+            resolver_db.close()
 
 
 if __name__ == "__main__":

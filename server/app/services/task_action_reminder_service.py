@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import threading
+import logging
+import uuid
 from datetime import datetime, timedelta
 
 from app.core.database import SessionLocal
@@ -8,15 +10,20 @@ from app.models import AlertRule, Notification, Task
 from app.services.push_notification_service import push_by_rule
 from app.services.task_delay_status_service import mark_task_delayed
 from app.services.task_execution_service import COMPLETED_TASK_STATUSES
+from app.repositories.worker_lease_repository import acquire_worker_lease
 
 
 REMINDER_SCAN_INTERVAL_SECONDS = 30
+REMINDER_LEASE_SECONDS = 45
+REMINDER_LEASE_NAME = "task-action-reminders"
 START_REMINDER_TYPE = "task_start_delay"
 END_REMINDER_TYPE = "task_end_delay"
 ACTIVE_SLOT_STATUSES = {"scheduled", "running", "blocked", "interrupted", "completed"}
 
 _stop_event = threading.Event()
 _worker_thread: threading.Thread | None = None
+_worker_owner_id = uuid.uuid4().hex
+_logger = logging.getLogger(__name__)
 
 
 def start_task_action_reminder_worker() -> None:
@@ -126,9 +133,16 @@ def _reminder_loop() -> None:
     while not _stop_event.is_set():
         db = SessionLocal()
         try:
-            scan_task_action_reminders(db)
+            if acquire_worker_lease(
+                db,
+                REMINDER_LEASE_NAME,
+                _worker_owner_id,
+                REMINDER_LEASE_SECONDS,
+            ):
+                scan_task_action_reminders(db)
         except Exception:
             db.rollback()
+            _logger.exception("任务提醒后台扫描失败")
         finally:
             db.close()
         _stop_event.wait(REMINDER_SCAN_INTERVAL_SECONDS)

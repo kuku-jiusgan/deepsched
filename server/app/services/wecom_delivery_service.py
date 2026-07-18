@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import threading
 import time
+import logging
+import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -10,10 +12,13 @@ from dataclasses import dataclass
 
 from app.core.database import SessionLocal
 from app.models import Notification, PushChannelConfig, User
+from app.repositories.worker_lease_repository import acquire_worker_lease
 
 
 PENDING_DELIVERY_POLL_SECONDS = 1
 PENDING_DELIVERY_BATCH_SIZE = 50
+WECOM_LEASE_SECONDS = 5
+WECOM_LEASE_NAME = "wecom-delivery"
 
 
 class PushConfigError(Exception):
@@ -30,6 +35,8 @@ _TOKEN_CACHE: dict[str, object] = {"token": None, "expires_at": 0.0}
 _wake_event = threading.Event()
 _stop_event = threading.Event()
 _worker_thread: threading.Thread | None = None
+_worker_owner_id = uuid.uuid4().hex
+_logger = logging.getLogger(__name__)
 
 
 def start_wecom_delivery_worker() -> None:
@@ -68,9 +75,16 @@ def _delivery_loop() -> None:
         _wake_event.clear()
         db = SessionLocal()
         try:
-            _process_pending_wecom_notifications(db)
+            if acquire_worker_lease(
+                db,
+                WECOM_LEASE_NAME,
+                _worker_owner_id,
+                WECOM_LEASE_SECONDS,
+            ):
+                _process_pending_wecom_notifications(db)
         except Exception:
             db.rollback()
+            _logger.exception("企业微信后台投递失败")
         finally:
             db.close()
 

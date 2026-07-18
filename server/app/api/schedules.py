@@ -1,11 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import not_
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import json
 from datetime import datetime
 from app.core.database import get_db
-from app.models import TimeSlot, Task, Instrument, Project, AuditLog
+from app.models import TimeSlot, Task, Instrument, Project, AuditLog, User
 from app.schemas.schemas import (
     TimeSlotOut, TimeSlotUpdate, TaskStatusUpdate,
     ScheduleGenerateRequest, InsertOrderRequest, InsertOrderPreview, InsertOrderResult,
@@ -14,11 +13,8 @@ from app.schemas.schemas import (
 )
 from app.services.scheduler import SchedulerService
 from app.services.schedule_delay_service import (
-    ScheduleDelayInvalidError,
-    ScheduleDelayNotFoundError,
     report_task_delay,
 )
-from app.services.schedule_completion_service import complete_task_and_shift
 from app.services.instrument_status_service import refresh_instrument_status
 from app.services.schedule_manual_update_service import (
     ScheduleSlotInvalidError,
@@ -32,23 +28,30 @@ from app.services.schedule_insert_service import (
     preview_insert,
 )
 from app.services.schedule_night_run_service import (
-    ScheduleNightRunInvalidError,
-    ScheduleNightRunNotFoundError,
     record_night_run,
 )
 from app.services.schedule_reschedule_service import reschedule as reschedule_service
 from app.services.schedule_tier_service import roll_schedule_tiers
 from app.services.approval_gate_service import scan_approval_deadlines
 from app.services.task_execution_service import (
-    TaskExecutionInvalidError,
-    TaskExecutionNotFoundError,
     start_task_execution,
 )
-from app.api.users import auth_token
+from app.services.workspace_service import get_workspace_tasks
+from app.services.workspace_command_service import complete_workspace_task
+from app.api.transactions import execute_transaction
+from app.schemas.workspace_schemas import WorkspaceTaskOut
+from app.domain.task_schedule import (
+    actual_task_window as _task_actual_window,
+    select_actionable_segment as _select_workspace_slot,
+)
+from app.repositories.workspace_repository import (
+    filter_workspace_tasks_by_user as _filter_workspace_tasks_by_user,
+    latest_open_task_slot as _latest_open_task_slot,
+)
+from app.api.users import require_authenticated_user
+from app.api.access import require_management_user, require_slot_operator
 
 router = APIRouter(prefix="/api/v1/schedules", tags=["schedules"])
-
-WORKSPACE_ALL_TASK_ROLES = {"系统管理员"}
 
 @router.get("/timeslots", response_model=List[TimeSlotOut])
 def list_timeslots(
@@ -74,7 +77,12 @@ def list_timeslots(
     return [_enrich_slot(s, db) for s in slots]
 
 @router.put("/timeslots/{slot_id}", response_model=TimeSlotOut)
-def update_timeslot(slot_id: int, data: TimeSlotUpdate, db: Session = Depends(get_db)):
+def update_timeslot(
+    slot_id: int,
+    data: TimeSlotUpdate,
+    db: Session = Depends(get_db),
+    _user=Depends(require_management_user),
+):
     try:
         return _enrich_slot(update_time_slot(db, slot_id, data), db)
     except ScheduleSlotNotFoundError as exc:
@@ -83,32 +91,31 @@ def update_timeslot(slot_id: int, data: TimeSlotUpdate, db: Session = Depends(ge
         raise HTTPException(status_code=400, detail=str(exc))
 
 @router.post("/timeslots/{slot_id}/start", response_model=TaskActionResponse)
-def start_task(slot_id: int, db: Session = Depends(get_db)):
-    try:
-        return start_task_execution(db, slot_id)
-    except TaskExecutionNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    except TaskExecutionInvalidError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+def start_task(
+    slot_id: int,
+    db: Session = Depends(get_db),
+    _user=Depends(require_slot_operator),
+):
+    return execute_transaction(db, lambda: start_task_execution(db, slot_id))
 
 @router.post("/timeslots/{slot_id}/complete", response_model=TaskCompleteResponse)
 def complete_task(
     slot_id: int,
     data: TaskCompleteRequest = TaskCompleteRequest(),
     db: Session = Depends(get_db),
+    _user=Depends(require_slot_operator),
 ):
-    slot = db.query(TimeSlot).filter(TimeSlot.id == slot_id).first()
-    if not slot:
-        raise HTTPException(status_code=404, detail="时间槽不存在")
-    return complete_task_and_shift(
+    return execute_transaction(
         db,
-        slot.task_id,
-        completed_slot_id=slot.id,
-        release_instrument=data.release_instrument,
+        lambda: complete_workspace_task(db, slot_id, data.release_instrument),
     )
 
 @router.post("/timeslots/{slot_id}/interrupt")
-def interrupt_task(slot_id: int, db: Session = Depends(get_db)):
+def interrupt_task(
+    slot_id: int,
+    db: Session = Depends(get_db),
+    _user=Depends(require_slot_operator),
+):
     slot = db.query(TimeSlot).filter(TimeSlot.id == slot_id).first()
     if not slot:
         raise HTTPException(status_code=404, detail="时间槽不存在")
@@ -121,36 +128,54 @@ def interrupt_task(slot_id: int, db: Session = Depends(get_db)):
     return {"status": "ok"}
 
 @router.post("/timeslots/{slot_id}/delay", response_model=TaskDelayResponse)
-def delay_task(slot_id: int, data: TaskDelayRequest, db: Session = Depends(get_db)):
-    try:
-        return report_task_delay(db, slot_id, data.delay_hours, data.reason)
-    except ScheduleDelayNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    except ScheduleDelayInvalidError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+def delay_task(
+    slot_id: int,
+    data: TaskDelayRequest,
+    db: Session = Depends(get_db),
+    _user=Depends(require_slot_operator),
+):
+    return execute_transaction(
+        db,
+        lambda: report_task_delay(db, slot_id, data.delay_hours, data.reason),
+    )
 
 @router.post("/timeslots/{slot_id}/night-run", response_model=TimeSlotOut)
-def night_run(slot_id: int, data: NightRunRequest, db: Session = Depends(get_db)):
-    try:
-        slot = record_night_run(db, slot_id, data.duration_hours, data.earliest_start, data.latest_end)
-        return _enrich_slot(slot, db)
-    except ScheduleNightRunNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    except ScheduleNightRunInvalidError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+def night_run(
+    slot_id: int,
+    data: NightRunRequest,
+    db: Session = Depends(get_db),
+    _user=Depends(require_slot_operator),
+):
+    slot = execute_transaction(
+        db,
+        lambda: record_night_run(db, slot_id, data.duration_hours, data.earliest_start, data.latest_end),
+    )
+    return _enrich_slot(slot, db)
 
 @router.post("/generate")
-def generate_schedule(data: ScheduleGenerateRequest, db: Session = Depends(get_db)):
+def generate_schedule(
+    data: ScheduleGenerateRequest,
+    db: Session = Depends(get_db),
+    _user=Depends(require_management_user),
+):
     scheduler = SchedulerService(db)
     result = scheduler.generate(data.project_ids, mode=data.mode)
     return result
 
 @router.post("/reschedule")
-def reschedule(data: RescheduleRequest, db: Session = Depends(get_db)):
+def reschedule(
+    data: RescheduleRequest,
+    db: Session = Depends(get_db),
+    _user=Depends(require_management_user),
+):
     return reschedule_service(db, data)
 
 @router.post("/insert-order", response_model=InsertOrderPreview)
-def calculate_insert_cost(data: InsertOrderRequest, db: Session = Depends(get_db)):
+def calculate_insert_cost(
+    data: InsertOrderRequest,
+    db: Session = Depends(get_db),
+    _user=Depends(require_management_user),
+):
     try:
         return preview_insert(db, data)
     except ScheduleInsertNotFoundError as exc:
@@ -159,7 +184,11 @@ def calculate_insert_cost(data: InsertOrderRequest, db: Session = Depends(get_db
         raise HTTPException(status_code=400, detail=str(exc))
 
 @router.post("/insert-order/confirm", response_model=InsertOrderResult)
-def confirm_insert(data: InsertOrderRequest, db: Session = Depends(get_db)):
+def confirm_insert(
+    data: InsertOrderRequest,
+    db: Session = Depends(get_db),
+    _user=Depends(require_management_user),
+):
     try:
         return confirm_insert_service(db, data)
     except ScheduleInsertNotFoundError as exc:
@@ -168,139 +197,20 @@ def confirm_insert(data: InsertOrderRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=str(exc))
 
 @router.post("/daily-roll")
-def daily_roll(db: Session = Depends(get_db)):
+def daily_roll(
+    db: Session = Depends(get_db),
+    _user=Depends(require_management_user),
+):
     result = roll_schedule_tiers(db)
     result["approval_notifications"] = scan_approval_deadlines(db)
     return result
 
-@router.get("/my-tasks")
-def my_tasks(token: str = Depends(auth_token), db: Session = Depends(get_db)):
-    """Return tasks assigned to the current user, with time slot info if scheduled."""
-    from app.api.users import get_current_user
-    user = get_current_user(token, db)
-
-    # Auto-delay: mark overdue tasks as blocked (no reschedule triggered)
-    now = datetime.now()
-    overdue_tasks_query = db.query(Task).filter(Task.status == "scheduled")
-    overdue_tasks_query = _filter_workspace_tasks_by_user(overdue_tasks_query, user)
-    overdue_tasks = overdue_tasks_query.all()
-    for t in overdue_tasks:
-        slot = _latest_open_task_slot(t.id, db)
-        if slot and slot.plan_end and slot.plan_end < now:
-            t.status = "blocked"
-            slot.status = "blocked"
-    db.commit()
-
-    # Query leaf tasks only: exclude tasks that have children (parent nodes)
-    parent_ids = db.query(Task.parent_id).filter(Task.parent_id != None).subquery()
-
-    tasks_query = db.query(Task).filter(
-        Task.status.in_(["pending", "running", "blocked", "scheduled", "done", "interrupted"]),
-        Task.is_external_gate.is_(False),
-        not_(Task.id.in_(parent_ids)),
-    )
-    tasks_query = _filter_workspace_tasks_by_user(tasks_query, user)
-    tasks = tasks_query.order_by(Task.id).all()
-    
-    result = []
-    for task in tasks:
-        proj = db.query(Project).filter(Project.id == task.project_id).first()
-        # Find all scheduled segments for the task. The workspace table shows
-        # the full task window, while actions still use the current segment.
-        task_slots = db.query(TimeSlot).filter(
-            TimeSlot.task_id == task.id,
-            TimeSlot.status.in_(["scheduled", "running", "interrupted", "blocked", "completed"])
-        ).order_by(TimeSlot.plan_start, TimeSlot.id).all()
-        slot = _select_workspace_slot(task_slots, now)
-        task_plan_start = min((s.plan_start for s in task_slots if s.plan_start), default=None)
-        task_plan_end = max((s.plan_end for s in task_slots if s.plan_end), default=None)
-        task_actual_start, task_actual_end = _task_actual_window(task_slots)
-        
-        inst = db.query(Instrument).filter(Instrument.id == slot.instrument_id).first() if slot else None
-        
-        result.append({
-            "slot_id": slot.id if slot else 0,
-            "task_id": task.id,
-            "task_name": task.name,
-            "task_type": task.task_type,
-            "assignee_id": task.assignee_id,
-            "assignee_name": task.assignee.display_name if task.assignee else None,
-            "project_id": proj.id if proj else None,
-            "project_name": proj.name if proj else None,
-            "project_code": proj.code if proj else None,
-            "instrument_id": slot.instrument_id if slot else 0,
-            "instrument_name": inst.name if inst else None,
-            "instrument_code": inst.code if inst else None,
-            "plan_start": slot.plan_start.isoformat() if slot and slot.plan_start else None,
-            "plan_end": slot.plan_end.isoformat() if slot and slot.plan_end else None,
-            "task_plan_start": task_plan_start.isoformat() if task_plan_start else None,
-            "task_plan_end": task_plan_end.isoformat() if task_plan_end else None,
-            "actual_start": task_actual_start.isoformat() if task_actual_start else None,
-            "actual_end": task_actual_end.isoformat() if task_actual_end else None,
-            "status": task.status,
-            "delay_status": task.delay_status,
-            "tier": slot.tier if slot else "unscheduled",
-            "est_duration_hours": task.est_duration_hours,
-            **(
-                _latest_delay_fields(task.id, db, slot)
-                if slot and _should_include_delay_fields(slot)
-                else _empty_delay_fields()
-            ),
-        })
-    return result
-
-def _latest_open_task_slot(task_id: int, db: Session) -> Optional[TimeSlot]:
-    return (
-        db.query(TimeSlot)
-        .filter(
-            TimeSlot.task_id == task_id,
-            TimeSlot.status.in_(["scheduled", "running"]),
-        )
-        .order_by(TimeSlot.plan_end.desc(), TimeSlot.id.desc())
-        .first()
-    )
-
-def _filter_workspace_tasks_by_user(query, user):
-    if user.role in WORKSPACE_ALL_TASK_ROLES:
-        return query
-    return query.filter(Task.assignee_id == user.id)
-
-def _select_workspace_slot(slots: list[TimeSlot], now: datetime) -> Optional[TimeSlot]:
-    running_slot = next(
-        (
-            slot for slot in slots
-            if slot.status == "running"
-            and slot.plan_end
-            and slot.plan_end >= now
-        ),
-        None,
-    )
-    if running_slot:
-        return running_slot
-
-    active_slot = next(
-        (
-            slot for slot in slots
-            if slot.status in {"scheduled", "blocked", "interrupted"}
-            and slot.plan_end
-            and slot.plan_end >= now
-        ),
-        None,
-    )
-    if active_slot:
-        return active_slot
-
-    open_slot = next((slot for slot in slots if slot.status != "completed"), None)
-    if open_slot:
-        return open_slot
-
-    return slots[-1] if slots else None
-
-
-def _task_actual_window(slots: list[TimeSlot]) -> tuple[datetime | None, datetime | None]:
-    actual_start = min((slot.actual_start for slot in slots if slot.actual_start), default=None)
-    actual_end = max((slot.actual_end for slot in slots if slot.actual_end), default=None)
-    return actual_start, actual_end
+@router.get("/my-tasks", response_model=List[WorkspaceTaskOut])
+def my_tasks(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_authenticated_user),
+):
+    return get_workspace_tasks(db, user)
 
 def _empty_delay_fields() -> dict:
     return {

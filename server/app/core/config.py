@@ -3,10 +3,13 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     APP_NAME: str = "资源智能调度平台"
+    ENVIRONMENT: str = "development"
     DATABASE_URL: str = "sqlite:///./cro_scheduler.db"
     SECRET_KEY: str | None = None
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
     CORS_ORIGINS: str = "http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:8000,http://localhost:8000"
+    MAX_REQUEST_BODY_BYTES: int = 1_048_576
+    AUTO_CREATE_SCHEMA: bool = True
 
     FROZEN_DAYS: int = 3
     CONFIRMED_DAYS: int = 14

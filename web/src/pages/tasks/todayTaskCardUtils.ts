@@ -1,5 +1,13 @@
 import dayjs from 'dayjs'
-import type { MyTask } from '@/services/api'
+import type { WorkspaceTask } from '@/domains/tasks/workspaceTask'
+import {
+  actionableSlotId,
+  isExceptionConfirmTask,
+  isTaskClosed,
+  isTaskDue,
+} from '@/domains/tasks/workspaceTask'
+
+export { isExceptionConfirmTask }
 
 interface StoredUser {
   display_name?: string
@@ -32,32 +40,22 @@ export function currentUserName() {
   }
 }
 
-export function isTodayTask(task: MyTask) {
+export function isTodayTask(task: WorkspaceTask) {
   if (isTaskClosed(task)) return false
-  if (task.status === 'running') return true
-  if (!task.plan_start) return false
-  return dayjs(task.plan_start).isBefore(dayjs().endOf('day')) || dayjs(task.plan_start).isSame(dayjs().endOf('day'))
+  if (task.execution_status === 'running') return true
+  return isTaskDue(task)
 }
 
-export function isTaskClosed(task: MyTask) {
-  return ['done', 'completed'].includes(task.status)
+export function canStartTask(task: WorkspaceTask) {
+  return ['pending', 'scheduled', 'blocked'].includes(task.execution_status)
+    && !task.actual_window.start
+    && Boolean(actionableSlotId(task))
 }
 
-export function canStartTask(task: MyTask) {
-  return ['pending', 'scheduled', 'blocked'].includes(task.status) && !task.actual_start && Boolean(task.slot_id)
-}
-
-export function canCompleteTask(task: MyTask) {
-  return (task.status === 'running' || (task.status === 'blocked' && Boolean(task.actual_start))) && Boolean(task.slot_id)
-}
-
-export function isExceptionConfirmTask(task: MyTask) {
-  const isMarkedDelayed = task.delay_status === 'delayed'
-  const isProblemStatus = ['blocked', 'interrupted'].includes(task.status)
-  const plannedEnd = task.task_plan_end || task.plan_end
-  const isOverdue = Boolean(plannedEnd) && dayjs(plannedEnd).isBefore(dayjs()) && !isTaskClosed(task)
-  const hasDelayReport = Boolean(task.delay_reason) || Boolean(task.delay_hours)
-  return isMarkedDelayed || isProblemStatus || isOverdue || hasDelayReport
+export function canCompleteTask(task: WorkspaceTask) {
+  const canComplete = task.execution_status === 'running'
+    || (task.execution_status === 'blocked' && Boolean(task.actual_window.start))
+  return canComplete && Boolean(actionableSlotId(task))
 }
 
 export function formatTaskTime(value: string | dayjs.Dayjs | null, fallback: string) {
@@ -68,11 +66,12 @@ function formatTaskDateTime(value: string | dayjs.Dayjs | null, fallback: string
   return value ? dayjs(value).format('YYYY-MM-DD HH:mm') : fallback
 }
 
-export function nightRunEndTime(task: MyTask) {
-  if (!task.plan_end) return null
-  const planEnd = dayjs(task.plan_end)
-  if (task.status === 'running' && task.actual_start) {
-    const actualStart = dayjs(task.actual_start)
+export function nightRunEndTime(task: WorkspaceTask) {
+  const slot = task.actionable_slot
+  if (!slot?.plan_end) return null
+  const planEnd = dayjs(slot.plan_end)
+  if (task.execution_status === 'running' && task.actual_window.start) {
+    const actualStart = dayjs(task.actual_window.start)
     return actualStart.hour(planEnd.hour()).minute(planEnd.minute()).second(0).millisecond(0)
   }
   return planEnd
@@ -112,28 +111,29 @@ export function statusLabel(status: string) {
   return labels[status] || status
 }
 
-export function scheduleText(task: MyTask) {
-  const startText = formatTaskDateTime(task.task_plan_start || task.plan_start, '---- -- -- --:--')
-  const endText = formatTaskDateTime(task.task_plan_end || task.plan_end, '---- -- -- --:--')
+export function scheduleText(task: WorkspaceTask) {
+  const startText = formatTaskDateTime(task.task_window.start, '---- -- -- --:--')
+  const endText = formatTaskDateTime(task.task_window.end, '---- -- -- --:--')
   return `${startText}–${endText}`
 }
 
-export function actualText(task: MyTask) {
-  return `${formatTaskDateTime(task.actual_start, '---- -- -- --:--')}–${formatTaskDateTime(task.actual_end, '---- -- -- --:--')}`
+export function actualText(task: WorkspaceTask) {
+  return `${formatTaskDateTime(task.actual_window.start, '---- -- -- --:--')}–${formatTaskDateTime(task.actual_window.end, '---- -- -- --:--')}`
 }
 
-export function formatProjectText(task: MyTask) {
+export function formatProjectText(task: WorkspaceTask) {
   const parts = [task.project_code, task.project_name].filter(Boolean)
   return parts.length ? parts.join(' · ') : '未关联项目'
 }
 
-export function formatInstrumentText(task: MyTask) {
-  if (task.instrument_code && task.instrument_name) return `${task.instrument_code} · ${task.instrument_name}`
-  return task.instrument_code || task.instrument_name || '未指定仪器'
+export function formatInstrumentText(task: WorkspaceTask) {
+  const slot = task.actionable_slot
+  if (slot?.instrument_code && slot.instrument_name) return `${slot.instrument_code} · ${slot.instrument_name}`
+  return slot?.instrument_code || slot?.instrument_name || '未指定仪器'
 }
 
-export function getDelayText(task: MyTask) {
-  if (!task.delay_reason && !task.delay_hours) return ''
-  const hoursText = task.delay_hours ? `${task.delay_hours}h` : ''
-  return [hoursText, task.delay_reason || '未填写原因'].filter(Boolean).join(' · ')
+export function getDelayText(task: WorkspaceTask) {
+  if (!task.delay.reason && !task.delay.hours) return ''
+  const hoursText = task.delay.hours ? `${task.delay.hours}h` : ''
+  return [hoursText, task.delay.reason || '未填写原因'].filter(Boolean).join(' · ')
 }

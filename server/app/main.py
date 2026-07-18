@@ -1,5 +1,6 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from app.core.database import engine, Base
 from app.core.config import get_settings
 from app.core.schema_migrations import ensure_runtime_schema
@@ -9,12 +10,22 @@ from app.services.wecom_delivery_service import (
     stop_wecom_delivery_worker,
 )
 from app.api import protected_router, users
+from app.api.exception_handlers import register_domain_exception_handlers
 
-Base.metadata.create_all(bind=engine)
-ensure_runtime_schema(engine)
-
-app = FastAPI(title="资源智能调度平台", version="1.0.0")
 settings = get_settings()
+is_production = settings.ENVIRONMENT.lower() == "production"
+if settings.AUTO_CREATE_SCHEMA and not is_production:
+    Base.metadata.create_all(bind=engine)
+    ensure_runtime_schema(engine)
+
+app = FastAPI(
+    title="资源智能调度平台",
+    version="1.0.0",
+    docs_url=None if is_production else "/docs",
+    redoc_url=None if is_production else "/redoc",
+    openapi_url=None if is_production else "/openapi.json",
+)
+register_domain_exception_handlers(app)
 cors_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
 
 
@@ -37,6 +48,13 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_json_utf8_charset(request, call_next):
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > settings.MAX_REQUEST_BODY_BYTES:
+                return JSONResponse(status_code=413, content={"detail": "请求体过大"})
+        except ValueError:
+            return JSONResponse(status_code=400, content={"detail": "Content-Length 无效"})
     response = await call_next(request)
     content_type = response.headers.get("content-type", "")
     if content_type == "application/json":
@@ -45,6 +63,11 @@ async def add_json_utf8_charset(request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "same-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+    )
+    if request.scope.get("path", "").startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
     return response
 
 from app.core.logging_middleware import LoggingMiddleware
@@ -58,7 +81,6 @@ def health():
     return {"status": "ok", "version": "1.0.0"}
 
 import os, glob
-from fastapi import Depends, Query
 from app.core.database import get_db
 @app.get("/api/v1/logs")
 def get_logs(
