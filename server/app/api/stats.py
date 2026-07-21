@@ -11,6 +11,7 @@ from app.models import Instrument, TimeSlot, Task, Project, InstrumentFault
 from app.schemas.schemas import DashboardData, UtilizationStats
 from app.services.project_status_service import calculate_project_status
 from app.services.lab_status_service import list_lab_status
+from app.services.task_delay_status_service import DELAYED_STATUS
 
 router = APIRouter(prefix="/api/v1/stats", tags=["stats"])
 
@@ -45,7 +46,7 @@ def dashboard(
         db.query(Task.id)
         .join(TimeSlot, TimeSlot.task_id == Task.id)
         .filter(
-            Task.status == "blocked",
+            Task.delay_status == DELAYED_STATUS,
             TimeSlot.plan_end > window_start,
             TimeSlot.plan_start < window_end,
         )

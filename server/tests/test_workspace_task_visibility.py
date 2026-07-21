@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api.schedules import (
     _filter_workspace_tasks_by_user,
     _select_workspace_slot,
+    _should_include_delay_fields,
     _task_actual_window,
 )
 from app.core.database import Base
@@ -136,6 +137,16 @@ class WorkspaceTaskVisibilityTest(unittest.TestCase):
 
         task_result = next(item for item in result if item.task_id == self.owner_task.id)
         self.assertEqual("delayed", task_result.delay.status)
+
+    def test_completed_slot_keeps_explicit_delay_detail_for_gantt(self):
+        slot = TimeSlot(
+            task_id=self.owner_task.id,
+            plan_start=datetime(2026, 7, 17, 8, 30),
+            plan_end=datetime(2026, 7, 17, 21, 0),
+            status="completed",
+        )
+
+        self.assertTrue(_should_include_delay_fields(slot))
 
     def test_workspace_uses_full_task_window_across_rest_periods(self):
         first_slot = TimeSlot(

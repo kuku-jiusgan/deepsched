@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime
 
 from ortools.sat.python import cp_model
 
@@ -9,6 +10,27 @@ from app.services.scheduler_helpers import datetime_to_units
 
 
 FIXED_SLOT_STATUSES = ["scheduled", "running", "completed", "blocked", "interrupted"]
+
+
+def _fixed_slot_range(slot: TimeSlot) -> tuple[datetime, datetime]:
+    if slot.status == "completed":
+        return slot.actual_start, slot.actual_end
+    if slot.actual_start:
+        return slot.actual_start, slot.actual_end or max(slot.plan_end, datetime.now())
+    return slot.plan_start, slot.plan_end
+
+
+def _merge_task_ranges(
+    ranges: list[tuple[TimeSlot, int, int]],
+) -> list[tuple[TimeSlot, int, int]]:
+    merged: list[tuple[TimeSlot, int, int]] = []
+    for slot, start, end in sorted(ranges, key=lambda item: (item[0].task_id, item[1])):
+        if merged and merged[-1][0].task_id == slot.task_id and start < merged[-1][2]:
+            previous_slot, previous_start, previous_end = merged[-1]
+            merged[-1] = (previous_slot, previous_start, max(previous_end, end))
+            continue
+        merged.append((slot, start, end))
+    return merged
 
 
 def _is_protected_slot(slot: TimeSlot) -> bool:
@@ -41,6 +63,7 @@ def add_human_capacity_constraints(
     total_units: int,
 ) -> None:
     intervals_by_assignee: dict[int, list[cp_model.IntervalVar]] = defaultdict(list)
+    fixed_by_assignee: dict[int, list[tuple[TimeSlot, int, int]]] = defaultdict(list)
     for task in tasks:
         if task.requires_human and task.assignee_id:
             intervals_by_assignee[task.assignee_id].append(task_intervals[task.id])
@@ -49,20 +72,23 @@ def add_human_capacity_constraints(
         task = slot.task
         if not task or not task.requires_human or not task.assignee_id:
             continue
-        start_time = slot.actual_start if slot.status == "completed" else slot.plan_start
-        end_time = slot.actual_end if slot.status == "completed" else slot.plan_end
+        start_time, end_time = _fixed_slot_range(slot)
         start_unit = datetime_to_units(start_time, horizon_start)
         end_unit = datetime_to_units(end_time, horizon_start)
         if end_unit <= 0 or start_unit >= total_units:
             continue
         clipped_start = max(0, start_unit)
         clipped_end = min(total_units, end_unit)
-        intervals_by_assignee[task.assignee_id].append(model.NewIntervalVar(
-            clipped_start,
-            clipped_end - clipped_start,
-            clipped_end,
-            f"fixed_human_slot_{slot.id}",
-        ))
+        fixed_by_assignee[task.assignee_id].append((slot, clipped_start, clipped_end))
+
+    for assignee_id, ranges in fixed_by_assignee.items():
+        for slot, start_unit, end_unit in _merge_task_ranges(ranges):
+            intervals_by_assignee[assignee_id].append(model.NewIntervalVar(
+                start_unit,
+                end_unit - start_unit,
+                end_unit,
+                f"fixed_human_slot_{slot.id}",
+            ))
 
     for assignee_intervals in intervals_by_assignee.values():
         if assignee_intervals:
@@ -88,8 +114,7 @@ def add_instrument_capacity_constraints(
     for slot in fixed_slots:
         if slot.instrument_id is None:
             continue
-        start_time = slot.actual_start if slot.status == "completed" else slot.plan_start
-        end_time = slot.actual_end if slot.status == "completed" else slot.plan_end
+        start_time, end_time = _fixed_slot_range(slot)
         start_unit = datetime_to_units(start_time, horizon_start)
         end_unit = datetime_to_units(end_time, horizon_start)
         if end_unit <= 0 or start_unit >= total_units:
@@ -97,6 +122,10 @@ def add_instrument_capacity_constraints(
         fixed_by_instrument[slot.instrument_id].append(
             (slot, max(0, start_unit), min(total_units, end_unit))
         )
+    fixed_by_instrument = {
+        instrument_id: _merge_task_ranges(ranges)
+        for instrument_id, ranges in fixed_by_instrument.items()
+    }
 
     task_by_id = {task.id: task for task in tasks}
     for instrument in instruments:

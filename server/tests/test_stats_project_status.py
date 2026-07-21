@@ -55,6 +55,28 @@ class StatsProjectStatusTest(unittest.TestCase):
 
         self.assertEqual(1, result.active_projects)
 
+    def test_dashboard_uses_delay_status_instead_of_execution_status(self):
+        now = datetime.now()
+        project = Project(id=1, name="延期项目", code="P-001", status="active")
+        delayed_task = Task(
+            id=1, project_id=1, name="已报告延期", task_type="test",
+            status="scheduled", delay_status="delayed",
+        )
+        stale_blocked_task = Task(
+            id=2, project_id=1, name="历史阻塞状态", task_type="test",
+            status="blocked", delay_status="not_delayed",
+        )
+        slots = [
+            TimeSlot(task_id=1, plan_start=now - timedelta(hours=1), plan_end=now + timedelta(hours=1)),
+            TimeSlot(task_id=2, plan_start=now - timedelta(hours=1), plan_end=now + timedelta(hours=1)),
+        ]
+        self.db.add_all([project, delayed_task, stale_blocked_task, *slots])
+        self.db.commit()
+
+        result = dashboard(now - timedelta(days=1), now, self.db)
+
+        self.assertEqual(1, result.delayed_tasks)
+
 
 if __name__ == "__main__":
     unittest.main()

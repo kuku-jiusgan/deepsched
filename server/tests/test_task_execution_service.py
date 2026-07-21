@@ -146,7 +146,33 @@ class TaskExecutionServiceTest(unittest.TestCase):
         self.db.add_all([occupying_task, occupying_slot])
         self.db.commit()
 
-        with self.assertRaisesRegex(TaskExecutionInvalidError, "当前方法验证.*不能提前启动"):
+        with self.assertRaisesRegex(TaskExecutionInvalidError, "当前方法验证.*不能启动"):
+            start_task_execution(self.db, self.slot.id)
+
+    def test_overdue_instrument_task_cannot_start_while_instrument_is_occupied(self):
+        self.predecessor.status = "done"
+        occupying_task = Task(
+            id=3,
+            project_id=1,
+            name="延期中的方法开发",
+            task_type="FFKF_001",
+            requires_instrument=True,
+            status="running",
+        )
+        occupying_slot = TimeSlot(
+            id=2,
+            task_id=3,
+            instrument_id=1,
+            plan_start=datetime.now() - timedelta(hours=2),
+            plan_end=datetime.now() - timedelta(hours=1),
+            actual_start=datetime.now() - timedelta(hours=2),
+            status="running",
+            tier="confirmed",
+        )
+        self.db.add_all([occupying_task, occupying_slot])
+        self.db.commit()
+
+        with self.assertRaisesRegex(TaskExecutionInvalidError, "延期中的方法开发.*不能启动"):
             start_task_execution(self.db, self.slot.id)
 
     def test_predecessor_is_checked_before_early_start_rule(self):

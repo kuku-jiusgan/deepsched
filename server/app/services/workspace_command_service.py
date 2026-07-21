@@ -1,6 +1,10 @@
+from datetime import datetime
+
 from app.domain.errors import DomainNotFoundError, DomainValidationError
-from app.repositories.workspace_repository import get_time_slot
+from app.repositories.workspace_repository import get_task, get_time_slot
 from app.services.schedule_completion_service import complete_task_and_shift
+from app.services.instrument_status_service import refresh_instrument_status
+from app.services.task_delay_status_service import mark_task_delayed
 
 
 def complete_workspace_task(db, slot_id: int, release_instrument: bool) -> dict:
@@ -16,3 +20,19 @@ def complete_workspace_task(db, slot_id: int, release_instrument: bool) -> dict:
     if result.get("status") == "error":
         raise DomainValidationError(result.get("message") or "任务完成失败")
     return result
+
+
+def interrupt_workspace_task(db, slot_id: int) -> dict:
+    slot = get_time_slot(db, slot_id)
+    if slot is None:
+        raise DomainNotFoundError("时间槽不存在")
+    task = get_task(db, slot.task_id)
+    if task is None:
+        raise DomainNotFoundError("任务不存在")
+    slot.status = "interrupted"
+    slot.actual_end = datetime.now()
+    task.status = "blocked"
+    mark_task_delayed(task)
+    db.flush()
+    refresh_instrument_status(db, slot.instrument_id)
+    return {"status": "ok"}

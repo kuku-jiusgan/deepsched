@@ -69,3 +69,7 @@ def latest_open_task_slot(task_id: int, db) -> TimeSlot | None:
 
 def get_time_slot(db, slot_id: int) -> TimeSlot | None:
     return db.query(TimeSlot).filter(TimeSlot.id == slot_id).first()
+
+
+def get_task(db, task_id: int) -> Task | None:
+    return db.query(Task).filter(Task.id == task_id).first()

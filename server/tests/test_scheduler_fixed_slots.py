@@ -66,6 +66,86 @@ class SchedulerFixedSlotsTest(unittest.TestCase):
 
         self.assertEqual([manual_slot.id], [slot.id for slot in fixed_slots])
 
+    def test_running_fixed_slot_uses_actual_start(self):
+        model = cp_model.CpModel()
+        completed = TimeSlot(
+            id=10,
+            task_id=1,
+            instrument_id=1,
+            plan_start=datetime(2026, 7, 20, 8, 30),
+            plan_end=datetime(2026, 7, 20, 12, 0),
+            actual_start=datetime(2026, 7, 20, 8, 30),
+            actual_end=datetime(2026, 7, 20, 14, 5),
+            status="completed",
+        )
+        running = TimeSlot(
+            id=11,
+            task_id=2,
+            instrument_id=1,
+            plan_start=datetime(2026, 7, 20, 12, 30),
+            plan_end=datetime(2026, 7, 21, 6, 0),
+            actual_start=datetime(2026, 7, 20, 14, 17),
+            status="running",
+        )
+
+        add_instrument_capacity_constraints(
+            model=model,
+            instruments=[SimpleNamespace(id=1)],
+            tasks=[],
+            capacity_intervals={},
+            presences={},
+            inst_starts={},
+            inst_ends={},
+            split_unit_presences={},
+            fixed_slots=[completed, running],
+            horizon_start=datetime(2026, 7, 20, 8, 30),
+            total_units=48,
+            non_overlap_enabled=True,
+            setup_units=0,
+        )
+
+        solver = cp_model.CpSolver()
+        self.assertIn(solver.Solve(model), (cp_model.OPTIMAL, cp_model.FEASIBLE))
+
+    def test_overlapping_segments_of_same_running_task_are_merged(self):
+        model = cp_model.CpModel()
+        running = TimeSlot(
+            id=10,
+            task_id=1,
+            instrument_id=1,
+            plan_start=datetime(2026, 7, 16, 8, 30),
+            plan_end=datetime(2026, 7, 16, 22, 0),
+            actual_start=datetime(2026, 7, 16, 9, 30),
+            status="running",
+        )
+        continuation = TimeSlot(
+            id=11,
+            task_id=1,
+            instrument_id=1,
+            plan_start=datetime(2026, 7, 17, 8, 30),
+            plan_end=datetime(2026, 7, 17, 22, 0),
+            status="running",
+        )
+
+        add_instrument_capacity_constraints(
+            model=model,
+            instruments=[SimpleNamespace(id=1)],
+            tasks=[],
+            capacity_intervals={},
+            presences={},
+            inst_starts={},
+            inst_ends={},
+            split_unit_presences={},
+            fixed_slots=[running, continuation],
+            horizon_start=datetime(2026, 7, 16, 8, 30),
+            total_units=240,
+            non_overlap_enabled=True,
+            setup_units=0,
+        )
+
+        solver = cp_model.CpSolver()
+        self.assertIn(solver.Solve(model), (cp_model.OPTIMAL, cp_model.FEASIBLE))
+
     def test_human_tasks_for_same_assignee_cannot_overlap(self):
         model = cp_model.CpModel()
         first_start = model.NewIntVar(0, 2, "first_start")

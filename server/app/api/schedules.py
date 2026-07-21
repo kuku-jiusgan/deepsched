@@ -15,7 +15,6 @@ from app.services.scheduler import SchedulerService
 from app.services.schedule_delay_service import (
     report_task_delay,
 )
-from app.services.instrument_status_service import refresh_instrument_status
 from app.services.schedule_manual_update_service import (
     ScheduleSlotInvalidError,
     ScheduleSlotNotFoundError,
@@ -37,7 +36,7 @@ from app.services.task_execution_service import (
     start_task_execution,
 )
 from app.services.workspace_service import get_workspace_tasks
-from app.services.workspace_command_service import complete_workspace_task
+from app.services.workspace_command_service import complete_workspace_task, interrupt_workspace_task
 from app.api.transactions import execute_transaction
 from app.schemas.workspace_schemas import WorkspaceTaskOut
 from app.domain.task_schedule import (
@@ -110,22 +109,13 @@ def complete_task(
         lambda: complete_workspace_task(db, slot_id, data.release_instrument),
     )
 
-@router.post("/timeslots/{slot_id}/interrupt")
+@router.post("/timeslots/{slot_id}/interrupt", response_model=TaskActionResponse)
 def interrupt_task(
     slot_id: int,
     db: Session = Depends(get_db),
     _user=Depends(require_slot_operator),
 ):
-    slot = db.query(TimeSlot).filter(TimeSlot.id == slot_id).first()
-    if not slot:
-        raise HTTPException(status_code=404, detail="时间槽不存在")
-    slot.status = "interrupted"
-    slot.actual_end = datetime.now()
-    task = db.query(Task).filter(Task.id == slot.task_id).first()
-    task.status = "blocked"
-    refresh_instrument_status(db, slot.instrument_id)
-    db.commit()
-    return {"status": "ok"}
+    return execute_transaction(db, lambda: interrupt_workspace_task(db, slot_id))
 
 @router.post("/timeslots/{slot_id}/delay", response_model=TaskDelayResponse)
 def delay_task(
@@ -220,7 +210,7 @@ def _empty_delay_fields() -> dict:
     }
 
 def _should_include_delay_fields(slot: TimeSlot) -> bool:
-    if slot.status in {"blocked", "interrupted"}:
+    if slot.status in {"blocked", "interrupted", "completed"}:
         return True
     return slot.status == "running" and slot.actual_start is not None
 

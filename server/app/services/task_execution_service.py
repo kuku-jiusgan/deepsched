@@ -78,10 +78,10 @@ def _ensure_can_start(db, task: Task, slot: TimeSlot) -> None:
         raise TaskExecutionInvalidError("当前任务状态不能开始")
     ensure_predecessors_completed(task)
     now = datetime.now()
-    if not slot.plan_start or now >= slot.plan_start or not task.requires_instrument:
+    if not task.requires_instrument:
         return
     if not slot.instrument_id:
-        raise TaskExecutionInvalidError("仪器任务尚未分配仪器，不能提前启动")
+        raise TaskExecutionInvalidError("仪器任务尚未分配仪器，不能启动")
     occupying_slot = current_occupying_slot(
         db,
         slot.instrument_id,
@@ -90,7 +90,7 @@ def _ensure_can_start(db, task: Task, slot: TimeSlot) -> None:
     )
     if occupying_slot and occupying_slot.task:
         raise TaskExecutionInvalidError(
-            f"仪器当前任务【{occupying_slot.task.name}】尚未结束，不能提前启动【{task.name}】"
+            f"仪器当前任务【{occupying_slot.task.name}】尚未结束，不能启动【{task.name}】"
         )
 
 

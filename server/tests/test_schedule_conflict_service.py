@@ -86,6 +86,72 @@ class ScheduleConflictServiceTest(unittest.TestCase):
 
         self.assertEqual([], find_instrument_conflicts(self.db))
 
+    def test_running_segment_uses_actual_start_instead_of_stale_plan_start(self):
+        completed = TimeSlot(
+            task_id=1, instrument_id=1,
+            plan_start=datetime(2026, 7, 20, 8, 30),
+            plan_end=datetime(2026, 7, 20, 12, 0),
+            actual_start=datetime(2026, 7, 20, 8, 30),
+            actual_end=datetime(2026, 7, 20, 14, 5),
+            status="completed",
+        )
+        running = TimeSlot(
+            task_id=2, instrument_id=1,
+            plan_start=datetime(2026, 7, 20, 12, 30),
+            plan_end=datetime(2026, 7, 21, 6, 0),
+            actual_start=datetime(2026, 7, 20, 14, 17),
+            status="running",
+        )
+        self.db.add_all([completed, running])
+        self.db.commit()
+
+        self.assertEqual([], find_instrument_conflicts(self.db))
+
+    def test_segments_of_same_running_task_do_not_conflict_with_each_other(self):
+        self.db.add_all([
+            TimeSlot(
+                task_id=1, instrument_id=1,
+                plan_start=datetime(2026, 7, 16, 8, 30),
+                plan_end=datetime(2026, 7, 16, 22, 0),
+                actual_start=datetime(2026, 7, 16, 9, 30),
+                status="running",
+            ),
+            TimeSlot(
+                task_id=1, instrument_id=1,
+                plan_start=datetime(2026, 7, 17, 8, 30),
+                plan_end=datetime(2026, 7, 17, 22, 0),
+                status="running",
+            ),
+        ])
+        self.db.commit()
+
+        self.assertEqual([], find_instrument_conflicts(self.db))
+
+    def test_historical_actual_overlap_does_not_block_future_scheduling(self):
+        self._create_user(1)
+        self._create_task(1, 1)
+        self._create_task(2, 1)
+        self.db.add_all([
+            TimeSlot(
+                task_id=1,
+                actual_start=datetime(2026, 7, 20, 8, 30),
+                actual_end=datetime(2026, 7, 20, 14, 5),
+                plan_start=datetime(2026, 7, 20, 8, 30),
+                plan_end=datetime(2026, 7, 20, 12, 0),
+                status="completed",
+            ),
+            TimeSlot(
+                task_id=2,
+                actual_start=datetime(2026, 7, 20, 9, 30),
+                plan_start=datetime(2026, 7, 20, 14, 30),
+                plan_end=datetime(2026, 7, 20, 22, 0),
+                status="running",
+            ),
+        ])
+        self.db.commit()
+
+        self.assertEqual([], find_human_conflicts(self.db))
+
     def test_instrument_conflict_message_uses_business_details(self):
         self._create_task(1, None, requires_human=False)
         self._create_task(2, None, requires_human=False)

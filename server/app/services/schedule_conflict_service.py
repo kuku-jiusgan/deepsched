@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime
 
 from app.models import Task, TimeSlot
 
@@ -26,10 +27,10 @@ def find_instrument_conflicts(db) -> list[dict]:
     conflicts = []
     for instrument_id, instrument_slots in by_instrument.items():
         instrument_slots.sort(key=lambda item: (item[1], item[0].id))
-        previous = None
-        for slot, start, end in instrument_slots:
-            if previous and start < previous[2]:
-                previous_slot, previous_start, previous_end = previous
+        for index, (slot, start, end) in enumerate(instrument_slots):
+            for previous_slot, previous_start, previous_end in instrument_slots[:index]:
+                if previous_end <= start or not _is_schedulable_conflict(previous_slot, slot):
+                    continue
                 conflicts.append({
                     "instrument_id": instrument_id,
                     "first_slot_id": previous_slot.id,
@@ -46,10 +47,6 @@ def find_instrument_conflicts(db) -> list[dict]:
                     ),
                     "second_schedule": _schedule_context(slot, start, end),
                 })
-                if end > previous_end:
-                    previous = (slot, start, end)
-                continue
-            previous = (slot, start, end)
     return conflicts
 
 
@@ -68,10 +65,10 @@ def find_human_conflicts(db) -> list[dict]:
     conflicts = []
     for assignee_id, assignee_slots in by_assignee.items():
         assignee_slots.sort(key=lambda item: (item[1], item[0].id))
-        previous = None
-        for slot, start, end in assignee_slots:
-            if previous and start < previous[2]:
-                previous_slot, previous_start, previous_end = previous
+        for index, (slot, start, end) in enumerate(assignee_slots):
+            for previous_slot, previous_start, previous_end in assignee_slots[:index]:
+                if previous_end <= start or not _is_schedulable_conflict(previous_slot, slot):
+                    continue
                 conflicts.append({
                     "assignee_id": assignee_id,
                     "first_slot_id": previous_slot.id,
@@ -88,19 +85,24 @@ def find_human_conflicts(db) -> list[dict]:
                     ),
                     "second_schedule": _schedule_context(slot, start, end),
                 })
-                if end > previous_end:
-                    previous = (slot, start, end)
-                continue
-            previous = (slot, start, end)
     return conflicts
 
 
+def _is_schedulable_conflict(first: TimeSlot, second: TimeSlot) -> bool:
+    if first.task_id == second.task_id:
+        return False
+    return first.actual_start is None or second.actual_start is None
+
+
 def _effective_slot_range(slot: TimeSlot):
-    if slot.status != "completed":
-        return slot.plan_start, slot.plan_end
-    if slot.actual_start and slot.actual_end:
-        return slot.actual_start, slot.actual_end
-    return None
+    if slot.status == "completed":
+        if slot.actual_start and slot.actual_end:
+            return slot.actual_start, slot.actual_end
+        return None
+    if slot.actual_start:
+        effective_end = slot.actual_end or max(slot.plan_end, datetime.now())
+        return slot.actual_start, effective_end
+    return slot.plan_start, slot.plan_end
 
 
 def _schedule_context(slot: TimeSlot, start, end) -> dict:
