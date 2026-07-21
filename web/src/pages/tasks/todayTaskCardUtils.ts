@@ -40,10 +40,18 @@ export function currentUserName() {
   }
 }
 
-export function isTodayTask(task: WorkspaceTask) {
+export function isTodayTask(task: WorkspaceTask, now: dayjs.Dayjs = dayjs()) {
   if (isTaskClosed(task)) return false
   if (task.execution_status === 'running') return true
-  return isTaskDue(task)
+  return isTaskDue(task, now)
+}
+
+export function isCompletionConfirmTask(task: WorkspaceTask, now: dayjs.Dayjs = dayjs()) {
+  return isTodayTask(task, now) && !isExceptionConfirmTask(task, now)
+}
+
+export function isWorkspaceExceptionConfirmTask(task: WorkspaceTask, now: dayjs.Dayjs = dayjs()) {
+  return !isTaskClosed(task) && isExceptionConfirmTask(task, now)
 }
 
 export function canStartTask(task: WorkspaceTask) {
@@ -69,12 +77,41 @@ function formatTaskDateTime(value: string | dayjs.Dayjs | null, fallback: string
 export function nightRunEndTime(task: WorkspaceTask) {
   const slot = task.actionable_slot
   if (!slot?.plan_end) return null
-  const planEnd = dayjs(slot.plan_end)
-  if (task.execution_status === 'running' && task.actual_window.start) {
-    const actualStart = dayjs(task.actual_window.start)
-    return actualStart.hour(planEnd.hour()).minute(planEnd.minute()).second(0).millisecond(0)
+  return dayjs(slot.plan_end)
+}
+
+export function getNightRunEligibility(
+  task: WorkspaceTask,
+  workdayEndTime: string,
+  now: dayjs.Dayjs = dayjs(),
+) {
+  const nightEnd = nightRunEndTime(task)
+  if (!nightEnd) {
+    return { isEligible: false, reason: '当前可执行时间段没有计划结束时间，不能继续夜间运行' }
   }
-  return planEnd
+  if (!nightEnd.isSame(now, 'day')) {
+    return { isEligible: false, reason: '当前可执行时间段不是今天，不能设置今日夜间运行' }
+  }
+  const workdayEnd = parseClockOnSameDay(nightEnd, workdayEndTime)
+  if (!workdayEnd) {
+    return { isEligible: false, reason: '未读取到排程规则中的有效工作时段，暂不能继续夜间运行' }
+  }
+  if (nightEnd.isBefore(workdayEnd)) {
+    return {
+      isEligible: false,
+      reason: `首次设置夜间运行时，任务当天计划结束时间需不早于有效工作时段最晚时间 ${workdayEndTime}`,
+    }
+  }
+  return { isEligible: true, reason: '' }
+}
+
+function parseClockOnSameDay(baseTime: dayjs.Dayjs, value: string) {
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})$/)
+  if (!match) return null
+  const hour = Number(match[1])
+  const minute = Number(match[2])
+  if (hour > 23 || minute > 59) return null
+  return baseTime.hour(hour).minute(minute).second(0).millisecond(0)
 }
 
 export function parseNightClock(baseTime: dayjs.Dayjs, value: string) {

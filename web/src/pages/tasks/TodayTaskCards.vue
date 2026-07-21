@@ -155,8 +155,8 @@ import { actionableSlotId } from '@/domains/tasks/workspaceTask'
 import dayjs from 'dayjs'
 import {
   actualText, canCompleteTask, canStartTask, currentUserName, formatHours,
-  formatInstrumentText, formatProjectText, formatTaskTime, getDelayText,
-  isExceptionConfirmTask, isHalfHourDuration, isTodayTask, maxNightRunHours,
+  formatInstrumentText, formatProjectText, formatTaskTime, getDelayText, getNightRunEligibility,
+  isCompletionConfirmTask, isHalfHourDuration, isWorkspaceExceptionConfirmTask, maxNightRunHours,
   nightRunEndTime, normalizeWorkdayEndTime, parseNightClock, scheduleText, statusLabel,
 } from './todayTaskCardUtils'
 
@@ -247,14 +247,12 @@ const nightRunRevision = ref(0)
 const workdayEndTime = ref<string | null>(null)
 const isWorkingHoursLoading = ref(true)
 
-const todayTasks = computed(() => props.tasks.filter(isTodayTask))
-
 const todayCardGroups = computed<TodayCardGroup[]>(() => {
-  const completionCards = todayTasks.value
-    .filter(task => !isExceptionConfirmTask(task))
+  const completionCards = props.tasks
+    .filter(task => isCompletionConfirmTask(task))
     .map(task => buildTodayCard(task, 'completion'))
-  const exceptionCards = todayTasks.value
-    .filter(task => isExceptionConfirmTask(task))
+  const exceptionCards = props.tasks
+    .filter(task => isWorkspaceExceptionConfirmTask(task))
     .map(task => buildTodayCard(task, 'exception'))
 
   return [
@@ -319,10 +317,8 @@ async function fetchWorkingHours() {
 function canNightRunTask(task: WorkspaceTask, storedNightRun?: StoredAutoSequenceForm | null) {
   if (storedNightRun) return true
   if (isWorkingHoursLoading.value) return false
-  const nightEnd = nightRunEndTime(task)
-  if (!nightEnd || !workdayEndTime.value) return false
-  const workdayEnd = parseNightClock(nightEnd, workdayEndTime.value)
-  return Boolean(workdayEnd) && nightEnd.isSame(dayjs(), 'day') && !nightEnd.isBefore(workdayEnd)
+  if (!workdayEndTime.value) return false
+  return getNightRunEligibility(task, workdayEndTime.value).isEligible
 }
 
 function nightRunDisabledReason(task: WorkspaceTask, storedNightRun?: StoredAutoSequenceForm | null) {
@@ -330,7 +326,7 @@ function nightRunDisabledReason(task: WorkspaceTask, storedNightRun?: StoredAuto
   if (!task.actionable_slot?.plan_end) return '当前可执行时间段没有计划结束时间，不能继续夜间运行'
   if (isWorkingHoursLoading.value) return '正在读取排程规则中的有效工作时段'
   if (!workdayEndTime.value) return '未读取到排程规则中的有效工作时段，暂不能继续夜间运行'
-  return `首次设置夜间运行时，任务当天计划结束时间需不早于有效工作时段最晚时间 ${workdayEndTime.value}`
+  return getNightRunEligibility(task, workdayEndTime.value).reason
 }
 
 function buildTodayCard(task: WorkspaceTask, category: TodayCardCategory): TodayTaskCard {

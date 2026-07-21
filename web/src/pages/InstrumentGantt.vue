@@ -71,7 +71,7 @@
             :style="{ height: Math.max(12, rowHeight) + 'px' }">
             <div v-for="col in timeColumns" :key="col.key" class="gantt-grid-cell"
               :style="{ width: colWidth + 'px' }" :class="{ 'is-weekend': col.isWeekend, 'is-today': col.isToday, 'is-current': col.isCurrent }" />
-            <div v-for="slot in getSlotsForQuarter(row.inst.id, row.quarter)" :key="slot.id"
+            <div v-for="slot in getSlotsForQuarter(row.inst.id, row.quarter)" :key="slot.renderKey || slot.id"
               class="gantt-bar" :class="getBarClasses(slot, row.quarter)"
               :style="getBarStyle(slot, row.quarter)"
               @mouseenter="e => showTooltip(slot, e)"
@@ -109,7 +109,20 @@
   </div>
 </template>
 
-<script setup lang="ts" src="./instrumentGanttPage.ts"></script>
+<script setup lang="ts">
+import { useInstrumentGanttPage } from './instrumentGanttPage'
+
+const {
+  FullscreenExitOutlined, FullscreenOutlined, LeftOutlined, RightOutlined,
+  WEEK_SEGMENT_COUNT, autoScrollEnabled, colWidth,
+  containerRef, dayjs, flatRows, getBarClasses, getBarProjectText, getBarStyle, getDelaySegmentStyle,
+  getDelayText, getInstrumentStatusMeta, getLeftRowStyle, getSegmentLabel, getSlotsForQuarter,
+  getTaskIcon, getTaskTypeLabel, getWeekBarDisplay, goNext, goPrev, goToday, hasDelay,
+  hasVerticalOverflow, hideTooltip, hoveredSlot, instruments, isCompactBar, isFullscreen, leftRef,
+  loading, periodLabel, rightRef, rowHeight, showTooltip, statusLabel, switchView, timeColumns,
+  toggleFullscreen, tooltipStyle, totalWidth, viewMode,
+} = useInstrumentGanttPage()
+</script>
 
 <style scoped src="./InstrumentGantt.css"></style>
 

@@ -43,6 +43,106 @@ export interface WorkspaceTask {
   delay: WorkspaceDelay
 }
 
+type UnknownRecord = Record<string, unknown>
+
+export function normalizeWorkspaceTask(value: unknown): WorkspaceTask {
+  const task = asRecord(value)
+  const taskWindow = asRecord(task.task_window)
+  const actualWindow = asRecord(task.actual_window)
+  const delay = asRecord(task.delay)
+  const nestedActionableSlot = normalizeWorkspaceSegment(task.actionable_slot)
+  const legacyActionableSlot = nestedActionableSlot || normalizeLegacyWorkspaceSegment(task)
+  const nestedSegments = Array.isArray(task.segments)
+    ? task.segments.map(normalizeWorkspaceSegment).filter(isWorkspaceSegment)
+    : []
+
+  return {
+    task_id: numberValue(task.task_id) ?? 0,
+    task_name: stringValue(task.task_name),
+    task_type: stringValue(task.task_type),
+    assignee_id: numberValue(task.assignee_id),
+    assignee_name: stringValue(task.assignee_name),
+    project_id: numberValue(task.project_id),
+    project_name: stringValue(task.project_name),
+    project_code: stringValue(task.project_code),
+    execution_status: stringValue(task.execution_status) || stringValue(task.status) || 'pending',
+    est_duration_hours: numberValue(task.est_duration_hours),
+    task_window: {
+      start: stringValue(taskWindow.start) || stringValue(task.task_plan_start) || stringValue(task.plan_start),
+      end: stringValue(taskWindow.end) || stringValue(task.task_plan_end) || stringValue(task.plan_end),
+    },
+    actual_window: {
+      start: stringValue(actualWindow.start) || stringValue(task.actual_start),
+      end: stringValue(actualWindow.end) || stringValue(task.actual_end),
+    },
+    actionable_slot: legacyActionableSlot,
+    segments: nestedSegments.length ? nestedSegments : (legacyActionableSlot ? [legacyActionableSlot] : []),
+    delay: {
+      status: delayStatus(delay.status ?? task.delay_status),
+      hours: numberValue(delay.hours) ?? numberValue(task.delay_hours),
+      reason: stringValue(delay.reason) || stringValue(task.delay_reason),
+      reported_at: stringValue(delay.reported_at) || stringValue(task.delay_reported_at),
+    },
+  }
+}
+
+function normalizeWorkspaceSegment(value: unknown): WorkspaceSegment | null {
+  const segment = asRecord(value)
+  const id = numberValue(segment.id)
+  const planStart = stringValue(segment.plan_start)
+  const planEnd = stringValue(segment.plan_end)
+  if (id === null || !planStart || !planEnd) return null
+  return {
+    id,
+    instrument_id: numberValue(segment.instrument_id),
+    instrument_name: stringValue(segment.instrument_name),
+    instrument_code: stringValue(segment.instrument_code),
+    plan_start: planStart,
+    plan_end: planEnd,
+    actual_start: stringValue(segment.actual_start),
+    actual_end: stringValue(segment.actual_end),
+    tier: stringValue(segment.tier) || 'unscheduled',
+    status: stringValue(segment.status) || 'scheduled',
+  }
+}
+
+function normalizeLegacyWorkspaceSegment(task: UnknownRecord): WorkspaceSegment | null {
+  const slotId = numberValue(task.slot_id)
+  if (!slotId) return null
+  return normalizeWorkspaceSegment({
+    id: slotId,
+    instrument_id: task.instrument_id,
+    instrument_name: task.instrument_name,
+    instrument_code: task.instrument_code,
+    plan_start: task.plan_start,
+    plan_end: task.plan_end,
+    actual_start: task.actual_start,
+    actual_end: task.actual_end,
+    tier: task.tier,
+    status: task.status,
+  })
+}
+
+function asRecord(value: unknown): UnknownRecord {
+  return value !== null && typeof value === 'object' ? value as UnknownRecord : {}
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === 'string' && value.length ? value : null
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function delayStatus(value: unknown): WorkspaceDelay['status'] {
+  return value === 'delayed' ? 'delayed' : 'not_delayed'
+}
+
+function isWorkspaceSegment(value: WorkspaceSegment | null): value is WorkspaceSegment {
+  return value !== null
+}
+
 export function isTaskClosed(task: WorkspaceTask) {
   return ['done', 'completed'].includes(task.execution_status)
 }

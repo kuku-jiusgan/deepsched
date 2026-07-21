@@ -17,7 +17,7 @@
     <template v-else>
       <TodayTaskCards
         v-if="activeTab === 'active'"
-        :tasks="cardTasks"
+        :tasks="tasks"
         @start="handleStart"
         @complete="handleComplete"
         @refreshed="fetchData"
@@ -27,7 +27,7 @@
         </template>
       </TodayTaskCards>
 
-      <a-table v-if="activeTab !== 'active'" :dataSource="filtered" :columns="columns" rowKey="slot_id" size="middle"
+      <a-table v-if="activeTab !== 'active'" :dataSource="filtered" :columns="columns" rowKey="task_id" size="middle"
         :pagination="{ pageSize: 20, showSizeChanger: true }">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">
@@ -52,6 +52,12 @@
           </template>
           <template v-else-if="column.key === 'plan_end'">
             {{ formatTaskPlanEnd(record) }}
+          </template>
+          <template v-else-if="column.key === 'actual_start'">
+            {{ formatTaskActualStart(record) }}
+          </template>
+          <template v-else-if="column.key === 'actual_end'">
+            {{ formatTaskActualEnd(record) }}
           </template>
           <template v-else-if="column.key === 'actions'">
             <template v-if="!record.actionable_slot">
@@ -203,7 +209,15 @@ function formatTaskPlanEnd(record: WorkspaceTask) {
   return formatDateTime(record.task_window.end)
 }
 
-const columns = [
+function formatTaskActualStart(record: WorkspaceTask) {
+  return formatDateTime(record.actual_window.start)
+}
+
+function formatTaskActualEnd(record: WorkspaceTask) {
+  return formatDateTime(record.actual_window.end)
+}
+
+const columns = computed(() => [
   { title: '任务名称', dataIndex: 'task_name', key: 'task_name', width: 200, ellipsis: true },
   { title: '任务类型', key: 'task_type', width: 110 },
   { title: '所属项目', key: 'project', width: 200 },
@@ -212,8 +226,12 @@ const columns = [
   { title: '状态', dataIndex: 'status', key: 'status', width: 80 },
   { title: '计划开始', key: 'plan_start', width: 120 },
   { title: '计划结束', key: 'plan_end', width: 120 },
+  ...(activeTab.value === 'completed' ? [
+    { title: '实际开始', key: 'actual_start', width: 120 },
+    { title: '实际完成', key: 'actual_end', width: 120 },
+  ] : []),
   { title: '操作', key: 'actions', width: 160 },
-]
+])
 
 async function fetchData(isSilent = false) {
   if (isFetching) return

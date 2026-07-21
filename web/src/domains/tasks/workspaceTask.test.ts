@@ -3,10 +3,15 @@ import dayjs from 'dayjs'
 
 import {
   isExceptionConfirmTask,
+  normalizeWorkspaceTask,
   isWorkspaceActiveTask,
   isWorkspacePendingTask,
   type WorkspaceTask,
 } from './workspaceTask'
+import {
+  isCompletionConfirmTask,
+  isWorkspaceExceptionConfirmTask,
+} from '@/pages/tasks/todayTaskCardUtils'
 
 
 function task(overrides: Partial<WorkspaceTask> = {}): WorkspaceTask {
@@ -61,5 +66,38 @@ describe('workspace task selectors', () => {
     })
     expect(isWorkspaceActiveTask(future, now)).toBe(false)
     expect(isWorkspacePendingTask(future, now)).toBe(true)
+  })
+
+  it('keeps delayed tasks in the exception card independently of the active-tab selector', () => {
+    expect(isWorkspaceExceptionConfirmTask(task(), now)).toBe(true)
+    expect(isCompletionConfirmTask(task(), now)).toBe(false)
+  })
+
+  it('puts a due non-exception task in the completion card', () => {
+    const dueTask = task({
+      delay: { status: 'not_delayed', hours: null, reason: null, reported_at: null },
+    })
+    expect(isCompletionConfirmTask(dueTask, now)).toBe(true)
+    expect(isWorkspaceExceptionConfirmTask(dueTask, now)).toBe(false)
+  })
+
+  it('normalizes the legacy flat API response before rendering cards', () => {
+    const normalized = normalizeWorkspaceTask({
+      slot_id: 57,
+      task_id: 2,
+      task_name: '方案撰写',
+      status: 'scheduled',
+      delay_status: 'delayed',
+      task_plan_start: '2026-07-17T21:00:00',
+      task_plan_end: '2026-07-20T09:30:00',
+      plan_start: '2026-07-20T08:30:00',
+      plan_end: '2026-07-20T09:30:00',
+      tier: 'confirmed',
+    })
+
+    expect(normalized.task_window.start).toBe('2026-07-17T21:00:00')
+    expect(normalized.actionable_slot?.id).toBe(57)
+    expect(normalized.delay.status).toBe('delayed')
+    expect(isWorkspaceExceptionConfirmTask(normalized, now)).toBe(true)
   })
 })

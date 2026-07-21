@@ -4,7 +4,7 @@
     <header class="cockpit-header">
       <div class="brand-lockup">
         <span class="brand-mark"><ExperimentOutlined /></span>
-        <h1>数字实验室运行态势图</h1>
+        <h1>数字实验室运行态势总览</h1>
       </div>
       <div class="header-meta">
         <span class="date-time"><CalendarOutlined />{{ now.format('YYYY-MM-DD') }}<strong>{{ now.format('HH:mm:ss') }}</strong></span>

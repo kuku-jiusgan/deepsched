@@ -292,15 +292,10 @@
   border-left-color: #2563eb;
 }
 .status-blocked {
-  background: #fef2f2;
-  color: #b91c1c;
-  border: 1px solid #fecaca;
-  border-left-color: #dc2626;
-}
-.gantt-bar.has-delay {
-  color: #b91c1c;
-  border-color: #fecaca;
-  border-left-color: #dc2626;
+  background: #f8fafc;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  border-left-color: #94a3b8;
 }
 .gantt-bar.status-scheduled,
 .gantt-bar.status-running,
