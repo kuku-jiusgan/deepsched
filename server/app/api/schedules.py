@@ -36,6 +36,7 @@ from app.services.task_execution_service import (
     start_task_execution,
 )
 from app.services.workspace_service import get_workspace_tasks
+from app.services.audit_log_service import record_audit_log
 from app.services.workspace_command_service import complete_workspace_task, interrupt_workspace_task
 from app.api.transactions import execute_transaction
 from app.schemas.workspace_schemas import WorkspaceTaskOut
@@ -93,7 +94,7 @@ def update_timeslot(
 def start_task(
     slot_id: int,
     db: Session = Depends(get_db),
-    _user=Depends(require_slot_operator),
+    user=Depends(require_slot_operator),
 ):
     return execute_transaction(db, lambda: start_task_execution(db, slot_id))
 
@@ -126,7 +127,10 @@ def delay_task(
 ):
     return execute_transaction(
         db,
-        lambda: report_task_delay(db, slot_id, data.delay_hours, data.reason),
+        lambda: report_task_delay(
+            db, slot_id, data.delay_hours, data.reason,
+            user.display_name or user.username,
+        ),
     )
 
 @router.post("/timeslots/{slot_id}/night-run", response_model=TimeSlotOut)
@@ -146,19 +150,27 @@ def night_run(
 def generate_schedule(
     data: ScheduleGenerateRequest,
     db: Session = Depends(get_db),
-    _user=Depends(require_management_user),
+    user=Depends(require_management_user),
 ):
     scheduler = SchedulerService(db)
     result = scheduler.generate(data.project_ids, mode=data.mode)
+    record_audit_log(
+        db, user.display_name or user.username, "schedule_generated", "schedule",
+        None, {"project_ids": data.project_ids or [], "mode": data.mode, "result": result.get("status")},
+    )
+    db.commit()
     return result
 
 @router.post("/reschedule")
 def reschedule(
     data: RescheduleRequest,
     db: Session = Depends(get_db),
-    _user=Depends(require_management_user),
+    user=Depends(require_management_user),
 ):
-    return reschedule_service(db, data)
+    result = reschedule_service(db, data)
+    record_audit_log(db, user.display_name or user.username, "schedule_rescheduled", "schedule", None, {"result": result.get("status")})
+    db.commit()
+    return result
 
 @router.post("/insert-order", response_model=InsertOrderPreview)
 def calculate_insert_cost(
@@ -177,10 +189,27 @@ def calculate_insert_cost(
 def confirm_insert(
     data: InsertOrderRequest,
     db: Session = Depends(get_db),
-    _user=Depends(require_management_user),
+    user=Depends(require_management_user),
 ):
     try:
-        return confirm_insert_service(db, data)
+        result = confirm_insert_service(db, data)
+        record_audit_log(
+            db,
+            user.display_name or user.username,
+            "schedule_insert_confirmed",
+            "schedule",
+            None,
+            {
+                "mode": data.mode,
+                "project_id": data.project_id,
+                "task_ids": data.task_ids,
+                "anchor_task_id": data.anchor_task_id,
+                "moved_tasks": result.moved_tasks,
+                "schedule_run_id": result.schedule_run_id,
+            },
+        )
+        db.commit()
+        return result
     except ScheduleInsertNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except ScheduleInsertInvalidError as exc:
@@ -220,7 +249,7 @@ def _enrich_slot(slot: TimeSlot, db: Session) -> TimeSlotOut:
     proj = db.query(Project).filter(Project.id == task.project_id).first() if task else None
     delay_fields = (
         _latest_delay_fields(task.id, db, slot)
-        if task and _should_include_delay_fields(slot)
+        if task and (task.delay_status == "delayed" or _should_include_delay_fields(slot))
         else _empty_delay_fields()
     )
     return TimeSlotOut(
@@ -251,19 +280,22 @@ def _latest_delay_fields(task_id: int, db: Session, slot: TimeSlot) -> dict:
         .limit(50)
         .all()
     )
+    matched_logs: list[tuple[AuditLog, dict]] = []
     for log in logs:
-        if log.target_id != slot.id:
-            continue
         detail = _audit_detail_dict(log.detail)
         if detail.get("schedule_run_id") != slot.schedule_run_id:
             continue
         if detail.get("task_id") == task_id:
-            return {
-                "delay_hours": detail.get("delay_hours"),
-                "delay_reason": detail.get("reason"),
-                "delay_reported_at": log.created_at,
-            }
-    return _empty_delay_fields()
+            matched_logs.append((log, detail))
+    if not matched_logs:
+        return _empty_delay_fields()
+    total_hours = sum(float(detail.get("delay_hours") or 0) for _log, detail in matched_logs)
+    reasons = [str(detail["reason"]) for _log, detail in reversed(matched_logs) if detail.get("reason")]
+    return {
+        "delay_hours": total_hours,
+        "delay_reason": "；".join(dict.fromkeys(reasons)) or None,
+        "delay_reported_at": matched_logs[0][0].created_at,
+    }
 
 def _audit_detail_dict(detail) -> dict:
     if isinstance(detail, dict):
@@ -275,4 +307,3 @@ def _audit_detail_dict(detail) -> dict:
         except json.JSONDecodeError:
             return {}
     return {}
-

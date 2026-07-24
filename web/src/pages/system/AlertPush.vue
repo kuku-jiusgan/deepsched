@@ -73,7 +73,7 @@
                 />
               </a-form-item>
               <a-form-item class="channel-save-item">
-                <a-button :loading="savingPushConfig" @click="savePushConfig">保存通道配置</a-button>
+                <a-button v-operation="'edit_channel'" :loading="savingPushConfig" @click="savePushConfig">保存通道配置</a-button>
               </a-form-item>
             </a-form>
           </section>
@@ -86,7 +86,7 @@
               </div>
               <div class="rules-heading-actions">
                 <span class="rule-count">共 {{ rules.length }} 条</span>
-                <a-button type="primary" :loading="savingRules" @click="saveAll">
+                <a-button v-operation="'edit_rule'" type="primary" :loading="savingRules" @click="saveAll">
                   <SaveOutlined /> 保存规则
                 </a-button>
               </div>
@@ -249,9 +249,10 @@ const roleOptions = [
   { label: '系统管理员', value: '系统管理员' },
   { label: '项目管理员', value: '项目管理员' },
   { label: '分析所所长', value: '分析所所长' },
+  { label: '技术组长', value: '技术组长' },
   { label: '项目负责人（项目指定）', value: '项目负责人' },
   { label: '任务负责人（任务指定）', value: '任务负责人' },
-  { label: '分析员', value: '分析员' },
+  { label: '技术员', value: '技术员' },
 ]
 
 const channelOptions = [
@@ -379,6 +380,7 @@ function ruleDescription(type: string) {
     task_end_delay: '已开始任务超过计划结束时间仍未点击结束。',
     schedule_changed: '重排或插单改变任务原定时间。',
     task_schedule_advanced: '任何排程操作使任务计划开始时间提前。',
+    task_schedule_delayed: '排程调整导致任务计划开始时间被动后移。',
     hours_exceeded: '任务实际投入工时超过预计工时。',
     instrument_fault_reschedule: '仪器故障导致相关任务后移。',
     instrument_fault_schedule_conflict: '故障处理后无法生成无冲突排程。',
@@ -394,6 +396,7 @@ function ruleTriggerText(type: string) {
     task_end_delay: '到达计划结束时间仍未结束',
     schedule_changed: '任务排程发生变更',
     task_schedule_advanced: '任务计划时间提前',
+    task_schedule_delayed: '任务计划时间被动后移',
     instrument_fault_reschedule: '故障重排已应用',
     instrument_fault_schedule_conflict: '故障重排出现冲突',
     approval_pending: '方案进入待提交状态',
@@ -412,6 +415,7 @@ function notificationTypeLabel(type: string) {
     task_end_delay: '结束提醒',
     hours_exceeded: '工时超标',
     task_schedule_advanced: '任务前移',
+    task_schedule_delayed: '任务被动后移',
     approval_pending: '方案待提交',
     approval_due: '签批提醒',
     approval_schedule_result: '签批排程',

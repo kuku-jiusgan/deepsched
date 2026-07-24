@@ -37,7 +37,10 @@ def dashboard(
         or_(Project.start_date.is_(None), Project.start_date < window_end),
         or_(Project.end_date.is_(None), Project.end_date > window_start),
     )
-    projects = db.query(Project).filter(*project_window_filter).options(
+    projects = db.query(Project).filter(
+        Project.project_kind == "project",
+        *project_window_filter,
+    ).options(
         selectinload(Project.tasks).selectinload(Task.time_slots)
     ).all()
     total_proj = len(projects)

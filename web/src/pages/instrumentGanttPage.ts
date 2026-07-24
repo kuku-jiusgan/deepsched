@@ -61,6 +61,7 @@ interface TaskTiming {
   expectedEnd: dayjs.Dayjs
   actualEnd: dayjs.Dayjs | null
   taskStatus: string | null
+  delayHours: number
 }
 
 const slotStatusMetaMap: Record<string, StatusMeta> = {
@@ -191,6 +192,7 @@ const taskTimingMap = computed(() => {
   for (const slot of slots.value) {
     const planEnd = dayjs(slot.plan_end)
     const actualEnd = slot.actual_end ? dayjs(slot.actual_end) : null
+    const delayHours = Number(slot.delay_hours || 0)
     const current = timingMap.get(slot.task_id)
     timingMap.set(slot.task_id, {
       expectedEnd: !current || planEnd.isAfter(current.expectedEnd) ? planEnd : current.expectedEnd,
@@ -198,6 +200,7 @@ const taskTimingMap = computed(() => {
         ? actualEnd
         : (current?.actualEnd || null),
       taskStatus: slot.task_status || current?.taskStatus || null,
+      delayHours: Math.max(current?.delayHours || 0, delayHours),
     })
   }
   return timingMap
@@ -414,6 +417,11 @@ function getDelayRange(slot: TimeSlot): [dayjs.Dayjs, dayjs.Dayjs] | null {
   const timing = taskTimingMap.value.get(slot.task_id)
   if (!timing || !isTerminalTaskSlot(slot, timing)) return null
   const expectedEnd = timing.expectedEnd
+  const slotDelayHours = Number(slot.delay_hours || 0)
+  if (slotDelayHours > 0) {
+    const delayedEnd = dayjs(slot.plan_end)
+    return [delayedEnd.subtract(slotDelayHours, 'hour'), delayedEnd]
+  }
   const actualEnd = timing.actualEnd
   if (actualEnd) return actualEnd.isAfter(expectedEnd) ? [expectedEnd, actualEnd] : null
 
@@ -426,7 +434,8 @@ function getDelayRange(slot: TimeSlot): [dayjs.Dayjs, dayjs.Dayjs] | null {
 
 function isTerminalTaskSlot(slot: TimeSlot, timing: TaskTiming) {
   const ganttSlot = slot as GanttSlot
-  return dayjs(ganttSlot.originalPlanEnd || slot.plan_end).isSame(timing.expectedEnd)
+  const originalEnd = dayjs(ganttSlot.originalPlanEnd || slot.plan_end)
+  return originalEnd.isSame(timing.expectedEnd)
 }
 
 function getWeekBarDisplay(slot: TimeSlot, quarter?: number): WeekBarDisplay {
@@ -632,4 +641,3 @@ return {
   timeColumns, toggleFullscreen, tooltipStyle, totalWidth, viewMode,
 }
 }
-

@@ -10,6 +10,7 @@ from app.services.project_access_service import FULL_PROJECT_ACCESS_ROLES
 from app.services.project_hours_validation_service import ProjectHoursExceededError, validate_project_estimated_hours
 from app.services.project_instrument_validation_service import RequiredInstrumentError, validate_required_task_instruments
 from app.services.project_task_rollup_service import recalculate_project_parent_hours
+from app.services.user_role_service import has_any_role
 
 
 class ProjectPlanDraftNotFoundError(Exception):
@@ -33,7 +34,7 @@ def commit_project_plan_drafts(
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise ProjectPlanDraftNotFoundError("项目不存在")
-    if user.role not in FULL_PROJECT_ACCESS_ROLES and project.manager_id != user.id:
+    if not has_any_role(user, FULL_PROJECT_ACCESS_ROLES) and project.manager_id != user.id:
         raise ProjectPlanDraftPermissionError("无权保存该项目计划")
     client_ids = [item.client_id for item in data.tasks]
     if len(client_ids) != len(set(client_ids)):
@@ -82,6 +83,7 @@ def commit_project_plan_drafts(
                 else item.assignee_id
             ),
             parent_id=None,
+            plan_order=item.plan_order,
             instrument_ids=(
                 [] if item.is_external_gate or is_parent
                 else item.instrument_ids

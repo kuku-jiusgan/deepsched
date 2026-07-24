@@ -57,6 +57,10 @@ class TaskUpdate(BaseModel):
     assignee_id: Optional[int] = None
     parent_id: Optional[int] = None
 
+class TaskReorder(BaseModel):
+    parent_id: Optional[int] = None
+    task_ids: List[int]
+
 class TaskOut(BaseModel):
     id: int
     project_id: int
@@ -84,6 +88,7 @@ class TaskOut(BaseModel):
     delay_reason: Optional[str] = None
     delay_reported_at: Optional[datetime] = None
     parent_id: Optional[int] = None
+    plan_order: int = 0
     children: List["TaskOut"] = []
     is_external_gate: bool = False
     gate_status: Optional[str] = None
@@ -117,8 +122,43 @@ class ProjectOut(BaseModel):
     manager_name: Optional[str] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
+    project_kind: str = "project"
     tasks: List[TaskOut] = []
     model_config = ConfigDict(from_attributes=True)
+
+class DetectionTaskCreate(BaseModel):
+    code: str
+    name: str
+    client_name: Optional[str] = None
+    priority: int = Field(default=3, ge=1, le=3)
+    manager_id: Optional[int] = None
+    start_date: datetime
+    end_date: datetime
+    task_type: str = "instrument"
+    est_duration_hours: float = Field(gt=0)
+    switchover_hours: float = Field(default=0, ge=0)
+    requires_instrument: bool = True
+    requires_human: bool = True
+    allow_split: bool = False
+    allow_transfer: bool = False
+    instrument_ids: List[int] = []
+    assignee_id: int = Field(gt=0)
+
+class DetectionTaskOut(BaseModel):
+    id: int
+    project_id: int
+    code: str
+    name: str
+    client_name: Optional[str] = None
+    priority: int
+    manager_id: Optional[int] = None
+    manager_name: Optional[str] = None
+    start_date: datetime
+    end_date: datetime
+    task: TaskOut
+    schedule_status: Optional[str] = None
+    schedule_message: Optional[str] = None
+    preview_token: Optional[str] = None
 
 # ---- Instrument ----
 class CapabilityCreate(BaseModel):
@@ -250,6 +290,8 @@ class InsertOrderRequest(BaseModel):
     project_id: int
     task_ids: List[int]
     priority_override: Optional[int] = Field(default=None, ge=1, le=3)
+    mode: Literal["priority", "custom_after_task"] = "priority"
+    anchor_task_id: Optional[int] = None
 
 class ProjectPlanApplyRequest(BaseModel):
     project_id: int
@@ -292,6 +334,7 @@ class InsertOrderImpact(BaseModel):
     new_start: datetime
     new_end: datetime
     delay_hours: float = 0
+    impact_role: Optional[Literal["inserted", "anchor_downstream", "source_downstream", "shifted"]] = None
 
 class InsertOrderPreview(BaseModel):
     status: str = "ok"
@@ -378,7 +421,8 @@ class UserCreate(BaseModel):
     username: str
     display_name: str
     password: Optional[str] = None
-    role: str = "分析员"
+    role: str = "技术员"
+    roles: Optional[list[str]] = None
     email: Optional[str] = None
     phone: Optional[str] = None
     wecom_id: Optional[str] = None
@@ -389,6 +433,7 @@ class UserDirectoryOut(BaseModel):
     username: str
     display_name: str
     role: str
+    roles: Optional[list[str]] = None
     is_active: bool
     model_config = ConfigDict(from_attributes=True)
 
@@ -398,6 +443,7 @@ class UserOut(BaseModel):
     username: str
     display_name: str
     role: str
+    roles: Optional[list[str]] = None
     email: Optional[str]
     phone: Optional[str]
     wecom_id: Optional[str] = None
@@ -437,6 +483,3 @@ class NotificationOut(BaseModel):
     is_confirmed: Optional[bool]
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
-
-
-

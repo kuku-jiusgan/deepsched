@@ -70,12 +70,12 @@
       <a-table-column title="操作" width="13%">
         <template #default="{ record }">
           <a-space :size="4">
-            <a-button v-if="activeTab === 'pending' && record.can_operate" type="link" size="small" @click="confirmApprove(record)">签批完成</a-button>
+            <a-button v-if="activeTab === 'pending' && record.can_operate" v-operation="{ page: '/tasks/workspace', action: 'approve' }" type="link" size="small" @click="confirmApprove(record)">签批完成</a-button>
             <a-dropdown :trigger="['click']">
               <a-button type="text" size="small" title="更多操作"><EllipsisOutlined /></a-button>
               <template #overlay>
                 <a-menu>
-                  <a-menu-item v-if="record.schedule_status === 'confirmation_required' && record.can_operate" danger @click="confirmImpact(record)">确认排程影响</a-menu-item>
+                  <a-menu-item v-if="record.schedule_status === 'confirmation_required' && record.can_operate" v-operation="{ page: '/tasks/workspace', action: 'confirm_impact' }" danger @click="confirmImpact(record)">确认排程影响</a-menu-item>
                   <a-menu-item @click="openDetail(record)">查看详情</a-menu-item>
                   <a-menu-item v-if="activeTab === 'pending'" @click="viewProject(record.project_id)">项目计划</a-menu-item>
                   <a-menu-item v-else @click="viewGantt(record.project_id)">项目甘特图</a-menu-item>

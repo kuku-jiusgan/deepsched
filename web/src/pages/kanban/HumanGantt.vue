@@ -1,5 +1,5 @@
 <template>
-  <div class="human-gantt-page" :class="{ 'is-fullscreen': isFullscreen }">
+  <div ref="pageRef" class="human-gantt-page" :class="{ 'is-fullscreen': isFullscreen }">
     <div class="page-header">
       <h2>人力甘特图</h2>
     </div>
@@ -144,6 +144,7 @@ import { centerGanttTimelineOnCurrentTime, scrollGanttTimelineToStart } from './
 const COLUMN_WIDTH = 140
 const REFRESH_INTERVAL_MS = 30_000
 const API_LOCAL_DATETIME_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
+const HIDDEN_HUMAN_GANTT_ROLES = new Set(['系统管理员', '项目管理员'])
 
 const loading = ref(true)
 const users = ref<UserDirectoryEntry[]>([])
@@ -155,6 +156,7 @@ const hoveredSlot = ref<TimeSlot | null>(null)
 const tooltipX = ref(0)
 const tooltipY = ref(0)
 const containerRef = ref<HTMLElement | null>(null)
+const pageRef = ref<HTMLElement | null>(null)
 const leftRef = ref<HTMLElement | null>(null)
 const rightRef = ref<HTMLElement | null>(null)
 
@@ -243,7 +245,7 @@ function syncVerticalScroll() {
 
 function toggleFullscreen() {
   if (!isFullscreen.value) {
-    document.documentElement.requestFullscreen().catch(() => message.error('浏览器未允许进入全屏'))
+    pageRef.value?.requestFullscreen().catch(() => message.error('浏览器未允许进入全屏'))
     return
   }
   document.exitFullscreen()
@@ -311,6 +313,11 @@ function formatDateTime(value: string) {
   return dayjs(value).format('YYYY-MM-DD HH:mm')
 }
 
+function isHumanGanttUserVisible(user: UserDirectoryEntry) {
+  const userRoles = [user.role, ...(user.roles ?? [])]
+  return !userRoles.some(role => HIDDEN_HUMAN_GANTT_ROLES.has(role))
+}
+
 async function fetchData(silent = false) {
   if (isFetching) return
   isFetching = true
@@ -324,8 +331,12 @@ async function fetchData(silent = false) {
       }),
       getTaskTypes(),
     ])
-    users.value = userList
-    slots.value = timeslotList.filter(slot => slot.assignee_id != null)
+    const visibleUserList = userList.filter(isHumanGanttUserVisible)
+    const visibleUserIds = new Set(visibleUserList.map(user => user.id))
+    users.value = visibleUserList
+    slots.value = timeslotList.filter(
+      slot => slot.assignee_id != null && visibleUserIds.has(slot.assignee_id),
+    )
     taskTypeMap.value = Object.fromEntries(taskTypes.map((type: TaskTypeConfig) => [type.code, type.name]))
   } catch {
     if (!silent) message.error('加载人力甘特图失败')

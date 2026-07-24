@@ -2,7 +2,7 @@
   <div>
     <div class="page-header"><h2>仪器基础信息</h2></div>
     <div class="action-bar">
-      <a-button type="primary" @click="openCreate"><PlusOutlined /> 添加仪器</a-button>
+      <a-button v-operation="'create'" type="primary" @click="openCreate"><PlusOutlined /> 添加仪器</a-button>
       <a-select placeholder="按分组筛选" allowClear style="width: 180px" v-model:value="groupFilter" :options="groupOptions" />
       <span style="margin-left: auto; font-size: 12px; color: #94a3b8; align-self: center">共 {{ filtered.length }} 台仪器</span>
     </div>
@@ -37,8 +37,8 @@
         </template>
         <template v-else-if="column.key === 'actions'">
           <a-space :size="4">
-            <a-button type="link" size="small" @click="openEdit(record)"><EditOutlined /> 编辑</a-button>
-            <a-popconfirm title="确定删除该仪器？" @confirm="handleDelete(record.id)" okText="确定" cancelText="取消">
+            <a-button v-operation="'edit'" type="link" size="small" @click="openEdit(record)"><EditOutlined /> 编辑</a-button>
+            <a-popconfirm v-operation="'delete'" title="确定删除该仪器？" @confirm="handleDelete(record.id)" okText="确定" cancelText="取消">
               <a-button type="link" size="small" danger><DeleteOutlined /> 删除</a-button>
             </a-popconfirm>
           </a-space>
@@ -219,8 +219,6 @@ async function handleSubmit() {
 async function handleDelete(id:number){try{await deleteInstrument(id);message.success('已删除');fetchData()}catch{message.error('删除失败')}}
 onMounted(fetchData)
 </script>
-
-
 
 
 

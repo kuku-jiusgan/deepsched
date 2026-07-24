@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
-from app.models import Project, User
+from app.models import Project, Task, User
 from app.services.project_access_service import (
     ProjectNotVisibleError,
     get_visible_project,
@@ -39,6 +39,27 @@ class ProjectAccessServiceTest(unittest.TestCase):
     def test_regular_user_cannot_open_other_project(self):
         with self.assertRaises(ProjectNotVisibleError):
             get_visible_project(self.db, self.other_project.id, self.owner)
+
+    def test_regular_user_sees_project_when_assigned_a_task(self):
+        task = Task(
+            project_id=self.other_project.id,
+            name="本人负责的任务",
+            task_type="manual",
+            assignee_id=self.owner.id,
+        )
+        self.db.add(task)
+        self.db.commit()
+
+        projects = list_visible_projects(self.db, self.owner)
+
+        self.assertEqual(
+            {self.owned_project.id, self.other_project.id},
+            {project.id for project in projects},
+        )
+        self.assertEqual(
+            self.other_project.id,
+            get_visible_project(self.db, self.other_project.id, self.owner).id,
+        )
 
     def test_privileged_roles_see_all_projects(self):
         for user in [self.project_admin, self.director, self.system_admin]:

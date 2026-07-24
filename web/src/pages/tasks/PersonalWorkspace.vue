@@ -10,6 +10,15 @@
         <a-tab-pane key="pending" tab="待开始" />
         <a-tab-pane key="completed" tab="已完成" />
       </a-tabs>
+      <div v-if="activeTab === 'pending' || activeTab === 'completed'" class="workspace-project-search">
+        <a-input
+          v-model:value="projectKeyword"
+          allow-clear
+          placeholder="项目编号或项目名称"
+          @press-enter="applyProjectSearch"
+        />
+        <a-button type="primary" @click="applyProjectSearch"><SearchOutlined /> 查询</a-button>
+      </div>
     </div>
 
     <a-spin v-if="loading" size="large" style="display: block; margin: 80px auto" />
@@ -59,12 +68,19 @@
           <template v-else-if="column.key === 'actual_end'">
             {{ formatTaskActualEnd(record) }}
           </template>
+          <template v-else-if="column.key === 'estimated_hours'">
+            {{ formatHours(record.est_duration_hours) }}
+          </template>
+          <template v-else-if="column.key === 'actual_hours'">
+            {{ formatHours(record.actual_duration_hours) }}
+          </template>
           <template v-else-if="column.key === 'actions'">
             <template v-if="!record.actionable_slot">
               <a-tag color="default">未排程</a-tag>
             </template>
             <a-space v-else :size="4">
               <a-button
+                v-operation="'start'"
                 v-if="record.execution_status === 'scheduled' || record.execution_status === 'pending'"
                 type="primary"
                 size="small"
@@ -75,6 +91,7 @@
                 <PlayCircleOutlined /> 开始
               </a-button>
               <a-button
+                v-operation="'complete'"
                 v-if="record.execution_status === 'running'"
                 size="small"
                 class="task-action-button task-action-button-complete"
@@ -114,7 +131,7 @@
 <script setup lang="ts">
 import { ref, computed, onBeforeUnmount, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
-import { CheckCircleOutlined, PlayCircleOutlined } from '@ant-design/icons-vue'
+import { CheckCircleOutlined, PlayCircleOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import {
   getApprovalGates, startTask, completeTask, getTaskTypes,
 } from '@/services/api'
@@ -135,6 +152,8 @@ const tasks = ref<WorkspaceTask[]>([])
 const approvalGates = ref<ApprovalGate[]>([])
 const loading = ref(true)
 const activeTab = ref<string>('active')
+const projectKeyword = ref('')
+const appliedProjectKeyword = ref('')
 const actingId = ref<number | null>(null)
 const releaseConfirmOpen = ref(false)
 const releaseSubmitting = ref(false)
@@ -155,11 +174,20 @@ const cardTasks = computed(() => {
 })
 
 const filtered = computed(() => {
+  let result: WorkspaceTask[]
   if (activeTab.value === 'completed') {
-    return tasks.value.filter(task => ['done', 'completed'].includes(task.execution_status))
+    result = tasks.value.filter(task => ['done', 'completed'].includes(task.execution_status))
+  } else {
+    result = cardTasks.value
   }
-  return cardTasks.value
+  const keyword = appliedProjectKeyword.value.trim().toLowerCase()
+  if (!keyword) return result
+  return result.filter(task => `${task.project_code || ''} ${task.project_name || ''}`.toLowerCase().includes(keyword))
 })
+
+function applyProjectSearch() {
+  appliedProjectKeyword.value = projectKeyword.value
+}
 
 
 const taskTypeMap = ref<Record<string, string>>({})
@@ -217,6 +245,10 @@ function formatTaskActualEnd(record: WorkspaceTask) {
   return formatDateTime(record.actual_window.end)
 }
 
+function formatHours(value: number | null | undefined) {
+  return value === null ? '-' : `${value} 小时`
+}
+
 const columns = computed(() => [
   { title: '任务名称', dataIndex: 'task_name', key: 'task_name', width: 200, ellipsis: true },
   { title: '任务类型', key: 'task_type', width: 110 },
@@ -229,6 +261,8 @@ const columns = computed(() => [
   ...(activeTab.value === 'completed' ? [
     { title: '实际开始', key: 'actual_start', width: 120 },
     { title: '实际完成', key: 'actual_end', width: 120 },
+    { title: '预计工时', key: 'estimated_hours', width: 100 },
+    { title: '实际工时', key: 'actual_hours', width: 100 },
   ] : []),
   { title: '操作', key: 'actions', width: 160 },
 ])
@@ -379,5 +413,19 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 24px;
+}
+
+.workspace-project-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 12px;
+}
+
+.workspace-project-search .ant-input-affix-wrapper { width: 240px; }
+
+@media (max-width: 720px) {
+  .workspace-project-search { width: 100%; }
+  .workspace-project-search .ant-input-affix-wrapper { flex: 1; width: auto; }
 }
 </style>

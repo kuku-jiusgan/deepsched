@@ -1,7 +1,8 @@
 from app.models import Project, Task
+from app.services.user_role_service import has_any_role
 
 
-FULL_PROJECT_ACCESS_ROLES = {"系统管理员", "项目管理员", "分析所所长"}
+FULL_PROJECT_ACCESS_ROLES = {"系统管理员", "项目管理员", "分析所所长", "技术组长"}
 
 
 class ProjectNotVisibleError(Exception):
@@ -9,9 +10,12 @@ class ProjectNotVisibleError(Exception):
 
 
 def list_visible_projects(db, user) -> list[Project]:
-    query = db.query(Project)
-    if user.role not in FULL_PROJECT_ACCESS_ROLES:
-        query = query.filter(Project.manager_id == user.id)
+    query = db.query(Project).filter(Project.project_kind == "project")
+    if not has_any_role(user, FULL_PROJECT_ACCESS_ROLES):
+        query = query.filter(
+            (Project.manager_id == user.id)
+            | Project.tasks.any(Task.assignee_id == user.id)
+        )
     return query.all()
 
 
@@ -48,6 +52,7 @@ def get_visible_project_dag(db, project_id: int, user) -> dict:
 
 def can_view_project(project: Project, user) -> bool:
     return (
-        user.role in FULL_PROJECT_ACCESS_ROLES
+        has_any_role(user, FULL_PROJECT_ACCESS_ROLES)
         or project.manager_id == user.id
+        or any(task.assignee_id == user.id for task in project.tasks)
     )

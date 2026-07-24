@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.models import AuditLog, Task, TimeSlot
+from app.services.user_role_service import has_any_role
 
 
 WORKSPACE_ALL_TASK_ROLES = {"系统管理员"}
@@ -29,7 +30,7 @@ def list_workspace_tasks(db, user) -> list[Task]:
 
 
 def filter_workspace_tasks_by_user(query, user):
-    if user.role in WORKSPACE_ALL_TASK_ROLES:
+    if has_any_role(user, WORKSPACE_ALL_TASK_ROLES):
         return query
     return query.filter(Task.assignee_id == user.id)
 

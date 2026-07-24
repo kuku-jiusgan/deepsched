@@ -21,6 +21,7 @@ from app.services.task_execution_service import (
     ensure_predecessors_completed,
 )
 from app.services.task_delay_status_service import reset_task_delay
+from app.services.user_role_service import has_any_role, has_role
 
 
 APPROVAL_WRITE_ROLES = FULL_PROJECT_ACCESS_ROLES
@@ -53,7 +54,6 @@ def create_approval_gate(db, project_id: int, data: ApprovalGateCreate, user: Us
         raise ApprovalGateInvalidError("方案签批只能连接普通项目任务")
     if predecessor.id in _downstream_ids(db, {task.id for task in unlock_tasks if task}):
         raise ApprovalGateInvalidError("方案签批会形成循环依赖")
-
     affected_ids = _downstream_ids(db, {task.id for task in unlock_tasks if task})
     affected_tasks = [task_by_id[task_id] for task_id in affected_ids if task_id in task_by_id]
     protected = [task for task in affected_tasks if task.schedule_lock_status != "none"]
@@ -114,7 +114,7 @@ def list_approval_gates(
     if workspace_only:
         visible = [
             gate for gate in gates
-            if gate.project and (user.role == SYSTEM_ADMIN_ROLE or gate.assignee_id == user.id)
+            if gate.project and (has_role(user, SYSTEM_ADMIN_ROLE) or gate.assignee_id == user.id)
         ]
     else:
         visible = [gate for gate in gates if gate.project and can_view_project(gate.project, user)]
@@ -286,8 +286,7 @@ def unapproved_gate_context(db, tasks: list[Task]) -> tuple[dict[int, datetime],
     bounds: dict[int, datetime] = {}
     forecast_ids: set[int] = set()
     for task_id in task_ids:
-        gate_tasks = _upstream_gates(task_id, predecessors, task_by_id)
-        for gate in gate_tasks:
+        for gate in _upstream_gates(task_id, predecessors, task_by_id):
             bound = gate.approved_at if gate.gate_status == "approved" else gate.expected_approval_at
             if bound and (task_id not in bounds or bound > bounds[task_id]):
                 bounds[task_id] = bound
@@ -440,10 +439,7 @@ def _latest_approval_at(db, gate: Task, unlock_tasks: list[ApprovalGateTaskRef])
             return 0
         task = project_tasks[task_id]
         own = float(task.est_duration_hours or 0) + float(task.switchover_hours or 0)
-        child_hours = [
-            critical_hours(child_id, visiting | {task_id})
-            for child_id in downstream.get(task_id, [])
-        ]
+        child_hours = [critical_hours(child_id, visiting | {task_id}) for child_id in downstream.get(task_id, [])]
         return own + max(child_hours, default=0)
 
     hours = max((critical_hours(task.id, set()) for task in unlock_tasks), default=0)
@@ -516,7 +512,7 @@ def _gate_or_404(db, gate_id: int) -> Task:
 
 
 def _can_operate(project: Project, user: User) -> bool:
-    return user.role in APPROVAL_WRITE_ROLES or project.manager_id == user.id
+    return has_any_role(user, APPROVAL_WRITE_ROLES) or project.manager_id == user.id
 
 
 def _ensure_can_operate(project: Project, user: User) -> None:
@@ -566,7 +562,7 @@ def _notify(db, gate: Task, rule_type: str, title: str, content: str) -> int:
     users = db.query(User).filter(User.is_active.is_(True)).all()
     recipients = [
         user for user in users
-        if user.id == gate.assignee_id or user.role in APPROVAL_WRITE_ROLES
+        if user.id == gate.assignee_id or has_any_role(user, APPROVAL_WRITE_ROLES)
     ]
     return push_by_rule(
         db,

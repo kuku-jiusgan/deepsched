@@ -12,6 +12,7 @@ class Project(Base):
     estimated_hours = Column(Float)
     priority = Column(Integer, default=3)
     status = Column(String(20), default="pending")
+    project_kind = Column(String(20), nullable=False, default="project", comment="project/detection")
     manager_id = Column(Integer, ForeignKey("user.id"))
     start_date = Column(DateTime)
     end_date = Column(DateTime)
@@ -55,6 +56,7 @@ class Task(Base):
     delay_status = Column(String(20), default="not_delayed")
     schedule_dirty = Column(Boolean, default=False)
     parent_id = Column(Integer, ForeignKey("task.id"), nullable=True)
+    plan_order = Column(Integer, default=0, nullable=False, comment="项目计划同级排序")
     assignee_id = Column(Integer, ForeignKey("user.id"))
     is_external_gate = Column(Boolean, default=False)
     gate_status = Column(String(30), default="not_submitted")
@@ -117,6 +119,7 @@ class TaskDependency(Base):
 
     task = relationship("Task", foreign_keys=[task_id], back_populates="predecessors")
     predecessor = relationship("Task", foreign_keys=[predecessor_id])
+
 
 class TaskCapabilityRequirement(Base):
     __tablename__ = "task_capability_requirement"
@@ -217,7 +220,8 @@ class User(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String(50), unique=True, nullable=False)
     display_name = Column(String(100), nullable=False)
-    role = Column(String(30), nullable=False, comment="系统管理员/项目管理员/分析所所长/分析员")
+    role = Column(String(30), nullable=False, comment="系统管理员/项目管理员/分析所所长/技术组长/技术员")
+    roles = Column(JSON, nullable=True, comment="用户同时拥有的角色列表")
     email = Column(String(100))
     phone = Column(String(20))
     wecom_id = Column(String(100), comment="企业微信号")
@@ -225,6 +229,17 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+class RolePermission(Base):
+    __tablename__ = "role_permission"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    role = Column(String(30), nullable=False)
+    page_key = Column(String(100), nullable=False)
+    can_view = Column(Boolean, nullable=False, default=False)
+    can_operate = Column(Boolean, nullable=False, default=False)
+    action_permissions = Column(JSON, nullable=True, comment="页面按钮权限映射")
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    __table_args__ = (UniqueConstraint("role", "page_key"),)
 
 class ScheduleRule(Base):
     __tablename__ = "schedule_rule"
@@ -296,6 +311,14 @@ class AuthSession(Base):
     user = relationship("User")
 
 
+class WeComOAuthState(Base):
+    __tablename__ = "wecom_oauth_state"
+    state_hash = Column(String(64), primary_key=True)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    used_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+
 class LoginFailure(Base):
     __tablename__ = "login_failure"
     key = Column(String(200), primary_key=True)
@@ -330,4 +353,3 @@ class SysCalendar(Base):
     day_type = Column(String(20), default="workday", comment="workday/weekend/holiday/compensate")
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
-

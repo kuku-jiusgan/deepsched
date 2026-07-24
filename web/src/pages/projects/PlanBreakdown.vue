@@ -35,16 +35,17 @@
         style="margin-bottom: 16px"
       />
       <div class="action-bar">
-        <a-button type="primary" @click="openAddTask(null)"><PlusOutlined /> 添加顶级任务</a-button>
-        <a-button @click="openTemplateImport"><ImportOutlined /> 模板计划导入</a-button>
-        <a-button @click="openApprovalGate"><FileTextOutlined /> 添加方案签批</a-button>
+        <a-button v-operation="'create_task'" type="primary" @click="openAddTask(null)"><PlusOutlined /> 添加顶级任务</a-button>
+        <a-button v-operation="'import_template'" @click="openTemplateImport"><ImportOutlined /> 模板计划导入</a-button>
+        <a-button v-operation="'approval_gate'" @click="openApprovalGate"><FileTextOutlined /> 添加方案签批</a-button>
         <span style="margin-left: 8px; font-size: 12px; color: #94a3b8">点击左侧 &gt; 展开/收起子任务</span>
         <span style="margin-left: auto; font-size: 12px; color: #94a3b8">{{ flatTaskCount }} 个任务（{{ leafTaskCount }} 个叶子任务）</span>
       </div>
       <a-table v-model:expandedRowKeys="expandedTaskIds" :dataSource="treeTasks" rowKey="id" size="small" :pagination="{ pageSize: 50, showSizeChanger: true }"
-        :indentSize="24">
+        :indentSize="24" :customRow="taskRowProps">
         <a-table-column title="任务名称" dataIndex="name" key="name">
           <template #default="{ record }">
+            <HolderOutlined v-if="canOperate" class="task-drag-handle" title="拖动调整同级任务顺序" />
             <span :style="{ fontWeight: record.children?.length ? 600 : 400 }">{{ record.name }}</span>
               <a-tag v-if="record.is_local_draft" color="blue" style="margin-left: 8px">未保存</a-tag>
               <a-tag v-else-if="record.schedule_dirty" color="orange" style="margin-left: 8px">待重新排程</a-tag>
@@ -97,7 +98,7 @@
             <span v-else style="color: #ccc">-</span>
           </template>
         </a-table-column>
-        <a-table-column title="操作" key="actions" width="180">
+        <a-table-column v-if="canOperate" title="操作" key="actions" width="180">
           <template #default="{ record }">
             <a-space v-if="record.is_external_gate && record.is_local_draft" :size="0">
               <a-popconfirm title="确定删除这个未保存的方案签批？" @confirm="handleDeleteTask(record.id)">
@@ -105,22 +106,26 @@
               </a-popconfirm>
             </a-space>
             <a-space v-else-if="record.is_external_gate" :size="0">
-              <a-popconfirm title="确定删除方案签批？删除后下游任务将恢复为待排程状态。" @confirm="handleDeleteTask(record.id)">
-                <a-button type="link" size="small" danger>删除</a-button>
+              <a-popconfirm :disabled="!canDeleteTask(record)" title="确定删除方案签批？删除后下游任务将恢复为待排程状态。" @confirm="handleDeleteTask(record.id)">
+                <a-tooltip :title="deleteDisabledReason(record)">
+                  <a-button type="link" size="small" danger :disabled="!canDeleteTask(record)">删除</a-button>
+                </a-tooltip>
               </a-popconfirm>
             </a-space>
             <a-space v-else :size="0">
-              <a-button type="link" size="small" @click="openAddTask(record.id)" title="添加子任务"><PlusOutlined /></a-button>
-              <a-button type="link" size="small" @click="openEditTask(record)"><EditOutlined /></a-button>
-              <a-popconfirm title="确定删除该任务及其所有子任务？" @confirm="handleDeleteTask(record.id)">
-                <a-button type="link" size="small" danger>删除</a-button>
+              <a-button v-operation="'create_task'" type="link" size="small" @click="openAddTask(record.id)" title="添加子任务"><PlusOutlined /></a-button>
+              <a-button v-operation="'edit_task'" type="link" size="small" @click="openEditTask(record)"><EditOutlined /></a-button>
+              <a-popconfirm v-operation="'delete_task'" :disabled="!canDeleteTask(record)" title="确定删除该任务及其所有子任务？" @confirm="handleDeleteTask(record.id)">
+                <a-tooltip :title="deleteDisabledReason(record)">
+                  <a-button type="link" size="small" danger :disabled="!canDeleteTask(record)">删除</a-button>
+                </a-tooltip>
               </a-popconfirm>
             </a-space>
           </template>
         </a-table-column>
       </a-table>
       <div style="margin-top: 16px; text-align: right">
-        <a-button type="primary" size="large" @click="handleStartSchedule" :loading="scheduling">
+        <a-button v-operation="'schedule'" type="primary" size="large" @click="handleStartSchedule" :loading="scheduling">
           <PlayCircleOutlined /> 保存并开始排程
         </a-button>
       </div>
@@ -178,18 +183,37 @@
   </div>
 </template>
 <script setup lang="ts">
-import { ref, computed, reactive, onMounted } from 'vue'
+import { ref, computed, reactive, onMounted, h } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import { isAxiosError } from 'axios'
-import { PlusOutlined, EditOutlined, LeftOutlined, DeleteOutlined, PlayCircleOutlined, FileTextOutlined, ImportOutlined } from '@ant-design/icons-vue'
-import { commitProjectPlanDrafts, createApprovalGate, getProject, getProjectDAG, updateTask, deleteTask, getUsers, getTaskTypes, getInstruments, applyProjectPlan, confirmProjectPlanInsert, type ApprovalGateCreatePayload, type ProjectPlanDraftTaskPayload, type Project, type Task, type DAGData, type TaskTypeConfig } from '@/services/api'
+import { PlusOutlined, EditOutlined, LeftOutlined, PlayCircleOutlined, FileTextOutlined, ImportOutlined, HolderOutlined } from '@ant-design/icons-vue'
+import { commitProjectPlanDrafts, createApprovalGate, reorderProjectTasks, getProject, getProjectDAG, updateTask, deleteTask, getUserDirectory, getTaskTypes, getInstruments, applyProjectPlan, confirmProjectPlanInsert, type ApprovalGateCreatePayload, type ProjectPlanDraftTaskPayload, type Project, type Task, type DAGData, type TaskTypeConfig } from '@/services/api'
 import type { ProjectPlanApplyResult } from '@/types'
 import PlanInsertPreviewModal from './components/PlanInsertPreviewModal.vue'
 import ApprovalGateModal from './components/ApprovalGateModal.vue'
 import dayjs from 'dayjs'
+import { canOperatePage, permissionState } from '@/services/permissions'
+import {
+  allocateTemplateHours, buildTaskTree, countLeafTasks, gateDateText, gateStatusMeta, getTaskTypeColor,
+  parentTaskIds, priorityColor, priorityLabel, sumTaskHours,
+  taskInstrumentIds, taskStatusLabel, taskTreeHasCompletedTask,
+} from './planBreakdownUtils'
+import './planBreakdown.css'
 const router = useRouter()
 const route = useRoute()
+const canOperate = computed(() => {
+  permissionState.permissions
+  return canOperatePage('/projects/plan-breakdown')
+})
+const isSystemAdministrator = computed(() => {
+  try {
+    const user = JSON.parse(localStorage.getItem('user') || '{}') as { role?: string; roles?: string[] }
+    return user.role === '系统管理员' || user.roles?.includes('系统管理员') === true
+  } catch {
+    return false
+  }
+})
 const projectId = Number(route.query.id)
 const project = ref<Project | null>(null)
 const dagData = ref<DAGData | null>(null)
@@ -203,6 +227,7 @@ const insertPreviewOpen = ref(false)
 const confirmingInsert = ref(false)
 const approvalGateOpen = ref(false)
 const approvalGateSubmitting = ref(false)
+const draggingTaskId = ref<number | null>(null)
 const parentTaskId = ref<number | null>(null)
 let nextDraftId = -1
 const taskTypeOptions = ref<{ label: string; value: string; resource_type: string }[]>([])
@@ -217,43 +242,13 @@ const instrumentCodeMap = computed(() => {
 })
 const tf = reactive({ name: '', task_type: '', est_duration_hours: 8, switchover_hours: 0.5, predecessor_ids: [] as number[], instrument_ids: [] as number[], assignee_id: null as number | null, parent_id: null as number | null })
 const statusLabels: Record<string, string> = { active: '进行中', completed: '已完成', pending: '待启动', suspended: '已暂停', cancelled: '已取消', draft: '草稿' }
-function priorityLabel(priority: number) {
-  return priority === 1 ? '一级（最高）' : priority === 2 ? '二级' : '三级'
-}
-function priorityColor(priority: number) {
-  if (priority === 1) return '#dc2626'
-  if (priority === 2) return '#ea580c'
-  return '#2563eb'
-}
-const capTagOptions = [
-  { label: '离子源', value: '离子源' }, { label: '质量分析器', value: '质量分析器' },
-  { label: '方法类型', value: '方法类型' }, { label: '灵敏度等级', value: '灵敏度等级' },
-]
-const capValOpts: Record<string, { label: string; value: string }[]> = {
-  '离子源': [{ label: 'ESI', value: 'ESI' }, { label: 'APCI', value: 'APCI' }],
-  '质量分析器': [{ label: 'QqQ', value: 'QqQ' }, { label: 'Q-TOF', value: 'Q-TOF' }],
-  '方法类型': [{ label: '基因毒杂质', value: '基因毒杂质' }, { label: '有关物质', value: '有关物质' }, { label: '含量测定', value: '含量测定' }],
-  '灵敏度等级': [{ label: '痕量', value: '痕量' }, { label: '常量', value: '常量' }],
-}
-function getCapValueOpts(tagName: string) { return capValOpts[tagName] || [] }
 function goBack() { router.push('/projects/ledger') }
 function getTaskTypeName(code: string) {
   if (code === 'approval_gate') return '方案签批'
   return taskTypeMap.value[code]?.name || code
 }
-function taskStatusLabel(status: string) { return ({ pending: '待开始', ready: '可排程', scheduled: '已排程', running: '运行中', done: '已完成', blocked: '已延期', waiting_external: '等待外部签批' } as Record<string, string>)[status] || status }
-function gateStatusMeta(status?: string | null) {
-  return ({ not_submitted: { label: '待提交', color: 'default' }, waiting_approval: { label: '等待客户', color: 'blue' }, approved: { label: '已签批', color: 'green' } } as Record<string, { label: string; color: string }>)[status || 'not_submitted']
-}
-function gateDateText(task: Task) {
-  if (task.approved_at) return `签批 ${dayjs(task.approved_at).format('MM-DD HH:mm')}`
-  if (task.expected_approval_at) return `预计 ${dayjs(task.expected_approval_at).format('MM-DD HH:mm')}`
-  return '尚未提交客户'
-}
-function getTaskTypeColor(code: string) {
-      const m: Record<string, string> = { FFKF_001: '#8b5cf6', QCFA_001: '#f59e0b', FFYZ_001: '#10b981', SJCL_001: '#3b82f6', ZXBG_001: '#ef4444' }
-  return m[code] || '#94a3b8'
-}
+function canDeleteTask(task: Task) { return isSystemAdministrator.value || !taskTreeHasCompletedTask(task) }
+function deleteDisabledReason(task: Task) { return canDeleteTask(task) ? '' : '已完成任务不允许删除' }
 function getTaskNameById(id: number) {
   const t = allTasks.value.find(t => t.id === id)
   return t ? (t.name.length > 8 ? t.name.slice(0, 8) + '...' : t.name) : '#' + id
@@ -266,45 +261,20 @@ function getInstrumentCode(id: number) {
   return instrumentCodeMap.value[id] || `ID ${id}`
 }
 function getTaskInstrumentIds(task: Task): number[] {
-  if (!task.children || task.children.length === 0) return task.instrument_ids || []
-  const ids = task.children.flatMap(child => getTaskInstrumentIds(child))
-  return Array.from(new Set(ids))
+  return taskInstrumentIds(task)
 }
 function getInstrumentSummary(task: Task) {
   return getTaskInstrumentIds(task).map(getInstrumentCode).join('、')
 }
-function buildTree(tasks: Task[]): Task[] {
-  const map = new Map<number, Task>()
-  const roots: Task[] = []
-  tasks.forEach(t => { map.set(t.id, { ...t, children: [] }) })
-  tasks.forEach(t => {
-    const node = map.get(t.id)!
-    if (t.parent_id && map.has(t.parent_id)) {
-      const parent = map.get(t.parent_id)!
-      if (!parent.children) parent.children = []
-      parent.children!.push(node)
-    } else { roots.push(node) }
-  })
-  return roots
-}
-const treeTasks = computed(() => buildTree(allTasks.value))
+const treeTasks = computed(() => buildTaskTree(allTasks.value))
 const flatTaskCount = computed(() => allTasks.value.length)
-function countLeaves(nodes: Task[]): number {
-  let count = 0
-  for (const n of nodes) {
-    if (!n.children || n.children.length === 0) count++
-    else count += countLeaves(n.children)
-  }
-  return count
-}
-const leafTaskCount = computed(() => countLeaves(treeTasks.value))
+const leafTaskCount = computed(() => countLeafTasks(treeTasks.value))
 function sumChildrenHours(task: Task): number {
-  if (!task.children || task.children.length === 0) return task.est_duration_hours || 0
-  return task.children.reduce((s, c) => s + sumChildrenHours(c), 0)
+  return sumTaskHours(task)
 }
 function isParentTask(id: number): boolean { return allTasks.value.some(t => t.parent_id === id) }
 function getParentTaskIds(tasks: Task[]): number[] {
-  return [...new Set(tasks.flatMap(task => task.parent_id == null ? [] : [task.parent_id]))]
+  return parentTaskIds(tasks)
 }
 function expandTask(taskId: number | null) {
   if (taskId != null && !expandedTaskIds.value.includes(taskId)) {
@@ -321,6 +291,34 @@ const hasPendingPlanChanges = computed(() => allTasks.value.some(task =>
 ))
 const parentTaskOptions = computed(() => allTasks.value.filter(t => !editingTask.value || t.id !== editingTask.value.id).map(t => ({ label: t.name, value: t.id })))
 const leafTaskOptions = computed(() => allTasks.value.filter(t => !t.children || t.children.length === 0).map(t => ({ label: t.name, value: t.id })))
+function siblingTasks(parentId: number | null) {
+  return allTasks.value.filter(task => task.parent_id === parentId)
+    .sort((left, right) => (left.plan_order ?? 0) - (right.plan_order ?? 0) || left.id - right.id)
+}
+function taskRowProps(record: Task) {
+  return {
+    draggable: canOperate.value,
+    onDragstart: () => { draggingTaskId.value = record.id },
+    onDragover: (event: DragEvent) => event.preventDefault(),
+    onDrop: () => handleTaskDrop(record),
+    onDragend: () => { draggingTaskId.value = null },
+  }
+}
+async function handleTaskDrop(target: Task) {
+  const source = allTasks.value.find(task => task.id === draggingTaskId.value)
+  draggingTaskId.value = null
+  if (!source || source.id === target.id) return
+  if (source.parent_id !== target.parent_id) { message.warning('只能调整同一层级内的任务顺序'); return }
+  const siblings = siblingTasks(source.parent_id)
+  const sourceIndex = siblings.findIndex(task => task.id === source.id)
+  const targetIndex = siblings.findIndex(task => task.id === target.id)
+  siblings.splice(targetIndex, 0, siblings.splice(sourceIndex, 1)[0])
+  siblings.forEach((task, index) => { task.plan_order = index })
+  allTasks.value = [...allTasks.value]
+  if (siblings.some(task => task.is_local_draft)) return
+  try { await reorderProjectTasks(projectId, source.parent_id, siblings.map(task => task.id)) }
+  catch (error: unknown) { message.error(errorDetail(error, '保存任务顺序失败')); await fetchProject() }
+}
 async function fetchProject() {
   loading.value = true
   try {
@@ -381,6 +379,7 @@ async function handleTaskSubmit() {
 }
 async function handleDeleteTask(taskId: number) {
   const task = allTasks.value.find(item => item.id === taskId)
+  if (task && !canDeleteTask(task)) { message.warning('已完成任务不允许删除'); return }
   if (task?.is_local_draft) {
     const removedIds = new Set<number>([taskId])
     let changed = true
@@ -404,7 +403,7 @@ async function handleDeleteTask(taskId: number) {
   }
   if (hasLocalDrafts.value) { message.warning('请先保存当前新增草稿，再删除数据库中的任务'); return }
   try { await deleteTask(taskId); message.success(task?.is_external_gate ? '方案签批已删除' : '任务已删除'); await fetchProject() }
-  catch { message.error('删除失败') }
+  catch (error: unknown) { message.error(errorDetail(error, '删除失败')) }
 }
 function buildDraftTask(
   payload: {
@@ -437,6 +436,7 @@ function buildDraftTask(
     assignee_name: getAssigneeName(payload.assignee_id),
     parent_id: payload.parent_id,
     is_local_draft: true,
+    plan_order: siblingTasks(payload.parent_id).length,
   }
 }
 async function handleCreateApprovalGate(payload: ApprovalGateCreatePayload) {
@@ -458,19 +458,17 @@ function openApprovalGate() {
 }
 function openTemplateImport() {
   if (!project.value) return
-  if (allTasks.value.length) {
-    Modal.warning({ title: '当前项目已有计划', content: '模板计划只能导入到尚未创建任何任务的空项目，避免重复或覆盖现有计划。' })
-    return
-  }
   if (!project.value?.estimated_hours) { message.error('请先填写项目预计工时'); return }
   if (!project.value.manager_id) { message.error('请先设置项目负责人'); return }
   const [methodHours, schemeHours, validationHours, reportHours] = allocateTemplateHours(project.value.estimated_hours)
   const managerId = project.value.manager_id
-  const method = buildDraftTask(templatePayload('方法开发', 'FFKF_001', true, methodHours, [], managerId), nextDraftId--)
-  const scheme = buildDraftTask(templatePayload('方案撰写', 'QCFA_001', false, schemeHours, [method.id], managerId), nextDraftId--)
+  const groupNumber = allTasks.value.filter(task => task.parent_id == null && task.task_type === 'group').length + 1
+  const group = buildDraftTask(templatePayload(`标准计划${groupNumber}`, 'group', false, 0, [], managerId, null), nextDraftId--)
+  const method = buildDraftTask(templatePayload('方法开发', 'FFKF_001', true, methodHours, [], managerId, group.id), nextDraftId--)
+  const scheme = buildDraftTask(templatePayload('方案撰写', 'QCFA_001', false, schemeHours, [method.id], managerId, group.id), nextDraftId--)
   const restrictionId = nextDraftId--
-  const validation = buildDraftTask(templatePayload('方法验证', 'FFYZ_001', true, validationHours, [restrictionId], managerId), nextDraftId--)
-  const report = buildDraftTask(templatePayload('报告撰写', 'ZXBG_001', false, reportHours, [validation.id], managerId), nextDraftId--)
+  const validation = buildDraftTask(templatePayload('方法验证', 'FFYZ_001', true, validationHours, [restrictionId], managerId, group.id), nextDraftId--)
+  const report = buildDraftTask(templatePayload('报告撰写', 'ZXBG_001', false, reportHours, [validation.id], managerId, group.id), nextDraftId--)
   validation.status = 'waiting_external'; validation.schedule_dirty = false
   report.status = 'waiting_external'; report.schedule_dirty = false
   const restriction: Task = {
@@ -479,18 +477,16 @@ function openTemplateImport() {
     status: 'waiting_external', delay_status: 'not_delayed', schedule_dirty: false, schedule_lock_status: 'none',
     can_edit_schedule_fields: true, priority_weight: 1, allow_split: false,
     instrument_ids: [], predecessor_ids: [scheme.id], assignee_id: null,
-    assignee_name: null, parent_id: null, is_external_gate: true,
+    assignee_name: null, parent_id: group.id, is_external_gate: true,
     gate_status: 'not_submitted', is_local_draft: true,
   }
-  allTasks.value = [method, scheme, restriction, validation, report]
-  message.success('模板计划已导入当前页面，点击保存前不会写入数据库')
+  ;[method, scheme, restriction, validation, report].forEach((task, index) => { task.plan_order = index })
+  allTasks.value.push(group, method, scheme, restriction, validation, report)
+  expandTask(group.id)
+  message.success(`已追加“${group.name}”及其 5 个子任务，点击保存前不会写入数据库`)
 }
-function templatePayload(name: string, taskType: string, requiresInstrument: boolean, hours: number, predecessorIds: number[], assigneeId: number) {
-  return { name, task_type: taskType, requires_instrument: requiresInstrument, est_duration_hours: hours, switchover_hours: 0, predecessor_ids: predecessorIds, assignee_id: assigneeId, parent_id: null, instrument_ids: [] }
-}
-function allocateTemplateHours(total: number): [number, number, number, number] {
-  const first = [0.7, 0.05, 0.2].map(rate => Math.round(total * rate * 100) / 100)
-  return [first[0], first[1], first[2], Math.round((total - first.reduce((sum, value) => sum + value, 0)) * 100) / 100]
+function templatePayload(name: string, taskType: string, requiresInstrument: boolean, hours: number, predecessorIds: number[], assigneeId: number, parentId: number | null) {
+  return { name, task_type: taskType, requires_instrument: requiresInstrument, est_duration_hours: hours, switchover_hours: 0, predecessor_ids: predecessorIds, assignee_id: assigneeId, parent_id: parentId, instrument_ids: [] }
 }
 async function loadInstruments() {
   try {
@@ -499,7 +495,7 @@ async function loadInstruments() {
   } catch (e) { console.error("loadInstruments failed:", e) }
 }
 async function loadUsers() {
-  try { const users = await getUsers(); userOptions.value = users.filter(u => u.is_active).map(u => ({ label: u.display_name, value: u.id })) }
+  try { const users = await getUserDirectory(); userOptions.value = users.filter(u => u.is_active).map(u => ({ label: u.display_name, value: u.id })) }
   catch { console.error('loadUsers failed') }
 }
 async function loadTaskTypes() {
@@ -525,7 +521,9 @@ async function handleStartSchedule() {
   try {
     const drafts = allTasks.value.filter(task => task.is_local_draft)
     if (drafts.length) {
+      const pendingOrders = siblingOrderGroups()
       const saveResult = await commitProjectPlanDrafts(projectId, drafts.map(toDraftPayload))
+      await persistCommittedDraftOrders(pendingOrders, saveResult.id_map)
       message.success(saveResult.message)
       await fetchProject()
     }
@@ -539,11 +537,26 @@ async function handleStartSchedule() {
       insertPreview.value = result
       insertPreviewOpen.value = true
     } else {
-      Modal.error({ title: '排程失败', content: result.message || '当前计划无法在已有排程中安排。' })
+      Modal.error({ title: '排程失败', content: scheduleFailureContent(result.message || '当前计划无法在已有排程中安排。') })
     }
   } catch (error: unknown) {
     Modal.error({ title: '排程请求失败', content: errorDetail(error, '服务器内部错误，请稍后重试。') })
   } finally { scheduling.value = false }
+}
+function siblingOrderGroups() {
+  const parentIds = [...new Set(allTasks.value.map(task => task.parent_id))]
+  return parentIds.map(parentId => ({ parentId, taskIds: siblingTasks(parentId).map(task => task.id) }))
+}
+async function persistCommittedDraftOrders(
+  groups: { parentId: number | null; taskIds: number[] }[],
+  idMapRows: { client_id: number; task_id: number }[],
+) {
+  const idMap = new Map(idMapRows.map(row => [row.client_id, row.task_id]))
+  for (const group of groups) {
+    const parentId = group.parentId == null ? null : (idMap.get(group.parentId) ?? group.parentId)
+    const taskIds = group.taskIds.map(taskId => idMap.get(taskId) ?? taskId)
+    await reorderProjectTasks(projectId, parentId, taskIds)
+  }
 }
 function toDraftPayload(task: Task): ProjectPlanDraftTaskPayload {
   const isParent = isParentTask(task.id)
@@ -560,6 +573,7 @@ function toDraftPayload(task: Task): ProjectPlanDraftTaskPayload {
     predecessor_ids: isParent ? [] : [...task.predecessor_ids],
     instrument_ids: isParent ? [] : [...task.instrument_ids],
     is_external_gate: Boolean(task.is_external_gate),
+    plan_order: task.plan_order ?? 0,
   }
 }
 async function handleConfirmInsert() {
@@ -580,6 +594,33 @@ function handleCancelInsert() {
   insertPreviewOpen.value = false
   insertPreview.value = null
 }
+function scheduleFailureContent(rawMessage: string) {
+  const marker = '。这不是系统故障，请按以下顺序检查：'
+  const [summary, checklistText] = rawMessage.split(marker)
+  if (!checklistText) return rawMessage
+
+  const projectPattern = /【([^】]+)】项目时间：(.+?) 至 (.+?)，待排总工时约 ([\d.]+) 小时（其中仪器工时 ([\d.]+) 小时）/g
+  const projects: Array<{ name: string; start: string; end: string; total: string; instrument: string }> = []
+  let match: RegExpExecArray | null
+  while ((match = projectPattern.exec(summary)) !== null) {
+    projects.push({ name: match[1], start: match[2], end: match[3], total: match[4], instrument: match[5] })
+  }
+  const checks = checklistText.replace(/调整后请重新点击“保存并开始排程”。?$/, '').split('；').filter(Boolean)
+  return h('div', { class: 'schedule-failure-content' }, [
+    h('div', { class: 'schedule-failure-summary' }, summary.split('。')[0]),
+    projects.length ? h('div', { class: 'schedule-failure-projects' }, [
+      h('div', { class: 'schedule-failure-section-title' }, '项目概况'),
+      ...projects.map(project => h('div', { class: 'schedule-failure-project' }, [
+        h('strong', project.name),
+        h('div', `时间：${project.start} 至 ${project.end}`),
+        h('div', `待排工时：${project.total} 小时（仪器 ${project.instrument} 小时）`),
+      ])),
+    ]) : null,
+    h('div', { class: 'schedule-failure-section-title' }, '请按顺序检查'),
+    h('ol', { class: 'schedule-failure-checks' }, checks.map(check => h('li', check))),
+    h('div', { class: 'schedule-failure-action' }, '调整后请重新点击“保存并开始排程”。'),
+  ])
+}
 function errorDetail(error: unknown, fallback: string) {
   if (isAxiosError<{ detail?: string }>(error)) return error.response?.data?.detail || fallback
   return fallback
@@ -589,15 +630,3 @@ onMounted(async () => {
   await loadTaskTypes(); await Promise.all([fetchProject(), loadUsers(), loadInstruments()])
 })
 </script>
-<style scoped>
-.project-info { margin-bottom: 16px; }
-.instrument-tag-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.instrument-tag {
-  margin: 0;
-  white-space: nowrap;
-}
-</style>

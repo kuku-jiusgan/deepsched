@@ -4,6 +4,7 @@ import type {
   DAGData, InsertCost, InsertOrderResult, Task, CapabilityReq, InstrumentFault,
   ApprovalGate, ApprovalGateAction, ApprovalGateList,
   StandardPlanImportResult,
+  DetectionTask,
 } from '@/types';
 
 export type {
@@ -11,6 +12,7 @@ export type {
   DAGData, InsertCost, Task, CapabilityReq, InstrumentFault,
   ApprovalGate, ApprovalGateAction, ApprovalGateList,
   StandardPlanImportResult,
+  DetectionTask,
 }
 
 
@@ -32,6 +34,40 @@ export const deleteProject = (id: number): Promise<void> =>
 
 export const getProjectDAG = (id: number): Promise<DAGData> =>
   api.get<DAGData>(`/projects/${id}/dag`).then(r => r.data);
+
+export interface DetectionTaskCreatePayload {
+  code: string
+  name: string
+  client_name?: string
+  priority: number
+  manager_id?: number | null
+  start_date: string
+  end_date: string
+  task_type: string
+  est_duration_hours: number
+  switchover_hours: number
+  requires_instrument: boolean
+  requires_human: boolean
+  allow_split: boolean
+  allow_transfer: boolean
+  instrument_ids: number[]
+  assignee_id: number
+}
+
+export const getDetectionTasks = (): Promise<DetectionTask[]> =>
+  api.get<DetectionTask[]>('/detection-tasks').then(response => response.data)
+
+export const createDetectionTask = (data: DetectionTaskCreatePayload): Promise<DetectionTask> =>
+  api.post<DetectionTask>('/detection-tasks', data).then(response => response.data)
+
+export const updateDetectionTask = (id: number, data: DetectionTaskCreatePayload): Promise<DetectionTask> =>
+  api.put<DetectionTask>(`/detection-tasks/${id}`, data).then(response => response.data)
+
+export const confirmDetectionTaskInsert = (id: number, previewToken: string): Promise<DetectionTask> =>
+  api.post<DetectionTask>(`/detection-tasks/${id}/confirm-insert`, { preview_token: previewToken }).then(response => response.data)
+
+export const deleteDetectionTask = (id: number): Promise<void> =>
+  api.delete(`/detection-tasks/${id}`).then(() => undefined)
 
 export const addTask = (projId: number, data: {
   name: string; task_type: string; requires_instrument: boolean;
@@ -64,6 +100,9 @@ export interface TaskUpdatePayload {
 export const updateTask = (taskId: number, data: TaskUpdatePayload): Promise<Task> =>
   api.put<Task>(`/projects/tasks/${taskId}`, data).then(r => r.data);
 
+export const reorderProjectTasks = (projectId: number, parentId: number | null, taskIds: number[]): Promise<void> =>
+  api.post(`/projects/${projectId}/tasks/reorder`, { parent_id: parentId, task_ids: taskIds }).then(() => undefined)
+
 export const importStandardProjectPlan = (projectId: number): Promise<StandardPlanImportResult> =>
   api.post<StandardPlanImportResult>(`/projects/${projectId}/import-standard-plan`).then(r => r.data)
 
@@ -80,12 +119,13 @@ export interface ProjectPlanDraftTaskPayload {
   predecessor_ids: number[]
   instrument_ids: number[]
   is_external_gate: boolean
+  plan_order: number
 }
 
 export const commitProjectPlanDrafts = (
   projectId: number,
   tasks: ProjectPlanDraftTaskPayload[],
-): Promise<{ status: string; message: string; created: number }> =>
+): Promise<{ status: string; message: string; created: number; id_map: { client_id: number; task_id: number }[] }> =>
   api.post(`/projects/${projectId}/plan-drafts/commit`, { tasks }).then(r => r.data)
 
 export interface ApprovalGateCreatePayload {
@@ -256,6 +296,8 @@ export interface InsertOrderRequest {
   project_id: number
   task_ids: number[]
   priority_override?: number
+  mode?: 'priority' | 'custom_after_task'
+  anchor_task_id?: number
 }
 
 export const calculateInsertCost = (data: InsertOrderRequest): Promise<InsertCost> =>
@@ -278,6 +320,7 @@ export interface User {
   username: string
   display_name: string
   role: string
+  roles: string[] | null
   email: string | null
   phone: string | null
   wecom_id: string | null
@@ -291,6 +334,7 @@ export interface UserDirectoryEntry {
   username: string
   display_name: string
   role: string
+  roles: string[] | null
   is_active: boolean
 }
 
@@ -299,6 +343,7 @@ export interface UserPayload {
   display_name: string
   password?: string
   role: string
+  roles: string[]
   email?: string | null
   phone?: string | null
   wecom_id?: string | null
@@ -317,8 +362,44 @@ export const createUser = (data: UserPayload): Promise<User> =>
 export const updateUser = (id: number, data: UserPayload): Promise<User> =>
   api.put<User>(`/users/${id}`, data).then(r => r.data)
 
+export const resetUserPassword = (id: number, password: string): Promise<void> =>
+  api.put(`/users/${id}/password`, { password }).then(() => undefined)
+
 export const deleteUser = (id: number): Promise<void> =>
   api.delete(`/users/${id}`)
+
+export interface PagePermission {
+  page_key: string
+  page_name: string
+  group_name: string
+  can_view: boolean
+  can_operate: boolean
+  actions: PageActionPermission[]
+}
+
+export interface PageActionPermission {
+  action_key: string
+  action_name: string
+  allowed: boolean
+}
+
+export interface RolePermissionMatrix {
+  roles: string[]
+  items: Record<string, PagePermission[]>
+}
+
+export const getRolePermissions = (): Promise<RolePermissionMatrix> =>
+  api.get<RolePermissionMatrix>('/role-permissions').then(response => response.data)
+
+export const updateRolePermissions = (role: string, permissions: PagePermission[]): Promise<PagePermission[]> =>
+  api.put<{ permissions: PagePermission[] }>(`/role-permissions/${encodeURIComponent(role)}`, {
+    permissions: permissions.map(({ page_key, can_view, actions }) => ({
+      page_key,
+      can_view,
+      can_operate: actions.some(action => action.allowed),
+      actions,
+    })),
+  }).then(response => response.data.permissions)
 
 export const keepSessionAlive = (): Promise<void> =>
   api.post('/users/keep-alive').then(() => undefined)
@@ -419,6 +500,9 @@ export const createTaskType = (data: Partial<TaskTypeConfig>): Promise<TaskTypeC
 export const updateTaskType = (id: number, data: Partial<TaskTypeConfig>): Promise<TaskTypeConfig> =>
   api.put<TaskTypeConfig>('/task-types/' + id, data).then(r => r.data)
 
+export const toggleTaskType = (id: number, isActive: boolean): Promise<TaskTypeConfig> =>
+  api.put<TaskTypeConfig>(`/task-types/${id}/toggle`, { is_active: isActive }).then(r => r.data)
+
 export const deleteTaskType = (id: number): Promise<void> =>
   api.delete('/task-types/' + id)
 
@@ -499,3 +583,15 @@ export const batchFillCalendar = (year: number): Promise<{ detail: string }> =>
 export const syncHolidays = (year: number): Promise<{ detail: string }> =>
   api.post<{ detail: string }>(`/calendar/sync/${year}`).then(r => r.data)
 
+export interface AuditLogRecord {
+  id: number
+  user_name: string
+  action: string
+  target_type: string
+  target_id: number | null
+  detail: Record<string, unknown>
+  created_at: string
+}
+
+export const getAuditLogs = (params?: { keyword?: string; action?: string; user_name?: string }): Promise<AuditLogRecord[]> =>
+  api.get<AuditLogRecord[]>('/audit-logs', { params }).then(response => response.data)

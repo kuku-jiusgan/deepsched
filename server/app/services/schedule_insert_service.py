@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from app.models import Project, Task, TimeSlot
+from app.models import Project, Task, TaskDependency, TimeSlot
 from app.schemas.schemas import (
     InsertOrderImpact,
     InsertOrderPreview,
@@ -52,16 +52,13 @@ def _execute_insert(db, data: InsertOrderRequest, commit: bool) -> InsertOrderPr
 
     selected_task_ids = {task.id for task in selected_tasks}
     _ensure_selected_tasks_are_movable(db, selected_task_ids)
-    insert_priority = data.priority_override if data.priority_override is not None else int(project.priority or 999)
-    movable_tasks = _load_lower_priority_movable_tasks(
-        db,
-        insert_priority,
-        selected_task_ids,
-        _selected_instrument_ids(selected_tasks),
-    )
-    replan_tasks = selected_tasks + movable_tasks
+    _ensure_leaf_tasks(selected_tasks, "插单任务")
+    context = _build_insert_context(db, data, selected_tasks)
+    replan_tasks = context["replan_tasks"]
     replan_task_ids = {task.id for task in replan_tasks}
     old_windows = _task_windows(db, replan_task_ids)
+
+    _add_custom_dependencies(db, context["dependency_pairs"])
 
     delete_time_slots_and_refresh(db, db.query(TimeSlot).filter(
         TimeSlot.task_id.in_(replan_task_ids),
@@ -89,7 +86,13 @@ def _execute_insert(db, data: InsertOrderRequest, commit: bool) -> InsertOrderPr
 
     schedule_run_id = result.get("schedule_run_id", "")
     new_windows = _task_windows(db, replan_task_ids, schedule_run_id)
-    impacts = _build_impacts(replan_tasks, selected_task_ids, old_windows, new_windows)
+    impacts = _build_impacts(
+        replan_tasks,
+        selected_task_ids,
+        old_windows,
+        new_windows,
+        context["impact_roles"],
+    )
     preview = InsertOrderPreview(
         status="ok",
         schedule_run_id=schedule_run_id,
@@ -100,6 +103,201 @@ def _execute_insert(db, data: InsertOrderRequest, commit: bool) -> InsertOrderPr
     if commit:
         db.commit()
     return preview
+
+
+def _build_insert_context(db, data: InsertOrderRequest, selected_tasks: list[Task]) -> dict:
+    if data.mode == "priority":
+        insert_priority = data.priority_override if data.priority_override is not None else int(selected_tasks[0].project.priority or 999)
+        movable_tasks = _load_lower_priority_movable_tasks(
+            db,
+            insert_priority,
+            {task.id for task in selected_tasks},
+            _selected_instrument_ids(selected_tasks),
+        )
+        replan_tasks = _unique_tasks(selected_tasks + movable_tasks)
+        return {
+            "replan_tasks": replan_tasks,
+            "dependency_pairs": [],
+            "impact_roles": {
+                task.id: "inserted" if task.id in {item.id for item in selected_tasks} else "shifted"
+                for task in replan_tasks
+            },
+        }
+    return _build_custom_insert_context(db, data.anchor_task_id, selected_tasks)
+
+
+def _build_custom_insert_context(db, anchor_task_id: int | None, selected_tasks: list[Task]) -> dict:
+    if anchor_task_id is None:
+        raise ScheduleInsertInvalidError("请选择插入位置任务")
+    anchor = db.query(Task).filter(Task.id == anchor_task_id).first()
+    if anchor is None:
+        raise ScheduleInsertNotFoundError("插入位置任务不存在")
+    _ensure_leaf_tasks([anchor], "插入位置任务")
+    selected_ids = {task.id for task in selected_tasks}
+    if anchor.id in selected_ids:
+        raise ScheduleInsertInvalidError("插入位置任务不能与插单任务相同")
+    if not _task_has_schedule(db, anchor.id):
+        raise ScheduleInsertInvalidError("插入位置任务尚未排程，不能作为插入锚点")
+
+    anchor_downstream_ids = _downstream_task_ids(db, {anchor.id}) - {anchor.id}
+    _ensure_movable_downstream(db, anchor_downstream_ids, "插入位置任务的后续任务")
+    source_downstream_ids = _downstream_task_ids(db, selected_ids) - selected_ids
+    _ensure_movable_downstream(db, source_downstream_ids, "插单任务的后续任务")
+    # Calculate boundaries across the complete selected branch. This keeps a
+    # selected task ahead of its own downstream tasks after insertion.
+    source_roots, source_terminals = _selected_boundaries(
+        db,
+        selected_ids | source_downstream_ids,
+    )
+
+    direct_anchor_successors = {
+        task_id for task_id, in db.query(TaskDependency.task_id).filter(
+            TaskDependency.predecessor_id == anchor.id,
+        ).all()
+        if task_id not in selected_ids
+    }
+    dependency_pairs = [
+        (task_id, anchor.id)
+        for task_id in source_roots
+    ] + [
+        (task_id, predecessor_id)
+        for task_id in direct_anchor_successors
+        for predecessor_id in source_terminals
+    ]
+    _ensure_dependency_pairs_valid(db, dependency_pairs)
+    replan_ids = selected_ids | anchor_downstream_ids | source_downstream_ids
+    replan_tasks = db.query(Task).filter(
+        Task.id.in_(replan_ids),
+        Task.is_external_gate.is_(False),
+    ).all()
+    waiting_tasks = [task for task in replan_tasks if task.status == "waiting_external"]
+    if waiting_tasks:
+        names = "、".join(task.name for task in waiting_tasks[:3])
+        raise ScheduleInsertInvalidError(
+            f"任务【{names}】仍受方案签批限制。请先提交预计签批完成时间，或完成方案签批后再计算插单影响"
+        )
+    impact_roles = {
+        task.id: (
+            "inserted" if task.id in selected_ids
+            else "anchor_downstream" if task.id in anchor_downstream_ids
+            else "source_downstream"
+        )
+        for task in replan_tasks
+    }
+    return {
+        "replan_tasks": _unique_tasks(replan_tasks),
+        "dependency_pairs": dependency_pairs,
+        "impact_roles": impact_roles,
+    }
+
+
+def _ensure_leaf_tasks(tasks: list[Task], label: str) -> None:
+    if any(task.children for task in tasks):
+        raise ScheduleInsertInvalidError(f"{label}必须选择叶子任务")
+    if any(task.is_external_gate for task in tasks):
+        raise ScheduleInsertInvalidError(f"{label}不能选择方案签批节点")
+
+
+def _task_has_schedule(db, task_id: int) -> bool:
+    return db.query(TimeSlot.id).filter(
+        TimeSlot.task_id == task_id,
+        TimeSlot.status.in_(["scheduled", "running", "completed", "blocked", "interrupted"]),
+    ).first() is not None
+
+
+def _selected_boundaries(db, selected_ids: set[int]) -> tuple[set[int], set[int]]:
+    dependencies = db.query(TaskDependency).filter(
+        (TaskDependency.task_id.in_(selected_ids)) | (TaskDependency.predecessor_id.in_(selected_ids)),
+    ).all()
+    roots = set(selected_ids)
+    terminals = set(selected_ids)
+    for dependency in dependencies:
+        if dependency.task_id in selected_ids and dependency.predecessor_id in selected_ids:
+            roots.discard(dependency.task_id)
+            terminals.discard(dependency.predecessor_id)
+    return roots, terminals
+
+
+def _downstream_task_ids(db, seed_ids: set[int]) -> set[int]:
+    downstream_by_predecessor: dict[int, set[int]] = {}
+    for dependency in db.query(TaskDependency).all():
+        downstream_by_predecessor.setdefault(dependency.predecessor_id, set()).add(dependency.task_id)
+    affected = set(seed_ids)
+    pending = list(seed_ids)
+    while pending:
+        predecessor_id = pending.pop()
+        for task_id in downstream_by_predecessor.get(predecessor_id, set()):
+            if task_id not in affected:
+                affected.add(task_id)
+                pending.append(task_id)
+    return affected
+
+
+def _ensure_movable_downstream(db, task_ids: set[int], label: str) -> None:
+    if not task_ids:
+        return
+    protected_task = db.query(Task.id).filter(
+        Task.id.in_(task_ids),
+        Task.status.in_(["running", "completed", "done"]),
+    ).first()
+    protected = db.query(TimeSlot.id).filter(
+        TimeSlot.task_id.in_(task_ids),
+        (
+            (TimeSlot.tier == "frozen")
+            | TimeSlot.status.in_(["running", "completed"])
+            | TimeSlot.actual_start.isnot(None)
+        ),
+    ).first()
+    if protected_task or protected:
+        raise ScheduleInsertInvalidError(f"{label}中包含冻结、已开始或已完成任务，不能插入")
+
+
+def _ensure_dependency_pairs_valid(db, pairs: list[tuple[int, int]]) -> None:
+    existing_pairs = {
+        (dependency.task_id, dependency.predecessor_id)
+        for dependency in db.query(TaskDependency).all()
+    }
+    # A repeated preview may submit dependencies that the first confirmed
+    # insert already persisted. They are idempotent, not cycles.
+    new_pairs = {pair for pair in pairs if pair not in existing_pairs}
+    graph: dict[int, set[int]] = {}
+    for task_id, predecessor_id in existing_pairs | new_pairs:
+        graph.setdefault(predecessor_id, set()).add(task_id)
+    for task_id, predecessor_id in new_pairs:
+        if task_id == predecessor_id or _has_path(graph, task_id, predecessor_id):
+            raise ScheduleInsertInvalidError("自定义插入会形成循环前置关系")
+
+
+def _has_path(graph: dict[int, set[int]], start_id: int, target_id: int) -> bool:
+    pending = [start_id]
+    visited = set()
+    while pending:
+        current = pending.pop()
+        if current == target_id:
+            return True
+        if current in visited:
+            continue
+        visited.add(current)
+        pending.extend(graph.get(current, set()))
+    return False
+
+
+def _add_custom_dependencies(db, pairs: list[tuple[int, int]]) -> None:
+    if not pairs:
+        return
+    existing_pairs = {
+        (dependency.task_id, dependency.predecessor_id)
+        for dependency in db.query(TaskDependency).filter(
+            TaskDependency.task_id.in_([task_id for task_id, _ in pairs]),
+        ).all()
+    }
+    for task_id, predecessor_id in pairs:
+        if (task_id, predecessor_id) not in existing_pairs:
+            db.add(TaskDependency(task_id=task_id, predecessor_id=predecessor_id))
+
+
+def _unique_tasks(tasks: list[Task]) -> list[Task]:
+    return list({task.id: task for task in tasks}.values())
 
 
 def _ensure_selected_tasks_are_movable(db, task_ids: set[int]) -> None:
@@ -206,6 +404,7 @@ def _build_impacts(
     selected_task_ids: set[int],
     old_windows: dict[int, tuple[datetime, datetime]],
     new_windows: dict[int, tuple[datetime, datetime]],
+    impact_roles: dict[int, str],
 ) -> list[InsertOrderImpact]:
     impacts = []
     for task in tasks:
@@ -222,6 +421,7 @@ def _build_impacts(
             project_id=task.project_id,
             project_name=task.project.name if task.project else "",
             is_insert_task=task.id in selected_task_ids,
+            impact_role=impact_roles.get(task.id),
             original_start=old_window[0] if old_window else None,
             original_end=old_window[1] if old_window else None,
             new_start=new_window[0],

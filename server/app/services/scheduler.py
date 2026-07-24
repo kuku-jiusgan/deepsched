@@ -44,6 +44,7 @@ from app.services.scheduler_helpers import (
 from app.services.approval_gate_service import unapproved_gate_context
 from app.services.schedule_advance_notification_service import (
     capture_task_schedule_windows,
+    notify_rescheduled_tasks_delayed,
     notify_rescheduled_tasks_advanced,
 )
 
@@ -532,6 +533,11 @@ class SchedulerService:
             return {"status": "error", "message": str(exc), "timeslots_created": 0}
         if emit_advance_notifications:
             notify_rescheduled_tasks_advanced(
+                self.db,
+                original_schedule_windows,
+                advance_notification_reason,
+            )
+            notify_rescheduled_tasks_delayed(
                 self.db,
                 original_schedule_windows,
                 advance_notification_reason,

@@ -4,7 +4,7 @@
 
     <a-card title="标准任务类型" style="margin-top: 16px">
       <template #extra>
-        <a-button type="primary" size="small" @click="openCreate"><PlusOutlined /> 新增类型</a-button>
+        <a-button v-operation="'create'" type="primary" size="small" @click="openCreate"><PlusOutlined /> 新增类型</a-button>
       </template>
       <a-table :dataSource="taskTypes" :columns="columns" rowKey="id" size="small"
         :pagination="false">
@@ -15,12 +15,12 @@
             </a-tag>
           </template>
           <template v-else-if="column.key === 'is_active'">
-            <a-switch :checked="record.is_active" size="small" @change="(v: boolean) => handleToggle(record, v)" />
+            <a-switch v-operation="'toggle'" :checked="record.is_active" size="small" @change="(v: boolean) => handleToggle(record, v)" />
           </template>
           <template v-else-if="column.key === 'actions'">
             <a-space :size="0">
-              <a-button type="link" size="small" @click="openEdit(record)"><EditOutlined /></a-button>
-              <a-popconfirm title="确定删除此类型？" @confirm="handleDelete(record.id)">
+              <a-button v-operation="'edit'" type="link" size="small" @click="openEdit(record)"><EditOutlined /></a-button>
+              <a-popconfirm v-operation="'delete'" title="确定删除此类型？" @confirm="handleDelete(record.id)">
                 <a-button type="link" size="small" danger><DeleteOutlined /></a-button>
               </a-popconfirm>
             </a-space>
@@ -57,8 +57,9 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
+import { isAxiosError } from 'axios'
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
-import { getTaskTypes, createTaskType, updateTaskType, deleteTaskType, type TaskTypeConfig } from '@/services/api'
+import { getTaskTypes, createTaskType, updateTaskType, toggleTaskType, deleteTaskType, type TaskTypeConfig } from '@/services/api'
 
 const taskTypes = ref<TaskTypeConfig[]>([])
 const modalOpen = ref(false)
@@ -116,12 +117,12 @@ async function handleSubmit() {
     }
     modalOpen.value = false
     loadData()
-  } catch { message.error('操作失败') }
+  } catch (error: unknown) { message.error(errorDetail(error, '操作失败')) }
 }
 
 async function handleToggle(record: TaskTypeConfig, v: boolean) {
   try {
-    await updateTaskType(record.id, { is_active: v })
+    await toggleTaskType(record.id, v)
     record.is_active = v
   } catch { message.error('操作失败') }
 }
@@ -131,4 +132,9 @@ async function handleDelete(id: number) {
 }
 
 onMounted(loadData)
+
+function errorDetail(error: unknown, fallback: string) {
+  if (isAxiosError<{ detail?: string }>(error)) return error.response?.data?.detail || fallback
+  return fallback
+}
 </script>

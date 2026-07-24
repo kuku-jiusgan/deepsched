@@ -10,10 +10,22 @@
 
       <section class="login-card">
         <div class="login-card-header">
-          <h2>登录平台</h2>
+          <h2>{{ isWeComFlow ? '企业微信登录' : '登录平台' }}</h2>
         </div>
 
-        <a-form layout="vertical" class="login-form">
+        <div v-if="isWeComFlow" class="wecom-login-state" role="status" aria-live="polite">
+          <a-spin v-if="loading" size="large" />
+          <CheckCircleOutlined v-else-if="isWeComSuccess" class="wecom-state-icon is-success" />
+          <WarningOutlined v-else class="wecom-state-icon is-error" />
+          <strong>{{ wecomStatus }}</strong>
+          <span v-if="loading">正在核验当前企业成员身份，请稍候</span>
+          <div v-else-if="!isWeComSuccess" class="wecom-actions">
+            <a-button type="primary" @click="startWeComLogin">重新登录</a-button>
+            <a-button @click="usePasswordLogin">使用账号密码</a-button>
+          </div>
+        </div>
+
+        <a-form v-else layout="vertical" class="login-form">
           <a-form-item>
             <a-input v-model:value="username" placeholder="用户名" size="large" autocomplete="username">
               <template #prefix><UserOutlined /></template>
@@ -33,6 +45,8 @@
           <a-form-item>
             <a-button type="primary" @click="handleLogin" size="large" block :loading="loading">登 录</a-button>
           </a-form-item>
+          <a-divider plain>或</a-divider>
+          <a-button size="large" block @click="startWeComLogin"><WechatOutlined /> 企业微信登录</a-button>
           <div v-if="errorMsg" class="login-error">{{ errorMsg }}</div>
         </a-form>
       </section>
@@ -43,7 +57,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { UserOutlined, LockOutlined } from '@ant-design/icons-vue'
+import { CheckCircleOutlined, LockOutlined, UserOutlined, WarningOutlined, WechatOutlined } from '@ant-design/icons-vue'
 import axios from 'axios'
 
 const router = useRouter()
@@ -52,12 +66,74 @@ const username = ref('')
 const password = ref('')
 const loading = ref(false)
 const errorMsg = ref('')
+const isWeComFlow = ref(false)
+const isWeComSuccess = ref(false)
+const wecomStatus = ref('正在进入系统')
 
-onMounted(() => {
+onMounted(async () => {
   if (route.query.expired === '1') {
     errorMsg.value = '登录已过期，请重新登录'
   }
+  const code = typeof route.query.code === 'string' ? route.query.code : ''
+  const state = typeof route.query.state === 'string' ? route.query.state : ''
+  if (code && state) {
+    await completeWeComLogin(code, state)
+  } else if (route.query.wecom === '1' || isWeComClient()) {
+    await startWeComLogin()
+  }
 })
+
+function isWeComClient() {
+  return /wxwork/i.test(navigator.userAgent)
+}
+
+function saveSession(data: { token: string; user: object }) {
+  localStorage.setItem('token', data.token)
+  localStorage.setItem('user', JSON.stringify(data.user))
+  localStorage.setItem('lastActivityAt', String(Date.now()))
+}
+
+async function startWeComLogin() {
+  isWeComFlow.value = true
+  isWeComSuccess.value = false
+  loading.value = true
+  wecomStatus.value = '正在连接企业微信'
+  try {
+    const response = await axios.get('/api/v1/wecom-auth/authorize-url')
+    window.location.assign(response.data.authorize_url)
+  } catch (error: unknown) {
+    showWeComError(error)
+  }
+}
+
+async function completeWeComLogin(code: string, state: string) {
+  isWeComFlow.value = true
+  loading.value = true
+  wecomStatus.value = '正在验证企业微信身份'
+  try {
+    const response = await axios.post('/api/v1/wecom-auth/login', { code, state })
+    saveSession(response.data)
+    isWeComSuccess.value = true
+    wecomStatus.value = `登录成功，欢迎 ${response.data.user.display_name}`
+    await router.replace('/operations/cockpit')
+  } catch (error: unknown) {
+    showWeComError(error)
+  } finally {
+    loading.value = false
+  }
+}
+
+function showWeComError(error: unknown) {
+  const detail = axios.isAxiosError(error) ? error.response?.data?.detail : null
+  wecomStatus.value = typeof detail === 'string' ? detail : '企业微信登录失败，请重试'
+  loading.value = false
+}
+
+function usePasswordLogin() {
+  isWeComFlow.value = false
+  errorMsg.value = ''
+  router.replace('/login')
+}
 
 async function handleLogin() {
   if (!username.value || !password.value) {
@@ -71,9 +147,7 @@ async function handleLogin() {
       username: username.value,
       password: password.value,
     })
-    localStorage.setItem('token', response.data.token)
-    localStorage.setItem('user', JSON.stringify(response.data.user))
-    localStorage.setItem('lastActivityAt', String(Date.now()))
+    saveSession(response.data)
     router.replace('/operations/cockpit')
   } catch (error: unknown) {
     const detail = axios.isAxiosError(error) ? error.response?.data?.detail : null
@@ -196,6 +270,31 @@ async function handleLogin() {
   text-align: center;
   font-size: 13px;
 }
+
+.wecom-login-state {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: center;
+  color: #475569;
+}
+
+.wecom-login-state strong {
+  color: #17211d;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.wecom-state-icon {
+  font-size: 38px;
+}
+
+.wecom-state-icon.is-success { color: #15803d; }
+.wecom-state-icon.is-error { color: #dc2626; }
+.wecom-actions { display: flex; gap: 10px; margin-top: 8px; }
 
 :deep(.ant-btn-primary) {
   background: #165c4a;

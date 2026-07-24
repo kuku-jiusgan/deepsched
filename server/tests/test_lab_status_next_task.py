@@ -125,6 +125,27 @@ class LabStatusNextTaskTest(unittest.TestCase):
         self.assertEqual("下一任务", item["current_task"])
         self.assertEqual(next_plan_start.isoformat(), item["running_start"])
 
+    def test_completed_task_clears_stale_running_instrument_status(self):
+        now = datetime.now()
+        project = Project(id=1, name="项目", code="XM-004")
+        instrument = Instrument(id=1, code="ZBYY-002-0001", name="液质联用仪", status="running")
+        task = Task(id=1, project_id=1, name="已完成检测", task_type="test", status="done")
+        slot = TimeSlot(
+            task_id=1,
+            instrument_id=1,
+            plan_start=now - timedelta(hours=2),
+            plan_end=now - timedelta(hours=1),
+            status="completed",
+        )
+        self.db.add_all([project, instrument, task, slot])
+        self.db.commit()
+
+        item = lab_status(self.db)[0]
+
+        self.assertIsNone(item["current_task"])
+        self.assertEqual("idle", item["status"])
+        self.assertEqual("idle", self.db.get(Instrument, instrument.id).status)
+
 
 if __name__ == "__main__":
     unittest.main()

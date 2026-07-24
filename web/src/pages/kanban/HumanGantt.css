@@ -16,10 +16,29 @@
   background: #f6f8fb;
 }
 
+.human-gantt-page:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  min-height: 100vh;
+  overflow: hidden;
+  background: #f6f8fb;
+}
+
+.human-gantt-page:fullscreen::backdrop {
+  background: #f6f8fb;
+}
+
 :global(html:fullscreen),
 :global(html:fullscreen body),
 :global(html:fullscreen #app) {
+  width: 100%;
+  height: 100%;
   min-height: 100%;
+  overflow: hidden;
+  background: #f6f8fb;
+}
+
+:global(html:fullscreen::backdrop) {
   background: #f6f8fb;
 }
 
@@ -91,6 +110,8 @@
 .parallel-chip { margin-left: auto; color: #b45309; background: #fff7ed; }
 
 .gantt-right { flex: 1; min-width: 0; overflow: auto; }
+.human-gantt-page.is-fullscreen .gantt-left,
+.human-gantt-page.is-fullscreen .gantt-right { background: #fff; }
 .timeline-header { position: sticky; top: 0; z-index: 4; display: flex; }
 .timeline-column-header { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; box-sizing: border-box; border-right: 1px solid #cbd5e1; color: #64748b; }
 .timeline-column-header.is-weekend { background: #fff7ed; }

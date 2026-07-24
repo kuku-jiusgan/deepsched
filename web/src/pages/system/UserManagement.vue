@@ -2,17 +2,17 @@
   <div>
     <div class="page-header">
       <h2>用户管理</h2>
-      <p>仅系统管理员可维护账号、角色与启停状态。新增或重置密码需至少 8 位并包含字母和数字。</p>
+      <p>具备操作权限的角色可维护普通账号；系统管理员账号仅能由系统管理员维护。</p>
     </div>
     <div class="action-bar">
-      <a-button type="primary" @click="openCreate"><PlusOutlined /> 添加用户</a-button>
+      <a-button v-operation="'create'" type="primary" @click="openCreate"><PlusOutlined /> 添加用户</a-button>
       <span style="margin-left: auto; font-size: 12px; color: #94a3b8; align-self: center">共 {{ users.length }} 个用户</span>
     </div>
     <a-spin v-if="loading" size="large" style="display: block; margin: 80px auto" />
     <a-table v-else :dataSource="users" :columns="columns" rowKey="id" size="middle" :pagination="{ pageSize: 20, showSizeChanger: true }">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'role'">
-          <a-tag :color="roleColors[record.role] || '#94a3b8'">{{ record.role }}</a-tag>
+          <a-tag v-for="role in userRoles(record)" :key="role" :color="roleColors[role] || '#94a3b8'">{{ role }}</a-tag>
         </template>
         <template v-else-if="column.key === 'is_active'">
           <a-tag :color="record.is_active ? '#16a34a' : '#dc2626'">{{ record.is_active ? '启用' : '停用' }}</a-tag>
@@ -22,9 +22,9 @@
         </template>
         <template v-else-if="column.key === 'actions'">
           <a-space :size="4">
-            <a-button type="link" size="small" @click="openEdit(record)"><EditOutlined /> 编辑</a-button>
-            <a-button type="link" size="small" @click="openChangePwd(record)"><KeyOutlined /> 密码</a-button>
-            <a-popconfirm title="确定删除该用户？" @confirm="handleDelete(record.id)" okText="确定" cancelText="取消" :disabled="record.id === currentUserId">
+            <a-button v-operation="'edit'" type="link" size="small" @click="openEdit(record)"><EditOutlined /> 编辑</a-button>
+            <a-button v-operation="'password'" type="link" size="small" @click="openChangePwd(record)"><KeyOutlined /> 密码</a-button>
+            <a-popconfirm v-operation="'delete'" title="确定删除该用户？" @confirm="handleDelete(record.id)" okText="确定" cancelText="取消" :disabled="record.id === currentUserId">
               <a-button type="link" size="small" danger :disabled="record.id === currentUserId"><DeleteOutlined /> 删除</a-button>
             </a-popconfirm>
           </a-space>
@@ -47,7 +47,7 @@
         <a-form-item label="用户名" required><a-input v-model:value="form.username" placeholder="登录账号" :disabled="!!editingId" /></a-form-item>
         <a-form-item label="显示名称" required><a-input v-model:value="form.display_name" placeholder="如：张三" /></a-form-item>
         <a-form-item v-if="!editingId" label="登录密码" required :help="passwordHelp"><a-input-password v-model:value="form.password" placeholder="至少8位，包含字母和数字" /></a-form-item>
-        <a-form-item label="角色" required><a-select v-model:value="form.role" :options="roleOptions" /></a-form-item>
+        <a-form-item label="角色" required><a-select v-model:value="form.roles" mode="multiple" :options="roleOptions" placeholder="可选择多个角色" /></a-form-item>
         <a-form-item label="邮箱"><a-input v-model:value="form.email" placeholder="如：zhangsan@example.com" /></a-form-item>
         <a-form-item label="手机号"><a-input v-model:value="form.phone" placeholder="如：13800138000" /></a-form-item>
           <a-form-item label="企业微信"><a-input v-model:value="form.wecom_id" placeholder="企业微信号" /></a-form-item>
@@ -74,14 +74,14 @@
 import { computed, ref, reactive, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, EditOutlined, DeleteOutlined, KeyOutlined } from '@ant-design/icons-vue'
-import { getUsers, createUser, updateUser, deleteUser, type User, type UserPayload } from '@/services/api'
+import { getUsers, createUser, updateUser, resetUserPassword, deleteUser, type User, type UserPayload } from '@/services/api'
 import dayjs from 'dayjs'
 
 const users = ref<User[]>([])
 const loading = ref(true)
 const modalOpen = ref(false)
 const editingId = ref<number | null>(null)
-const form = reactive({ username: '', display_name: '', password: '', role: '分析员', email: '', phone: '', wecom_id: '', is_active: true })
+const form = reactive({ username: '', display_name: '', password: '', roles: ['技术员'] as string[], email: '', phone: '', wecom_id: '', is_active: true })
 
 const pwdOpen = ref(false)
 const pwdTarget = ref<User | null>(null)
@@ -92,14 +92,18 @@ const roleOptions = [
   { label: '系统管理员', value: '系统管理员' },
   { label: '项目管理员', value: '项目管理员' },
   { label: '分析所所长', value: '分析所所长' },
-  { label: '分析员', value: '分析员' },
+  { label: '技术组长', value: '技术组长' },
+  { label: '技术员', value: '技术员' },
 ]
 const roleColors: Record<string, string> = {
   '系统管理员': '#7c3aed',
   '项目管理员': '#2563eb',
   '分析所所长': '#0891b2',
-  '分析员': '#16a34a',
+  '技术组长': '#0f766e',
+  '技术员': '#15803d',
 }
+
+function userRoles(user: User) { return user.roles?.length ? user.roles : [user.role] }
 
 const columns = [
   { title: '用户名', dataIndex: 'username', key: 'username', width: 120 },
@@ -120,7 +124,7 @@ async function fetchData() {
 
 function openCreate() {
   editingId.value = null
-  Object.assign(form, { username: '', display_name: '', password: '', role: '分析员', email: '', phone: '', wecom_id: '', is_active: true })
+  Object.assign(form, { username: '', display_name: '', password: '', roles: ['技术员'], email: '', phone: '', wecom_id: '', is_active: true })
   modalOpen.value = true
 }
 
@@ -130,7 +134,7 @@ function openEdit(r: User) {
     username: r.username,
     display_name: r.display_name,
     password: '',
-    role: r.role,
+    roles: userRoles(r),
     email: r.email || '',
     phone: r.phone || '',
     wecom_id: r.wecom_id || '',
@@ -145,13 +149,15 @@ const passwordHelp = computed(() => form.password && !isStrongPassword(form.pass
 
 async function handleSubmit() {
   if (!form.username || !form.display_name) { message.error('请填写用户名和显示名称'); return }
+  if (!form.roles.length) { message.error('请至少选择一个角色'); return }
   if (!editingId.value && !form.password) { message.error('请设置登录密码'); return }
   if (form.password && !isStrongPassword(form.password)) { message.error('密码至少8位，且必须包含字母和数字'); return }
   try {
     const data: UserPayload = {
       username: form.username,
       display_name: form.display_name,
-      role: form.role,
+      role: form.roles[0],
+      roles: form.roles,
       email: form.email,
       phone: form.phone,
       wecom_id: form.wecom_id,
@@ -179,16 +185,7 @@ async function handleChangePwd() {
   if (newPassword.value !== confirmPassword.value) { message.error('两次输入的密码不一致'); return }
   if (!isStrongPassword(newPassword.value)) { message.error('密码至少8位，且必须包含字母和数字'); return }
   try {
-    await updateUser(pwdTarget.value!.id, {
-      username: pwdTarget.value!.username,
-      display_name: pwdTarget.value!.display_name,
-      role: pwdTarget.value!.role,
-      email: pwdTarget.value!.email,
-      phone: pwdTarget.value!.phone,
-      wecom_id: pwdTarget.value!.wecom_id,
-      is_active: pwdTarget.value!.is_active,
-      password: newPassword.value,
-    })
+    await resetUserPassword(pwdTarget.value!.id, newPassword.value)
     message.success('密码修改成功')
     pwdOpen.value = false
   } catch (error: unknown) {

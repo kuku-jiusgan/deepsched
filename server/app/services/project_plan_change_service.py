@@ -45,10 +45,12 @@ class PlanChangeInvalidError(Exception):
     pass
 
 
-def delete_task_plan(db, task_id: int) -> None:
+def delete_task_plan(db, task_id: int, allow_completed: bool = False) -> None:
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise PlanChangeNotFoundError("任务不存在")
+    if not allow_completed and _task_tree_has_completed_task(task):
+        raise PlanChangeInvalidError("已完成任务不允许删除")
     project_id = task.project_id
     bridge_pairs: set[tuple[int, int]] = set()
     affected_tasks: list[Task] = []
@@ -72,6 +74,12 @@ def delete_task_plan(db, task_id: int) -> None:
         affected_task.schedule_dirty = True
     recalculate_project_parent_hours(db, project_id)
     db.commit()
+
+
+def _task_tree_has_completed_task(task: Task) -> bool:
+    return task.schedule_lock_status == "completed" or any(
+        _task_tree_has_completed_task(child) for child in task.children
+    )
 
 
 def update_project_plan(db, project_id: int, data: ProjectCreate) -> Project:

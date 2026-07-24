@@ -6,6 +6,10 @@ from typing import Iterable, Set
 
 from app.models import AuditLog, Task, TimeSlot
 from app.services.instrument_status_service import delete_time_slots_and_refresh
+from app.services.schedule_advance_notification_service import (
+    capture_task_schedule_windows,
+    notify_rescheduled_tasks_delayed,
+)
 from app.services.task_delay_status_service import mark_task_delayed
 from app.services.schedule_rule_service import get_solver_constraints
 from app.services.scheduler_helpers import (
@@ -29,7 +33,7 @@ ACTIVE_SLOT_STATUSES = ["scheduled", "running", "blocked", "interrupted"]
 ACTIVE_TASK_STATUSES = ["pending", "scheduled", "running", "blocked", "interrupted"]
 
 
-def report_task_delay(db, slot_id: int, delay_hours: float, reason: str) -> dict:
+def report_task_delay(db, slot_id: int, delay_hours: float, reason: str, operator_name: str = "system") -> dict:
     clean_reason = reason.strip()
     if delay_hours <= 0:
         raise ScheduleDelayInvalidError("延期时长必须大于 0")
@@ -53,6 +57,9 @@ def report_task_delay(db, slot_id: int, delay_hours: float, reason: str) -> dict
     delay = timedelta(hours=delay_hours)
     cutoff = slot.plan_end
     affected_slot_ids = _affected_slot_ids(db, task, slot, cutoff)
+    affected_task_ids = _task_ids_for_slots(db, affected_slot_ids)
+    passive_task_ids = affected_task_ids - {task.id}
+    original_windows = capture_task_schedule_windows(db, passive_task_ids)
 
     if task.status != "running" and slot.status != "running":
         slot.status = "blocked"
@@ -65,7 +72,12 @@ def report_task_delay(db, slot_id: int, delay_hours: float, reason: str) -> dict
         delay,
         cutoff,
     )
-    _write_audit_log(db, task.id, slot, delay_hours, clean_reason, shifted_count)
+    notify_rescheduled_tasks_delayed(
+        db,
+        original_windows,
+        f"任务“{task.name}”延期",
+    )
+    _write_audit_log(db, task.id, slot, delay_hours, clean_reason, shifted_count, operator_name)
 
     return {
         "status": "ok",
@@ -73,7 +85,7 @@ def report_task_delay(db, slot_id: int, delay_hours: float, reason: str) -> dict
         "slot_id": slot.id,
         "delay_hours": delay_hours,
         "shifted_slots": shifted_count,
-        "affected_tasks": _affected_task_count(db, affected_slot_ids),
+        "affected_tasks": len(affected_task_ids),
         "reason": clean_reason,
     }
 
@@ -344,11 +356,11 @@ def _ceil_to_half_hour(value: datetime) -> datetime:
     return value + timedelta(minutes=30 - remainder)
 
 
-def _affected_task_count(db, slot_ids: Set[int]) -> int:
+def _task_ids_for_slots(db, slot_ids: Set[int]) -> set[int]:
     if not slot_ids:
-        return 0
+        return set()
     rows = db.query(TimeSlot.task_id).filter(TimeSlot.id.in_(slot_ids)).distinct().all()
-    return len(rows)
+    return {row[0] for row in rows}
 
 
 def _write_audit_log(
@@ -358,20 +370,33 @@ def _write_audit_log(
     delay_hours: float,
     reason: str,
     shifted_count: int,
+    operator_name: str,
 ) -> None:
+    task = db.query(Task).filter(Task.id == task_id).first()
+    task_display = _task_display(task)
     db.add(AuditLog(
-        user_name="system",
+        user_name=operator_name,
         action="task_delay_reported",
         target_type="time_slot",
         target_id=slot.id,
         detail={
             "task_id": task_id,
+            "task_display": task_display,
             "schedule_run_id": slot.schedule_run_id,
             "delay_hours": delay_hours,
             "reason": reason,
             "shifted_slots": shifted_count,
         },
     ))
+
+
+def _task_display(task: Task | None) -> str | None:
+    if task is None:
+        return None
+    project = task.project
+    if project is None:
+        return task.name
+    return " · ".join(part for part in [project.code, project.name, task.name] if part)
 
 
 def _ids(slots: Iterable[TimeSlot]) -> Set[int]:

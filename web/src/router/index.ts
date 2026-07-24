@@ -1,5 +1,6 @@
 ﻿import { createRouter, createWebHistory } from 'vue-router'
 import AppLayout from '@/components/AppLayout.vue'
+import { canViewPage, clearPermissions, firstViewablePage, loadMyPermissions } from '@/services/permissions'
 
 const routes = [
   {
@@ -26,6 +27,7 @@ const routes = [
       { path: 'tasks/approvals', component: () => import('@/pages/tasks/ApprovalCenter.vue') },
       { path: 'tasks/faults', component: () => import('@/pages/tasks/InstrumentFaults.vue') },
       { path: 'projects/ledger', component: () => import('@/pages/ProjectBoard.vue') },
+      { path: 'projects/detection-tasks', component: () => import('@/pages/projects/DetectionTaskManagement.vue') },
       { path: 'projects/plan-breakdown', component: () => import('@/pages/projects/PlanBreakdown.vue') },
       { path: 'projects/process-dag', component: () => import('@/pages/ProjectDAG.vue') },
       { path: 'projects/resource-ledger', component: () => import('@/pages/projects/ResourceLedger.vue') },
@@ -33,8 +35,10 @@ const routes = [
       { path: 'schedule/engine', component: () => import('@/pages/ScheduleManager.vue'), meta: { requiresAdmin: true } },
       { path: 'schedule/insert-order', component: () => import('@/pages/schedule/InsertOrder.vue') },
       { path: 'system/alerts', component: () => import('@/pages/system/AlertPush.vue') },
+      { path: 'system/audit-logs', component: () => import('@/pages/system/AuditLogManagement.vue') },
       { path: 'system/external-sync', component: () => import('@/pages/system/ExternalSync.vue') },
       { path: 'system/users', component: () => import('@/pages/system/UserManagement.vue'), meta: { requiresAdmin: true } },
+      { path: 'system/roles', component: () => import('@/pages/system/RoleManagement.vue') },
       { path: 'system/basic', component: () => import('@/pages/system/SystemBasic.vue') },
       { path: 'system/calendar', component: () => import('@/pages/system/WorkCalendar.vue') },
     ]
@@ -42,18 +46,16 @@ const routes = [
 ]
 
 const router = createRouter({ history: createWebHistory(), routes })
-const IDLE_TIMEOUT_MS = 30 * 60 * 1000
-const ANALYST_ROLE = '分析员'
-const ANALYST_ALLOWED_PATHS = ['/dashboard']
-const ANALYST_ALLOWED_PREFIXES = ['/operations/', '/kanban/', '/tasks/', '/projects/']
+const IDLE_TIMEOUT_MS = 3 * 60 * 60 * 1000
 
 function clearSession() {
   localStorage.removeItem('token')
   localStorage.removeItem('user')
   localStorage.removeItem('lastActivityAt')
+  clearPermissions()
 }
 
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
   const token = localStorage.getItem('token')
   const lastActivityAt = Number(localStorage.getItem('lastActivityAt') || Date.now())
   const isIdleExpired = token && Date.now() - lastActivityAt >= IDLE_TIMEOUT_MS
@@ -64,32 +66,21 @@ router.beforeEach((to, _from, next) => {
   }
   if (to.meta.requiresAuth && !token) {
     next('/login')
-  } else if (to.meta.requiresAdmin && getStoredUserRole() !== '系统管理员') {
-    next('/operations/cockpit')
-  } else if (isAnalystBlockedPath(to.path)) {
-    next('/operations/cockpit')
   } else if (to.path === '/login' && token) {
     next('/operations/cockpit')
   } else {
-    next()
+    try {
+      if (token) await loadMyPermissions(true)
+      if (!to.meta.guest && token && !canViewPage(to.path)) {
+        next(firstViewablePage())
+      } else {
+        next()
+      }
+    } catch {
+      clearSession()
+      next('/login')
+    }
   }
 })
-
-function getStoredUserRole() {
-  const raw = localStorage.getItem('user')
-  if (!raw) return ''
-  try {
-    const parsed = JSON.parse(raw) as { role?: unknown }
-    return typeof parsed.role === 'string' ? parsed.role : ''
-  } catch {
-    return ''
-  }
-}
-
-function isAnalystBlockedPath(path: string) {
-  if (getStoredUserRole() !== ANALYST_ROLE) return false
-  if (ANALYST_ALLOWED_PATHS.includes(path)) return false
-  return !ANALYST_ALLOWED_PREFIXES.some(prefix => path.startsWith(prefix))
-}
 
 export default router

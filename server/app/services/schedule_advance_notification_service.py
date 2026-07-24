@@ -7,6 +7,7 @@ from app.services.push_notification_service import push_by_rule
 
 
 ADVANCE_NOTIFICATION_RULE_TYPE = "task_schedule_advanced"
+DELAYED_NOTIFICATION_RULE_TYPE = "task_schedule_delayed"
 ScheduleWindow = tuple[datetime, datetime]
 
 
@@ -75,6 +76,29 @@ def notify_rescheduled_tasks_advanced(
             related_entity_type="task",
             related_entity_id=task.id,
             context_roles=["任务负责人"],
+        )
+    return sent
+
+
+def notify_rescheduled_tasks_delayed(db, original_windows: dict[int, ScheduleWindow] | None, reason: str = "重新排程") -> int:
+    if not original_windows:
+        return 0
+    new_windows = capture_task_schedule_windows(db, set(original_windows))
+    sent = 0
+    for task_id, original_window in original_windows.items():
+        new_window = new_windows.get(task_id)
+        if not new_window or new_window[0] <= original_window[0]:
+            continue
+        task = db.query(Task).filter(Task.id == task_id).first()
+        if not task or not task.assignee:
+            continue
+        project_code = task.project.code if task.project else ""
+        task_label = f"{project_code} · {task.name}" if project_code else task.name
+        delayed_minutes = max(1, round((new_window[0] - original_window[0]).total_seconds() / 60))
+        sent += push_by_rule(
+            db, DELAYED_NOTIFICATION_RULE_TYPE, [task.assignee], "排程调整后，您的任务被动后移",
+            f"因{reason}，您的任务“{task_label}”已由 {original_window[0]:%Y-%m-%d %H:%M}–{original_window[1]:%Y-%m-%d %H:%M} 后移至 {new_window[0]:%Y-%m-%d %H:%M}–{new_window[1]:%Y-%m-%d %H:%M}，计划开始时间推迟约 {delayed_minutes} 分钟，请按新时间安排。",
+            related_entity_type="task", related_entity_id=task.id, context_roles=["任务负责人"],
         )
     return sent
 

@@ -10,7 +10,10 @@ from app.services.project_plan_apply_service import (
     _build_project_impacts,
     _project_impact_message,
 )
-from app.services.schedule_insert_service import _load_lower_priority_movable_tasks
+from app.services.schedule_insert_service import (
+    _build_impacts,
+    _load_lower_priority_movable_tasks,
+)
 
 
 class SamePriorityScheduleInsertTest(unittest.TestCase):
@@ -91,6 +94,39 @@ class SamePriorityScheduleInsertTest(unittest.TestCase):
         self.assertEqual(24, impacts[0].overdue_hours)
         self.assertIn("预计顺延 48 小时", message)
         self.assertIn("超过结题日期 24 小时", message)
+
+    def test_project_plan_impacts_include_inserted_and_shifted_roles(self):
+        _, inserted_task = self._scheduled_project("A", 2, 1)
+        _, shifted_task = self._scheduled_project("B", 3, 2)
+        self.db.flush()
+        old_windows = {
+            shifted_task.id: (
+                datetime(2026, 8, 3, 8, 30),
+                datetime(2026, 8, 3, 12, 30),
+            ),
+        }
+        new_windows = {
+            inserted_task.id: (
+                datetime(2026, 8, 3, 8, 30),
+                datetime(2026, 8, 3, 12, 30),
+            ),
+            shifted_task.id: (
+                datetime(2026, 8, 3, 13, 30),
+                datetime(2026, 8, 3, 17, 30),
+            ),
+        }
+
+        impacts = _build_impacts(
+            [inserted_task, shifted_task],
+            {inserted_task.id},
+            old_windows,
+            new_windows,
+            {inserted_task.id: "inserted", shifted_task.id: "shifted"},
+        )
+
+        roles = {impact.task_id: impact.impact_role for impact in impacts}
+        self.assertEqual("inserted", roles[inserted_task.id])
+        self.assertEqual("shifted", roles[shifted_task.id])
 
 
 if __name__ == "__main__":

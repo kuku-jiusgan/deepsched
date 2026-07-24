@@ -9,14 +9,14 @@ from app.services.wecom_delivery_service import (
     start_wecom_delivery_worker,
     stop_wecom_delivery_worker,
 )
-from app.api import protected_router, users
+from app.api import protected_router, users, wecom_auth
 from app.api.exception_handlers import register_domain_exception_handlers
 
 settings = get_settings()
 is_production = settings.ENVIRONMENT.lower() == "production"
-if settings.AUTO_CREATE_SCHEMA and not is_production:
+if settings.AUTO_CREATE_SCHEMA:
     Base.metadata.create_all(bind=engine)
-    ensure_runtime_schema(engine)
+ensure_runtime_schema(engine)
 
 app = FastAPI(
     title="资源智能调度平台",
@@ -63,11 +63,18 @@ async def add_json_utf8_charset(request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "same-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    is_api_request = request.scope.get("path", "").startswith("/api/")
     response.headers["Content-Security-Policy"] = (
         "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+        if is_api_request else
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; "
+        "object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     )
-    if request.scope.get("path", "").startswith("/api/"):
+    if is_api_request:
         response.headers["Cache-Control"] = "no-store"
+    elif request.scope.get("path", "").startswith("/assets/"):
+        response.headers["Cache-Control"] = "public, max-age=2592000, immutable"
     return response
 
 from app.core.logging_middleware import LoggingMiddleware
@@ -75,6 +82,7 @@ app.add_middleware(LoggingMiddleware)
 
 app.include_router(protected_router)
 app.include_router(users.router)
+app.include_router(wecom_auth.router)
 
 @app.get("/api/v1/health")
 def health():

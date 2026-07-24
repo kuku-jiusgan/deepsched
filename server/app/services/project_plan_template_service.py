@@ -6,6 +6,7 @@ from app.models import AuditLog, Project, Task, TaskDependency, TaskTypeConfig, 
 from app.schemas.project_plan_template_schemas import StandardPlanImportOut, StandardPlanTaskOut
 from app.services.project_access_service import FULL_PROJECT_ACCESS_ROLES
 from app.services.project_hours_validation_service import validate_project_estimated_hours
+from app.services.user_role_service import has_any_role
 
 
 TEMPLATE_STEPS = [
@@ -32,10 +33,8 @@ def import_standard_plan(db, project_id: int, user: User) -> StandardPlanImportO
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise ProjectPlanTemplateNotFoundError("项目不存在")
-    if user.role not in FULL_PROJECT_ACCESS_ROLES and project.manager_id != user.id:
+    if not has_any_role(user, FULL_PROJECT_ACCESS_ROLES) and project.manager_id != user.id:
         raise ProjectPlanTemplatePermissionError("无权导入该项目的计划模板")
-    if db.query(Task.id).filter(Task.project_id == project_id).first():
-        raise ProjectPlanTemplateInvalidError("当前项目已有计划任务，不能重复导入标准模板")
     if not project.estimated_hours or project.estimated_hours <= 0:
         raise ProjectPlanTemplateInvalidError("请先填写项目预计工时")
     if not project.manager_id:
@@ -54,9 +53,28 @@ def import_standard_plan(db, project_id: int, user: User) -> StandardPlanImportO
             f"标准任务类型未启用：{', '.join(sorted(missing_codes))}"
         )
 
+    group_count = db.query(Task.id).filter(
+        Task.project_id == project_id,
+        Task.parent_id.is_(None),
+        Task.task_type == "group",
+    ).count()
+    group = Task(
+        project_id=project.id,
+        name=f"标准计划{group_count + 1}",
+        task_type="group",
+        requires_instrument=False,
+        requires_human=False,
+        est_duration_hours=None,
+        switchover_hours=0,
+        status="pending",
+        schedule_dirty=False,
+    )
+    db.add(group)
+    db.flush()
+
     allocations = _allocate_hours(float(project.estimated_hours))
     created_tasks: list[Task] = []
-    for (name, task_type, _, requires_instrument), hours in zip(TEMPLATE_STEPS, allocations):
+    for index, ((name, task_type, _, requires_instrument), hours) in enumerate(zip(TEMPLATE_STEPS, allocations)):
         task = Task(
             project_id=project.id,
             name=name,
@@ -68,8 +86,9 @@ def import_standard_plan(db, project_id: int, user: User) -> StandardPlanImportO
             assignee_id=project.manager_id,
             status="pending",
             schedule_dirty=True,
-            parent_id=None,
+            parent_id=group.id,
             instrument_ids=[],
+            plan_order=index if index < 2 else index + 1,
         )
         db.add(task)
         db.flush()
@@ -89,7 +108,8 @@ def import_standard_plan(db, project_id: int, user: User) -> StandardPlanImportO
         is_external_gate=True,
         gate_status="not_submitted",
         schedule_dirty=False,
-        parent_id=None,
+        parent_id=group.id,
+        plan_order=2,
     )
     db.add(restriction)
     db.flush()
@@ -112,6 +132,7 @@ def import_standard_plan(db, project_id: int, user: User) -> StandardPlanImportO
         target_id=project.id,
         detail={
             "estimated_hours": float(project.estimated_hours),
+            "group_task_id": group.id,
             "task_ids": [task.id for task in created_tasks],
             "approval_restriction_id": restriction.id,
         },
@@ -119,7 +140,7 @@ def import_standard_plan(db, project_id: int, user: User) -> StandardPlanImportO
     db.commit()
     return StandardPlanImportOut(
         status="ok",
-        message="标准项目计划已生成",
+        message=f"已生成“{group.name}”及其 5 个子任务",
         project_id=project.id,
         estimated_hours=float(project.estimated_hours),
         tasks=[
@@ -130,14 +151,24 @@ def import_standard_plan(db, project_id: int, user: User) -> StandardPlanImportO
                 percentage=float(TEMPLATE_STEPS[index][2] * 100),
                 estimated_hours=float(task.est_duration_hours or 0),
             )
-            for index, task in enumerate(created_tasks)
+            for index, task in enumerate(created_tasks[:2])
         ] + [
             StandardPlanTaskOut(
                 id=restriction.id,
                 name=restriction.name,
                 task_type=restriction.task_type,
                 is_approval_restriction=True,
-            )
+            ),
+            *[
+                StandardPlanTaskOut(
+                    id=task.id,
+                    name=task.name,
+                    task_type=task.task_type,
+                    percentage=float(TEMPLATE_STEPS[index][2] * 100),
+                    estimated_hours=float(task.est_duration_hours or 0),
+                )
+                for index, task in enumerate(created_tasks[2:], start=2)
+            ],
         ],
     )
 

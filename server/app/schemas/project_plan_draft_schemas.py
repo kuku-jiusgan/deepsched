@@ -14,6 +14,7 @@ class ProjectPlanDraftTaskIn(BaseModel):
     predecessor_ids: list[int] = []
     instrument_ids: list[int] = []
     is_external_gate: bool = False
+    plan_order: int = 0
 
 
 class ProjectPlanDraftCommitIn(BaseModel):
@@ -30,4 +31,3 @@ class ProjectPlanDraftCommitOut(BaseModel):
     message: str
     created: int
     id_map: list[ProjectPlanDraftIdMap]
-

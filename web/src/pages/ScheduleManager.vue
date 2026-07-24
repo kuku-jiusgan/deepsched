@@ -10,7 +10,7 @@
         <h3 id="global-reschedule-title">全局重排</h3>
         <p>保留冻结、运行中和已完成的日程，撤销其余可移动排程后重新求解。</p>
       </div>
-      <a-button type="primary" danger :loading="rescheduleLoading" @click="confirmGlobalReschedule">
+      <a-button v-operation="'reschedule'" type="primary" danger :loading="rescheduleLoading" @click="confirmGlobalReschedule">
         <ReloadOutlined /> 全局重排
       </a-button>
     </section>

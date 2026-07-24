@@ -30,6 +30,7 @@ def add_scheduler_objective(
         default=999,
     )
     ordered_tasks = sorted(tasks, key=lambda task: (
+        task.project.end_date if task.project and task.project.end_date else datetime.max,
         int(task.project.priority or 999) if task.project else 999,
         task.created_at or datetime.min,
         task.id,

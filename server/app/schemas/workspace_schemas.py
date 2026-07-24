@@ -42,6 +42,7 @@ class WorkspaceTaskOut(BaseModel):
     project_code: str | None = None
     execution_status: str
     est_duration_hours: float | None = None
+    actual_duration_hours: float | None = None
     task_window: TaskWindowOut
     actual_window: TaskWindowOut
     actionable_slot: WorkspaceSegmentOut | None = None

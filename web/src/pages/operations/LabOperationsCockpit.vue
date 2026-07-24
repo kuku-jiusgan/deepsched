@@ -46,6 +46,8 @@
                 <img
                   :src="instrumentImage(item.code)"
                   :alt="`${item.name} ${item.model || ''}`"
+                  width="800"
+                  height="600"
                   decoding="async"
                 />
               </div>
@@ -178,13 +180,13 @@ const WARNING_SCROLL_SECONDS_PER_ITEM = 6
 const WARNING_SCROLL_MIN_SECONDS = 18
 const COMPLETED_TASK_STATUSES = new Set(['done', 'completed'])
 const INSTRUMENT_IMAGES: Record<string, string> = {
-  'ZBYY-002-0001': '/assets/instruments/ab-api5500.png',
-  'ZBYY-002-0002': '/assets/instruments/agilent-7000b.png',
-  'ZBYY-002-0004': '/assets/instruments/shimadzu-lcms-8050-0004.png',
-  'ZBYY-002-0005': '/assets/instruments/shimadzu-lcms-8050-0005.png',
-  'ZBYY-002-0006': '/assets/instruments/agilent-7800-icp-ms.png',
-  'ZBYY-002-0007': '/assets/instruments/shimadzu-gcms-tq8050-nx.png',
-  'ZBYY-002-0011': '/assets/instruments/ab-api5500-plus.png',
+  'ZBYY-002-0001': '/assets/instruments/ab-api5500.webp',
+  'ZBYY-002-0002': '/assets/instruments/agilent-7000b.webp',
+  'ZBYY-002-0004': '/assets/instruments/shimadzu-lcms-8050-0004.webp',
+  'ZBYY-002-0005': '/assets/instruments/shimadzu-lcms-8050-0005.webp',
+  'ZBYY-002-0006': '/assets/instruments/agilent-7800-icp-ms.webp',
+  'ZBYY-002-0007': '/assets/instruments/shimadzu-gcms-tq8050-nx.webp',
+  'ZBYY-002-0011': '/assets/instruments/ab-api5500-plus.webp',
 }
 
 const currentUserLabel = computed(() => { try { const user = JSON.parse(localStorage.getItem('user') || '{}') as { display_name?: string; username?: string }; return user.display_name || user.username || '系统管理员' } catch { return '系统管理员' } })
@@ -224,13 +226,36 @@ const warningScrollDuration = computed(() => `${Math.max(WARNING_SCROLL_MIN_SECO
 const completion = computed(() => {
   const start = dayjs().startOf('day').subtract(6, 'day')
   const recent = slots.value.filter(slot => dayjs(slot.actual_end || slot.plan_end).isAfter(start))
-  const completed = recent.filter(slot => slot.status === 'completed').length
-  const pending = recent.filter(slot => ['scheduled', 'running', 'frozen'].includes(slot.status)).length
-  const late = recent.filter(slot => ['blocked', 'interrupted'].includes(slot.status) || Number(slot.delay_hours) > 0).length
-  const days = Array.from({ length: 7 }, (_, index) => { const date = start.add(index, 'day'); return { date: date.format('MM-DD'), value: recent.filter(slot => slot.status === 'completed' && dayjs(slot.actual_end || slot.plan_end).isSame(date, 'day')).length } })
-  return { completed, pending, late, days }
+  const taskIds = new Set(recent.map(slot => slot.task_id))
+  const completedTaskIds = new Set(
+    recent
+      .filter(slot => COMPLETED_TASK_STATUSES.has(slot.task_status || slot.status))
+      .map(slot => slot.task_id),
+  )
+  const pendingTaskIds = new Set(
+    recent
+      .filter(slot => ['pending', 'ready', 'scheduled', 'running', 'frozen', 'waiting_external'].includes(slot.task_status || slot.status))
+      .map(slot => slot.task_id),
+  )
+  for (const taskId of completedTaskIds) pendingTaskIds.delete(taskId)
+  const lateTaskIds = new Set(
+    recent
+      .filter(slot => ['blocked', 'interrupted'].includes(slot.status) || Number(slot.delay_hours) > 0)
+      .map(slot => slot.task_id),
+  )
+  const completedAtByTask = new Map<number, Dayjs>()
+  for (const slot of recent.filter(item => COMPLETED_TASK_STATUSES.has(item.task_status || item.status))) {
+    const completedAt = dayjs(slot.actual_end || slot.plan_end)
+    const current = completedAtByTask.get(slot.task_id)
+    if (!current || completedAt.isAfter(current)) completedAtByTask.set(slot.task_id, completedAt)
+  }
+  const days = Array.from({ length: 7 }, (_, index) => {
+    const date = start.add(index, 'day')
+    return { date: date.format('MM-DD'), value: [...completedAtByTask.values()].filter(value => value.isSame(date, 'day')).length }
+  })
+  return { completed: completedTaskIds.size, pending: pendingTaskIds.size, late: lateTaskIds.size, total: taskIds.size, days }
 })
-const completionRate = computed(() => { const total = completion.value.completed + completion.value.pending + completion.value.late; return total ? Math.round(completion.value.completed / total * 100) : 100 })
+const completionRate = computed(() => completion.value.total ? Math.round(completion.value.completed / completion.value.total * 100) : 100)
 const completionRingStyle = computed(() => ({ background: `conic-gradient(#2878ef 0 ${completionRate.value}%, #e7eef8 ${completionRate.value}% 100%)` }))
 const donutStyle = computed(() => { const running = percentage(runningCount.value); const idle = running + percentage(idleCount.value); return { background: `conic-gradient(#32b86b 0 ${running}%, #4388ef ${running}% ${idle}%, #f59a3c ${idle}% 100%)` } })
 
@@ -242,7 +267,7 @@ function formatDateTime(value: string | null | undefined) { return value ? dayjs
 function percentage(value: number) { return instruments.value.length ? Math.round(value / instruments.value.length * 1000) / 10 : 0 }
 function roundedRate(value: number) { return Math.max(0, Math.min(100, Math.round(Number(value) || 0))) }
 function utilizationRate(id: number) { return utilizationMap.value.get(id) || 0 }
-function instrumentImage(code: string) { return INSTRUMENT_IMAGES[code] || '/assets/instruments/ab-api5500.png' }
+function instrumentImage(code: string) { return INSTRUMENT_IMAGES[code] || '/assets/instruments/ab-api5500.webp' }
 function instrumentCardClass(code: string) {
   if (code === 'ZBYY-002-0007') return 'instrument-card-wide'
   if (code === 'ZBYY-002-0011') return 'instrument-card-wider'
@@ -272,10 +297,15 @@ function updateCockpitScale(width: number, height: number) {
 }
 function mergeInstruments(statusList: LabStatusInstrument[], baseList: Instrument[]) { const base = new Map(baseList.map(item => [item.id, item])); return statusList.filter(item => base.get(item.id)?.availability_status === 'available').map(item => ({ ...item, model: base.get(item.id)?.model || null, availability_status: 'available' as const })) }
 async function loadData() {
-  try {
-    const [dashboardData, statusList, baseList, utilizationList, timeSlots] = await Promise.all([getDashboard(), getLabStatus(), getInstruments({ include_unavailable: true }), getUtilization(), getTimeslots()])
-    dashboard.value = dashboardData; instruments.value = mergeInstruments(statusList, baseList); utilization.value = utilizationList; slots.value = timeSlots
-  } finally { isLoading.value = false }
+  const requests = [
+    getDashboard().then(value => { dashboard.value = value }),
+    Promise.all([getLabStatus(), getInstruments({ include_unavailable: true })])
+      .then(([statusList, baseList]) => { instruments.value = mergeInstruments(statusList, baseList) }),
+    getUtilization().then(value => { utilization.value = value }),
+    getTimeslots().then(value => { slots.value = value }),
+  ]
+  if (isLoading.value) void Promise.race(requests).finally(() => { isLoading.value = false })
+  await Promise.allSettled(requests)
 }
 onMounted(() => {
   loadData()

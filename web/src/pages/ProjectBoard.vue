@@ -6,7 +6,7 @@
 
     <div class="action-bar">
 
-      <a-button v-if="canManageProjectInfo" type="primary" @click="openCreate"><PlusOutlined /> 新建项目</a-button>
+      <a-button v-if="canManageProjectInfo" v-operation="'create'" type="primary" @click="openCreate"><PlusOutlined /> 新建项目</a-button>
 
       <a-input placeholder="项目编号" allowClear style="width: 150px" v-model:value="filterCode"><template #prefix><SearchOutlined /></template></a-input>
 
@@ -59,9 +59,9 @@
 
             <a-button type="link" size="small" @click="handleViewDetail(record.id)">详情</a-button>
 
-            <a-button v-if="canManageProjectInfo" type="link" size="small" @click="openEditFromTable(record)"><EditOutlined /> 编辑</a-button>
+            <a-button v-if="canManageProjectInfo" v-operation="'edit'" type="link" size="small" @click="openEditFromTable(record)"><EditOutlined /> 编辑</a-button>
 
-            <a-popconfirm title="确定删除该项目及其所有任务？" @confirm="handleDeleteProject(record.id)">
+            <a-popconfirm v-if="record.status !== 'completed'" v-operation="'delete'" title="确定删除该项目及其所有任务？" @confirm="handleDeleteProject(record.id)">
 
               <a-button type="link" size="small" danger>删除</a-button>
 
@@ -145,7 +145,7 @@
 
     <a-drawer :title="selectedProject?.name || '项目详情'" v-model:open="detailOpen" width="720">
 
-      <template #extra><a-button v-if="canManageProjectInfo" @click="openEditProject"><EditOutlined /> 编辑项目</a-button></template>
+      <template #extra><a-button v-if="canManageProjectInfo" v-operation="'edit'" @click="openEditProject"><EditOutlined /> 编辑项目</a-button></template>
 
       <a-tabs v-if="selectedProject" defaultActiveKey="tasks">
 
@@ -178,13 +178,13 @@
 
             <a-table-column title="操作" key="actions" width="60">
 
-              <template #default="{ record }"><a-button type="link" size="small" @click="openEditTask(record)"><EditOutlined /></a-button></template>
+              <template #default="{ record }"><a-button v-operation="'task_edit'" type="link" size="small" @click="openEditTask(record)"><EditOutlined /></a-button></template>
 
             </a-table-column>
 
           </a-table>
 
-          <a-button v-if="!isAddingTask" type="dashed" size="small" block @click="startAddTask" style="margin-top:8px"><PlusOutlined /> 添加任务</a-button>
+          <a-button v-if="!isAddingTask" v-operation="'task_edit'" type="dashed" size="small" block @click="startAddTask" style="margin-top:8px"><PlusOutlined /> 添加任务</a-button>
 
           <div v-else style="margin-top:8px;padding:8px;background:#f8fafc;border-radius:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
 
@@ -285,10 +285,11 @@ import { isAxiosError } from 'axios'
 
 import { PlusOutlined, EditOutlined, SearchOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 
-import { getProjects, createProject, updateProject, deleteProject, getProject, getProjectDAG, addTask, updateTask, deleteTask, getUsers, getTaskTypes, getInstruments, generateSchedule, type Project, type Task, type DAGData, type TaskTypeConfig } from '@/services/api'
+import { getProjects, createProject, updateProject, deleteProject, getProject, getProjectDAG, addTask, updateTask, deleteTask, getUserDirectory, getTaskTypes, getInstruments, generateSchedule, type Project, type Task, type DAGData, type TaskTypeConfig } from '@/services/api'
 
   import dayjs from 'dayjs'
-  import type { Dayjs } from 'dayjs'
+import type { Dayjs } from 'dayjs'
+import { canOperatePage, permissionState } from '@/services/permissions'
 
 
 
@@ -342,9 +343,10 @@ const filterDateRange = ref<any>(null)
 
 const router = useRouter()
 
-const PROJECT_INFO_WRITE_ROLES = new Set(['系统管理员', '项目管理员', '分析所所长'])
-
-const canManageProjectInfo = computed(() => PROJECT_INFO_WRITE_ROLES.has(getStoredUserRole()))
+const canManageProjectInfo = computed(() => {
+  permissionState.permissions
+  return canOperatePage('/projects/ledger')
+})
 
 const cf = reactive({ name: '', code: '', client_name: '', estimated_hours: null as number | null, manager_id: null as number | null, priority: 3, start_date: null as any, end_date: null as any })
 
@@ -782,7 +784,7 @@ async function loadUsers() {
 
   try {
 
-    const users = await getUsers()
+    const users = await getUserDirectory()
 
     userOptions.value = users.filter(u => u.is_active).map(u => ({ label: u.display_name, value: u.id }))
 
@@ -817,10 +819,4 @@ async function loadTaskTypes() {
 onMounted(async () => { await loadTaskTypes(); await Promise.all([fetchProjects(), loadUsers(), loadInstruments()]) })
 
 </script>
-
-
-
-
-
-
 

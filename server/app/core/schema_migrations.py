@@ -6,9 +6,19 @@ def ensure_runtime_schema(engine) -> None:
     table_names = inspector.get_table_names()
 
     if "user" in table_names:
+        user_columns = {column["name"] for column in inspector.get_columns("user")}
         with engine.begin() as connection:
+            if "roles" not in user_columns:
+                connection.execute(text("ALTER TABLE user ADD COLUMN roles JSON"))
             connection.execute(text(
                 "UPDATE user SET role = '分析所所长' WHERE role = '项目负责人'"
+            ))
+            connection.execute(text(
+                "UPDATE user SET role = '技术员' WHERE role = '分析员'"
+            ))
+            connection.execute(text(
+                "UPDATE user SET roles = REPLACE(roles, '\"分析员\"', '\"技术员\"') "
+                "WHERE roles IS NOT NULL"
             ))
 
     if "project" in table_names:
@@ -16,6 +26,13 @@ def ensure_runtime_schema(engine) -> None:
         with engine.begin() as connection:
             if "estimated_hours" not in project_columns:
                 connection.execute(text("ALTER TABLE project ADD COLUMN estimated_hours FLOAT"))
+            if "project_kind" not in project_columns:
+                connection.execute(text(
+                    "ALTER TABLE project ADD COLUMN project_kind VARCHAR(20) DEFAULT 'project'"
+                ))
+            connection.execute(text(
+                "UPDATE project SET project_kind = 'project' WHERE project_kind IS NULL"
+            ))
             if "sla_level" in project_columns:
                 connection.execute(text("ALTER TABLE project DROP COLUMN sla_level"))
             if "profit_weight" in project_columns:
@@ -44,6 +61,8 @@ def ensure_runtime_schema(engine) -> None:
     if "task" in table_names:
         task_columns = {column["name"] for column in inspector.get_columns("task")}
         with engine.begin() as connection:
+            if "plan_order" not in task_columns:
+                connection.execute(text("ALTER TABLE task ADD COLUMN plan_order INTEGER NOT NULL DEFAULT 0"))
             if "schedule_dirty" not in task_columns:
                 connection.execute(text("ALTER TABLE task ADD COLUMN schedule_dirty BOOLEAN DEFAULT 0"))
                 connection.execute(text("UPDATE task SET schedule_dirty = 0 WHERE schedule_dirty IS NULL"))
@@ -103,6 +122,10 @@ def ensure_runtime_schema(engine) -> None:
 
     if "task_type_config" in table_names:
         with engine.begin() as connection:
+            connection.execute(text(
+                "UPDATE task_type_config SET predecessor_type_ids = '[]' "
+                "WHERE predecessor_type_ids IS NULL"
+            ))
             existing = connection.execute(text(
                 "SELECT id FROM task_type_config WHERE code = 'approval_gate' LIMIT 1"
             )).first()
@@ -121,6 +144,42 @@ def ensure_runtime_schema(engine) -> None:
                 "UPDATE task SET name = '方案签批' "
                 "WHERE task_type = 'approval_gate' "
                 "AND name IN ('客户方案签批限制', '客户方案签批', '客户签批限制')"
+            ))
+
+    if "role_permission" in table_names:
+        role_permission_columns = {
+            column["name"] for column in inspector.get_columns("role_permission")
+        }
+        if "action_permissions" not in role_permission_columns:
+            with engine.begin() as connection:
+                connection.execute(text(
+                    "ALTER TABLE role_permission ADD COLUMN action_permissions JSON"
+                ))
+        with engine.begin() as connection:
+            legacy_count = connection.execute(text(
+                "SELECT COUNT(*) FROM role_permission WHERE role = '分析员'"
+            )).scalar()
+            if legacy_count:
+                connection.execute(text("DELETE FROM role_permission WHERE role = '技术员'"))
+                connection.execute(text(
+                    "UPDATE role_permission SET role = '技术员' WHERE role = '分析员'"
+                ))
+
+    if "alert_rule" in table_names:
+        with engine.begin() as connection:
+            connection.execute(text(
+                "UPDATE alert_rule SET notify_roles = "
+                "REPLACE(notify_roles, '\"分析员\"', '\"技术员\"') "
+                "WHERE notify_roles IS NOT NULL"
+            ))
+
+    if "push_channel_config" in table_names:
+        with engine.begin() as connection:
+            connection.execute(text(
+                "UPDATE push_channel_config SET "
+                "wecom_corp_id = TRIM(wecom_corp_id), "
+                "wecom_agent_id = TRIM(wecom_agent_id), "
+                "wecom_secret = TRIM(wecom_secret)"
             ))
 
     if "time_slot" in table_names:

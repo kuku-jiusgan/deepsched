@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.models import Task, TimeSlot
 from app.services.schedule_advance_notification_service import (
     capture_task_schedule_windows,
+    notify_rescheduled_tasks_delayed,
     notify_rescheduled_tasks_advanced,
 )
 from app.services.task_delay_status_service import reset_task_delay
@@ -33,6 +34,7 @@ def update_time_slot(db, slot_id: int, data) -> TimeSlot:
     if task and task.schedule_lock_status == "none":
         reset_task_delay(task)
     notify_rescheduled_tasks_advanced(db, original_windows, "手动调整排程")
+    notify_rescheduled_tasks_delayed(db, original_windows, "手动调整排程")
     db.commit()
     db.refresh(slot)
     return slot

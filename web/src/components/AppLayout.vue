@@ -138,6 +138,7 @@ import { computed, h, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Empty, message } from 'ant-design-vue'
 import dayjs from 'dayjs'
+import { canViewPage, clearPermissions, permissionState } from '@/services/permissions'
 import {
   FundOutlined, AppstoreOutlined, CheckSquareOutlined,
   ProjectOutlined, ScheduleOutlined, SettingOutlined,
@@ -148,6 +149,7 @@ import {
   ThunderboltOutlined, SwapOutlined, DollarOutlined,
   BellOutlined, TeamOutlined, CalendarOutlined, LogoutOutlined,
   MenuFoldOutlined, MenuUnfoldOutlined, HomeOutlined,
+  SafetyCertificateOutlined,
 } from '@ant-design/icons-vue'
 import {
   changeMyPassword,
@@ -174,6 +176,7 @@ const passwordForm = reactive({
   confirmPassword: '',
 })
 let notificationTimer: number | undefined
+let initialNotificationTimer: number | undefined
 let notificationFailureCount = 0
 let hasNotifiedNotificationFailure = false
 let sessionKeepAliveTimer: number | undefined
@@ -194,14 +197,12 @@ const iconMap: Record<string, any> = {
   ThunderboltOutlined, SwapOutlined, DollarOutlined,
   BellOutlined, TeamOutlined, CalendarOutlined, LogoutOutlined,
   HomeOutlined,
+  SafetyCertificateOutlined,
 }
 
 function icon(name: string) {
   return () => h(iconMap[name])
 }
-
-const ANALYST_ROLE = '分析员'
-const ANALYST_MENU_KEYS = new Set(['/operations/cockpit', '/kanban', '/tasks', '/projects'])
 
 const baseMenuItems = [
   { key: '/operations/cockpit', icon: icon('HomeOutlined'), label: '首页' },
@@ -220,6 +221,7 @@ const baseMenuItems = [
     { key: '/tasks/faults', icon: icon('ToolOutlined'), label: '故障提报' },
   ]},
   { key: '/projects', icon: icon('ProjectOutlined'), label: '项目管理', children: [
+    { key: '/projects/detection-tasks', icon: icon('CheckSquareOutlined'), label: '检测任务管理' },
     { key: '/projects/ledger', icon: icon('DatabaseOutlined'), label: '项目台账管理' },
     { key: '/projects/plan-breakdown', icon: icon('PartitionOutlined'), label: '项目计划拆解' },
     { key: '/projects/process-dag', icon: icon('ApartmentOutlined'), label: '标准工序依赖配置' },
@@ -232,25 +234,27 @@ const baseMenuItems = [
   ]},
   { key: '/system', icon: icon('SettingOutlined'), label: '系统管理', children: [
     { key: '/system/alerts', icon: icon('BellOutlined'), label: '智能预警推送' },
+    { key: '/system/audit-logs', icon: icon('FileTextOutlined'), label: '操作日志' },
     { key: '/system/users', icon: icon('TeamOutlined'), label: '用户管理' },
+    { key: '/system/roles', icon: icon('SafetyCertificateOutlined'), label: '角色管理' },
     { key: '/system/basic', icon: icon('SettingOutlined'), label: '标准任务类型' },
     { key: '/system/calendar', icon: icon('CalendarOutlined'), label: '工作日历管理' },
   ]},
 ]
 
 const menuItems = computed(() => {
-  const user = getStoredUser()
-  return filterMenuItems(baseMenuItems, user?.role)
+  permissionState.permissions
+  return filterMenuItems(baseMenuItems)
 })
 
-function filterMenuItems(items: typeof baseMenuItems, role?: string) {
+function filterMenuItems(items: typeof baseMenuItems) {
   return items
-    .filter(item => !item.hidden && (role !== ANALYST_ROLE || ANALYST_MENU_KEYS.has(item.key)))
+    .filter(item => !item.hidden)
     .map(item => ({
       ...item,
-      children: item.children?.filter(child => !('adminOnly' in child) || !child.adminOnly || role === '系统管理员'),
+      children: item.children?.filter(child => canViewPage(child.key)),
     }))
-    .filter(item => !item.children || item.children.length > 0)
+    .filter(item => item.children ? item.children.length > 0 : canViewPage(item.key))
 }
 
 const openKeys = computed(() => {
@@ -280,6 +284,7 @@ function clearSession() {
   localStorage.removeItem('token')
   localStorage.removeItem('user')
   localStorage.removeItem('lastActivityAt')
+  clearPermissions()
 }
 
 async function handleLogout() {
@@ -502,13 +507,14 @@ onMounted(() => {
   markActivity()
   ACTIVITY_EVENTS.forEach(eventName => window.addEventListener(eventName, markActivity, { passive: true }))
   document.addEventListener('visibilitychange', checkIdleOnVisibilityChange)
-  fetchNotifications()
+  initialNotificationTimer = window.setTimeout(fetchNotifications, 600)
   notificationTimer = window.setInterval(fetchNotifications, 15000)
   sessionKeepAliveTimer = window.setInterval(keepActiveSessionAlive, SESSION_KEEP_ALIVE_MS)
 })
 
 onBeforeUnmount(() => {
   if (notificationTimer) window.clearInterval(notificationTimer)
+  if (initialNotificationTimer) window.clearTimeout(initialNotificationTimer)
   if (sessionKeepAliveTimer) window.clearInterval(sessionKeepAliveTimer)
   if (idleLogoutTimer) window.clearTimeout(idleLogoutTimer)
   ACTIVITY_EVENTS.forEach(eventName => window.removeEventListener(eventName, markActivity))

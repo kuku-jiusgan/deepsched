@@ -36,6 +36,7 @@ export interface WorkspaceTask {
   project_code: string | null
   execution_status: string
   est_duration_hours: number | null
+  actual_duration_hours?: number | null
   task_window: TaskTimeWindow
   actual_window: TaskTimeWindow
   actionable_slot: WorkspaceSegment | null
@@ -67,6 +68,7 @@ export function normalizeWorkspaceTask(value: unknown): WorkspaceTask {
     project_code: stringValue(task.project_code),
     execution_status: stringValue(task.execution_status) || stringValue(task.status) || 'pending',
     est_duration_hours: numberValue(task.est_duration_hours),
+    actual_duration_hours: numberValue(task.actual_duration_hours),
     task_window: {
       start: stringValue(taskWindow.start) || stringValue(task.task_plan_start) || stringValue(task.plan_start),
       end: stringValue(taskWindow.end) || stringValue(task.task_plan_end) || stringValue(task.plan_end),

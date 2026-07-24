@@ -9,8 +9,8 @@
         <a-button @click="nextMonth"><RightOutlined /></a-button>
         <a-button @click="goToday">本月</a-button>
       </a-space>
-      <a-button @click="handleBatchFill" :loading="filling" size="small">预填充 {{ viewYear }} 年</a-button>
-      <a-button @click="handleSync" :loading="syncing" type="primary" ghost size="small">同步 {{ viewYear }} 年节假日</a-button>
+      <a-button v-operation="'fill'" @click="handleBatchFill" :loading="filling" size="small">预填充 {{ viewYear }} 年</a-button>
+      <a-button v-operation="'sync'" @click="handleSync" :loading="syncing" type="primary" ghost size="small">同步 {{ viewYear }} 年节假日</a-button>
       <span style="margin-left: auto; font-size: 12px; color: #94a3b8">
         工作日 {{ workdayCount }} · 非工作日 {{ nonWorkdayCount }}
       </span>
@@ -23,6 +23,7 @@
       <div v-for="(cell, idx) in calendarCells" :key="idx"
         class="cal-cell"
         :class="{
+          'cal-readonly': !canEditDay,
           'cal-other': !cell.inMonth,
           'cal-today': cell.isToday,
           'cal-workday': cell.inMonth && cell.isWorkingDay && cell.dayType === 'workday',
@@ -30,7 +31,7 @@
           'cal-holiday': cell.inMonth && !cell.isWorkingDay && cell.dayType === 'holiday',
           'cal-compensate': cell.inMonth && cell.isWorkingDay && cell.dayType === 'compensate',
         }"
-        @click="cell.inMonth && toggleCell(cell)">
+        @click="canEditDay && cell.inMonth && toggleCell(cell)">
         <div class="cal-date">{{ cell.day }}</div>
         <div v-if="cell.inMonth" class="cal-tag">
           <a-tag v-if="cell.dayType === 'holiday'" color="red" style="font-size: 10px; line-height: 16px; margin: 0">{{ cell.holidayName || '假日' }}</a-tag>
@@ -45,6 +46,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { LeftOutlined, RightOutlined } from '@ant-design/icons-vue'
+import { canOperateAction, permissionState } from '@/services/permissions'
 import { getCalendar, upsertCalendarDate, batchFillCalendar, syncHolidays, type CalendarDay } from '@/services/api'
 
 interface CalCell {
@@ -100,6 +102,10 @@ const calendarCells = computed<CalCell[]>(() => {
   }
 
   return cells
+})
+const canEditDay = computed(() => {
+  permissionState.permissions
+  return canOperateAction('/system/calendar', 'edit_day')
 })
 
 const workdayCount = computed(() => calendarCells.value.filter(c => c.inMonth && c.isWorkingDay).length)
@@ -195,6 +201,8 @@ onMounted(() => { fetchData() })
 .cal-cell:hover { background: #eff6ff; }
 .cal-other { opacity: 0.35; cursor: default; }
 .cal-other:hover { background: transparent; }
+.cal-readonly { cursor: default; }
+.cal-readonly:hover { background: inherit; }
 .cal-today { box-shadow: inset 0 0 0 2px #3b82f6; }
 .cal-today .cal-date { color: #3b82f6; font-weight: 700; }
 .cal-workday { background: #fff; }

@@ -9,14 +9,21 @@ from app.services.instrument_occupancy_service import (
 )
 
 
+PROTECTED_INSTRUMENT_STATUSES = {"fault", "maintenance"}
+
+
 def list_lab_status(db) -> list[dict]:
     instruments = db.query(Instrument).filter(Instrument.availability_status == "available").all()
     now = datetime.now()
-    return [_instrument_status(db, instrument, now) for instrument in instruments]
+    items = [_instrument_status(db, instrument, now) for instrument in instruments]
+    if db.dirty:
+        db.commit()
+    return items
 
 
 def _instrument_status(db, instrument: Instrument, now: datetime) -> dict:
     current_slot = current_occupying_slot(db, instrument.id, now)
+    status = _reconcile_instrument_status(instrument, current_slot)
     current = _task_status_fields(db, current_slot, now)
     upcoming = _next_task_slot(db, instrument.id, now, current["task_id"])
     next_fields = _next_task_fields(db, upcoming)
@@ -26,7 +33,7 @@ def _instrument_status(db, instrument: Instrument, now: datetime) -> dict:
         "name": instrument.name,
         "group": instrument.instrument_group,
         "location": instrument.location,
-        "status": instrument.status,
+        "status": status,
         "buffer_rate": instrument.buffer_rate,
         "label_x": instrument.label_x or 0,
         "label_y": instrument.label_y or 0,
@@ -44,6 +51,15 @@ def _instrument_status(db, instrument: Instrument, now: datetime) -> dict:
         "running_slot_id": current_slot.id if current_slot else None,
         "running_start": current["task_start"],
     }
+
+
+def _reconcile_instrument_status(instrument: Instrument, current_slot: TimeSlot | None) -> str:
+    if instrument.status in PROTECTED_INSTRUMENT_STATUSES:
+        return instrument.status
+    effective_status = "running" if current_slot else "idle"
+    if instrument.status != effective_status:
+        instrument.status = effective_status
+    return effective_status
 
 
 def _next_task_slot(db, instrument_id: int, now: datetime, current_task_id: int | None) -> TimeSlot | None:

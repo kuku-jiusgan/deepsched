@@ -6,10 +6,13 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DATABASE_URL: str = "sqlite:///./cro_scheduler.db"
     SECRET_KEY: str | None = None
+    INITIAL_ADMIN_PASSWORD: str | None = None
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
     CORS_ORIGINS: str = "http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:8000,http://localhost:8000"
     MAX_REQUEST_BODY_BYTES: int = 1_048_576
     AUTO_CREATE_SCHEMA: bool = True
+    WECOM_OAUTH_CALLBACK_URL: str | None = None
+    WECOM_OAUTH_STATE_EXPIRE_SECONDS: int = 300
 
     FROZEN_DAYS: int = 3
     CONFIRMED_DAYS: int = 14

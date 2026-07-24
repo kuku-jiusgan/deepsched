@@ -8,9 +8,11 @@ from app.services.wecom_delivery_service import (
     enqueue_wecom_delivery,
     reset_wecom_token_cache,
 )
+from app.services.user_role_service import user_roles
 
 
 CONFIRM_REQUIRED_TYPES = {"instrument_fault_schedule_conflict"}
+WECOM_CONFIG_FIELDS = {"wecom_corp_id", "wecom_agent_id", "wecom_secret"}
 
 
 def get_push_config(db) -> PushChannelConfig:
@@ -31,6 +33,8 @@ def get_push_config(db) -> PushChannelConfig:
 def update_push_config(db, data: dict) -> PushChannelConfig:
     config = get_push_config(db)
     for field, value in data.items():
+        if field in WECOM_CONFIG_FIELDS and isinstance(value, str):
+            value = value.strip() or None
         setattr(config, field, value)
     config.wecom_enabled = True
     db.commit()
@@ -98,7 +102,7 @@ def _notification_recipients(
     matched_context_roles = notify_roles & set(context_roles or [])
     return [
         user for user in active_users
-        if user.role in notify_roles or matched_context_roles
+        if set(user_roles(user)) & notify_roles or matched_context_roles
     ]
 
 

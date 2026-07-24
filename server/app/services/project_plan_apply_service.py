@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.models import Project, Task, TaskDependency, TimeSlot
 from app.schemas.schemas import (
@@ -63,8 +63,15 @@ def apply_project_plan(db, project_id: int) -> ProjectPlanApplyResponse:
         )
 
     stable_result = _execute_replan(db, project, selected_tasks, [], commit=True)
-    if stable_result.status == "applied":
+    if stable_result.status == "applied" and _selected_tasks_start_today(
+        db, selected_tasks, stable_result.schedule_run_id,
+    ):
         return stable_result
+    if stable_result.status == "applied":
+        db.rollback()
+        movable_tasks = _load_insert_movable_tasks(db, project, selected_tasks)
+        if not movable_tasks:
+            return _execute_replan(db, project, selected_tasks, [], commit=True)
     db.rollback()
 
     try:
@@ -168,7 +175,17 @@ def _execute_replan(
 
     schedule_run_id = str(solver_result.get("schedule_run_id") or "")
     new_windows = _task_windows(db, replan_task_ids, schedule_run_id)
-    impacts = _build_impacts(replan_tasks, selected_task_ids, old_windows, new_windows)
+    impact_roles = {
+        task.id: "inserted" if task.id in selected_task_ids else "shifted"
+        for task in replan_tasks
+    }
+    impacts = _build_impacts(
+        replan_tasks,
+        selected_task_ids,
+        old_windows,
+        new_windows,
+        impact_roles,
+    )
     new_project_completions = _project_completions(db, moved_project_ids)
     project_impacts = _build_project_impacts(
         movable_tasks,
@@ -229,7 +246,102 @@ def _load_insert_movable_tasks(db, project: Project, selected_tasks: list[Task])
         include_same_priority=True,
         unstarted_projects_only=True,
     )
-    return _unique_tasks(movable)
+    return _unique_tasks(movable + _load_later_deadline_movable_tasks(db, project, selected_tasks))
+
+
+def _load_later_deadline_movable_tasks(
+    db,
+    project: Project,
+    selected_tasks: list[Task],
+) -> list[Task]:
+    """Return future, unstarted tasks from projects with a later deadline.
+
+    Protected slots are deliberately excluded so an already started project is
+    never displaced by saving a newly scheduled project plan.
+    """
+    if not project.end_date:
+        return []
+    selected_ids = {task.id for task in selected_tasks}
+    selected_instruments = _selected_instrument_ids(selected_tasks)
+    selected_assignees = {task.assignee_id for task in selected_tasks if task.assignee_id}
+    if not selected_instruments and not selected_assignees:
+        return []
+    candidates = db.query(Task).join(Project).filter(
+        Task.status == "scheduled",
+        ~Task.id.in_(selected_ids),
+        Project.id != project.id,
+        Project.end_date.isnot(None),
+        Project.end_date > project.end_date,
+    ).order_by(Project.end_date, Project.priority, Task.created_at, Task.id).all()
+    conflicting_ids = set()
+    for task in candidates:
+        if _task_has_protected_slot(db, task.id):
+            continue
+        resource_filters = []
+        if selected_instruments:
+            resource_filters.append(TimeSlot.instrument_id.in_(selected_instruments))
+        elif selected_assignees:
+            resource_filters.append(Task.assignee_id.in_(selected_assignees))
+        future_slot = db.query(TimeSlot.id).join(Task).filter(
+            TimeSlot.task_id == task.id,
+            TimeSlot.tier.in_(MOVABLE_TIERS),
+            TimeSlot.status.in_(MOVABLE_SLOT_STATUSES),
+            TimeSlot.plan_start >= datetime.now(),
+            *resource_filters,
+        ).first()
+        if future_slot:
+            conflicting_ids.add(task.id)
+    if not conflicting_ids:
+        return []
+
+    project_task_ids = {
+        task_id for task_id, in db.query(Task.id).join(Project).filter(
+            Project.end_date > project.end_date,
+        ).all()
+    }
+    affected_ids = set()
+    for task_id in conflicting_ids:
+        branch_ids = _downstream_ids(db, {task_id}, project_task_ids)
+        if any(_task_has_protected_slot(db, branch_id) for branch_id in branch_ids):
+            continue
+        affected_ids.update(branch_ids)
+    if not affected_ids:
+        return []
+    affected_tasks = db.query(Task).filter(
+        Task.id.in_(affected_ids),
+        Task.status == "scheduled",
+    ).all()
+    return [
+        task for task in affected_tasks
+        if not _task_has_protected_slot(db, task.id)
+    ]
+
+
+def _task_has_protected_slot(db, task_id: int) -> bool:
+    return db.query(TimeSlot.id).filter(
+        TimeSlot.task_id == task_id,
+        (
+            (TimeSlot.tier == "frozen")
+            | TimeSlot.status.in_(["running", "completed"])
+            | TimeSlot.actual_start.isnot(None)
+        ),
+    ).first() is not None
+
+
+def _selected_tasks_start_today(
+    db,
+    selected_tasks: list[Task],
+    schedule_run_id: str | None,
+) -> bool:
+    if not schedule_run_id or not selected_tasks:
+        return False
+    today = datetime.now().date()
+    return db.query(TimeSlot.id).filter(
+        TimeSlot.task_id.in_([task.id for task in selected_tasks]),
+        TimeSlot.schedule_run_id == schedule_run_id,
+        TimeSlot.plan_start >= datetime.combine(today, datetime.min.time()),
+        TimeSlot.plan_start < datetime.combine(today + timedelta(days=1), datetime.min.time()),
+    ).first() is not None
 
 
 def _delete_movable_slots(db, task_ids: set[int]) -> None:

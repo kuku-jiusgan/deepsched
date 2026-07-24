@@ -1,4 +1,3 @@
-import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -101,7 +100,9 @@ class ApiSecurityTest(unittest.TestCase):
         Base.metadata.create_all(engine)
         db = sessionmaker(bind=engine)()
         try:
-            with patch.dict(os.environ, {}, clear=True):
+            with patch("app.api.users.get_settings", return_value=SimpleNamespace(
+                INITIAL_ADMIN_PASSWORD=None,
+            )):
                 _seed_admin(db)
             self.assertIsNone(db.query(User).filter(User.username == "admin").first())
         finally:

@@ -1,7 +1,8 @@
 from app.models import Notification, Project, Task, TimeSlot
+from app.services.user_role_service import has_any_role
 
 
-MANAGEMENT_ROLES = {"系统管理员", "项目管理员", "分析所所长"}
+MANAGEMENT_ROLES = {"系统管理员", "项目管理员", "分析所所长", "技术组长"}
 
 
 class AccessDeniedError(Exception):
@@ -13,7 +14,7 @@ class AccessResourceNotFoundError(Exception):
 
 
 def is_management_user(user) -> bool:
-    return user.role in MANAGEMENT_ROLES
+    return has_any_role(user, MANAGEMENT_ROLES)
 
 
 def require_management_user(user) -> None:

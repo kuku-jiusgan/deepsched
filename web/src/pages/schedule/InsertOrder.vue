@@ -2,11 +2,17 @@
   <div>
     <div class="page-header">
       <h2>插单与影响预览</h2>
-      <p>高优项目可顺延低优且未开始的确认/预测任务，冻结和运行中排程不会移动。</p>
+      <p>支持按优先级自动插单，或指定插入到某个项目任务之后；冻结和已开始任务不会移动。</p>
     </div>
 
     <a-card class="insert-card" :bordered="false">
       <a-form layout="vertical">
+        <a-form-item label="插单方式" required>
+          <a-radio-group v-model:value="form.mode" @change="resetPreview">
+            <a-radio value="priority">按优先级自动插单</a-radio>
+            <a-radio value="custom_after_task">指定插入位置</a-radio>
+          </a-radio-group>
+        </a-form-item>
         <a-form-item label="插单项目" required>
           <a-select
             v-model:value="form.projectId"
@@ -26,11 +32,32 @@
           </a-checkbox-group>
           <a-empty v-if="form.projectId && !selectableTasks.length" description="该项目暂无可插单的叶子任务" />
         </a-form-item>
-        <a-form-item label="临时项目等级" extra="不选择时使用项目当前等级">
+        <template v-if="form.mode === 'custom_after_task'">
+          <a-form-item label="目标项目" required>
+            <a-select
+              v-model:value="form.targetProjectId"
+              :options="targetProjectOptions"
+              placeholder="选择插入位置所在的项目"
+              show-search
+              option-filter-prop="label"
+              @change="handleTargetProjectChange"
+            />
+          </a-form-item>
+          <a-form-item label="插入到该任务之后" required>
+            <a-select
+              v-model:value="form.anchorTaskId"
+              :options="anchorTaskOptions"
+              placeholder="选择已排程、运行中或已完成的叶子任务"
+              show-search
+              option-filter-prop="label"
+            />
+          </a-form-item>
+        </template>
+        <a-form-item v-else label="临时项目等级" extra="不选择时使用项目当前等级">
           <a-select v-model:value="form.priorityOverride" allowClear :options="priorityOptions" placeholder="使用项目当前等级" />
         </a-form-item>
         <a-space>
-          <a-button type="primary" :loading="previewing" @click="loadPreview">计算影响</a-button>
+          <a-button v-operation="'preview'" type="primary" :loading="previewing" @click="loadPreview">计算影响</a-button>
           <a-button @click="resetPreview">清空预览</a-button>
         </a-space>
       </a-form>
@@ -52,8 +79,8 @@
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'type'">
-            <a-tag :color="record.is_insert_task ? 'blue' : 'orange'">
-              {{ record.is_insert_task ? '插单任务' : '顺延任务' }}
+            <a-tag :color="impactRoleColor(record.impact_role, record.is_insert_task)">
+              {{ impactRoleLabel(record.impact_role, record.is_insert_task) }}
             </a-tag>
           </template>
           <template v-else-if="column.key === 'original'">
@@ -69,7 +96,7 @@
       </a-table>
       <div class="preview-actions">
         <a-button @click="router.push('/schedule/engine')">返回排程管理</a-button>
-        <a-button type="primary" :loading="confirming" @click="handleConfirm">确认插单</a-button>
+        <a-button v-operation="'confirm'" type="primary" :loading="confirming" @click="handleConfirm">确认插单</a-button>
       </div>
     </a-card>
   </div>
@@ -79,6 +106,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { Modal, message } from 'ant-design-vue'
 import { useRouter } from 'vue-router'
+import { isAxiosError } from 'axios'
 import dayjs from 'dayjs'
 import {
   calculateInsertCost,
@@ -92,6 +120,9 @@ interface InsertForm {
   projectId: number | null
   taskIds: number[]
   priorityOverride: number | null
+  mode: 'priority' | 'custom_after_task'
+  targetProjectId: number | null
+  anchorTaskId: number | null
 }
 
 const router = useRouter()
@@ -99,7 +130,14 @@ const projects = ref<Project[]>([])
 const preview = ref<InsertCost | null>(null)
 const previewing = ref(false)
 const confirming = ref(false)
-const form = reactive<InsertForm>({ projectId: null, taskIds: [], priorityOverride: null })
+const form = reactive<InsertForm>({
+  projectId: null,
+  taskIds: [],
+  priorityOverride: null,
+  mode: 'priority',
+  targetProjectId: null,
+  anchorTaskId: null,
+})
 const priorityOptions = [
   { label: '一级（最高）', value: 1 },
   { label: '二级', value: 2 },
@@ -116,11 +154,22 @@ const projectOptions = computed(() => projects.value.map(project => ({
 })))
 
 const selectedProject = computed(() => projects.value.find(project => project.id === form.projectId) || null)
+const targetProject = computed(() => projects.value.find(project => project.id === form.targetProjectId) || null)
 const selectableTasks = computed(() => uniqueTasksById(
   flattenLeafTasks(selectedProject.value?.tasks || []).filter(task =>
-    !['running', 'done', 'completed'].includes(task.status),
+    !task.is_external_gate && !['running', 'done', 'completed'].includes(task.status),
   ),
 ))
+const targetProjectOptions = computed(() => projectOptions.value)
+const anchorTaskOptions = computed(() => uniqueTasksById(
+  flattenLeafTasks(targetProject.value?.tasks || []).filter(task =>
+    !task.is_external_gate && ['scheduled', 'blocked', 'running', 'done', 'completed'].includes(task.status)
+      && !form.taskIds.includes(task.id),
+  ),
+).map(task => ({
+  label: `${task.name} · ${statusLabel(task.status)}`,
+  value: task.id,
+})))
 
 const impactColumns = [
   { title: '类型', key: 'type', width: 100 },
@@ -153,6 +202,11 @@ function handleProjectChange() {
   preview.value = null
 }
 
+function handleTargetProjectChange() {
+  form.anchorTaskId = null
+  preview.value = null
+}
+
 function requestData(): InsertOrderRequest | null {
   if (!form.projectId) {
     message.warning('请选择插单项目')
@@ -162,10 +216,16 @@ function requestData(): InsertOrderRequest | null {
     message.warning('请选择插单任务')
     return null
   }
+  if (form.mode === 'custom_after_task' && !form.anchorTaskId) {
+    message.warning('请选择插入位置任务')
+    return null
+  }
   return {
     project_id: form.projectId,
     task_ids: form.taskIds,
-    ...(form.priorityOverride ? { priority_override: form.priorityOverride } : {}),
+    mode: form.mode,
+    ...(form.mode === 'priority' && form.priorityOverride ? { priority_override: form.priorityOverride } : {}),
+    ...(form.mode === 'custom_after_task' && form.anchorTaskId ? { anchor_task_id: form.anchorTaskId } : {}),
   }
 }
 
@@ -175,8 +235,8 @@ async function loadPreview() {
   previewing.value = true
   try {
     preview.value = await calculateInsertCost(data)
-  } catch {
-    message.error('插单影响计算失败')
+  } catch (error: unknown) {
+    message.error(errorDetail(error, '插单影响计算失败'))
   } finally {
     previewing.value = false
   }
@@ -191,7 +251,9 @@ function handleConfirm() {
   if (!data || !preview.value) return
   Modal.confirm({
     title: '确认执行插单？',
-    content: `将创建 ${preview.value.timeslots_created} 个时间槽，并移动 ${preview.value.impacts.filter(item => !item.is_insert_task).length} 个低优任务。`,
+    content: form.mode === 'custom_after_task'
+      ? '确认后将永久保存该任务前置关系，并按预览结果重排受影响任务。'
+      : `将创建 ${preview.value.timeslots_created} 个时间槽，并移动 ${preview.value.impacts.filter(item => !item.is_insert_task).length} 个低优任务。`,
     okText: '确认插单',
     cancelText: '取消',
     onOk: () => executeConfirm(data),
@@ -204,8 +266,8 @@ async function executeConfirm(data: InsertOrderRequest) {
     const result = await confirmInsert(data)
     message.success(`插单完成，创建 ${result.timeslots_created} 个时间槽`)
     await router.push('/kanban/instrument-gantt')
-  } catch {
-    message.error('插单执行失败')
+  } catch (error: unknown) {
+    message.error(errorDetail(error, '插单执行失败'))
   } finally {
     confirming.value = false
   }
@@ -221,6 +283,24 @@ function statusLabel(status: string) {
     pending: '待排', ready: '可排', scheduled: '已排程', blocked: '已阻塞',
   }
   return labels[status] || status
+}
+
+function impactRoleLabel(role: string | null | undefined, isInsertTask: boolean) {
+  if (role === 'anchor_downstream') return '锚点后续任务'
+  if (role === 'source_downstream') return '插单后续任务'
+  if (role === 'shifted') return '顺延任务'
+  return isInsertTask ? '插单任务' : '顺延任务'
+}
+
+function impactRoleColor(role: string | null | undefined, isInsertTask: boolean) {
+  if (role === 'anchor_downstream') return 'orange'
+  if (role === 'source_downstream') return 'gold'
+  return isInsertTask ? 'blue' : 'orange'
+}
+
+function errorDetail(error: unknown, fallback: string) {
+  if (isAxiosError<{ detail?: string }>(error)) return error.response?.data?.detail || fallback
+  return fallback
 }
 </script>
 

@@ -10,7 +10,25 @@ export interface Project {
   manager_name?: string;
   start_date?: string;
   end_date?: string;
+  project_kind?: 'project' | 'detection';
   tasks: Task[];
+}
+
+export interface DetectionTask {
+  id: number;
+  project_id: number;
+  code: string;
+  name: string;
+  client_name?: string | null;
+  priority: number;
+  manager_id?: number | null;
+  manager_name?: string | null;
+  start_date: string;
+  end_date: string;
+  task: Task;
+  schedule_status?: string | null;
+  schedule_message?: string | null;
+  preview_token?: string | null;
 }
 
 export interface Task {
@@ -36,6 +54,7 @@ export interface Task {
   assignee_id: number | null;
   assignee_name: string | null;
   parent_id: number | null;
+  plan_order?: number;
   children?: Task[];
   is_external_gate?: boolean;
   gate_status?: ApprovalGateStatus;
@@ -246,6 +265,7 @@ export interface InsertOrderImpact {
   new_start: string;
   new_end: string;
   delay_hours: number;
+  impact_role?: 'inserted' | 'anchor_downstream' | 'source_downstream' | 'shifted' | null;
 }
 
 export interface ProjectScheduleImpact {

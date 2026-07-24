@@ -40,19 +40,20 @@
             <div class="today-card-actions">
               <a-button
                 v-if="canStartTask(card.task)"
+                v-operation="'start'"
                 size="small"
                 class="workspace-action-button workspace-action-button-primary"
                 @click="emit('start', card.task)"
               >
                 开始任务
               </a-button>
-              <a-button v-if="canCompleteTask(card.task)" size="small" class="workspace-action-button workspace-action-button-success" @click="emit('complete', card.task)">确认完成</a-button>
+              <a-button v-if="canCompleteTask(card.task)" v-operation="'complete'" size="small" class="workspace-action-button workspace-action-button-success" @click="emit('complete', card.task)">确认完成</a-button>
               <a-tooltip :title="card.nightRunDisabledReason">
-                <span>
+                <span v-operation="'night_run'">
                   <a-button size="small" class="workspace-action-button workspace-action-button-primary" :loading="card.isNightRunLoading" :disabled="!card.canNightRun" @click="openAutoSequence(card)">夜间运行</a-button>
                 </span>
               </a-tooltip>
-              <a-button size="small" class="workspace-action-button workspace-action-button-danger" @click="openDelayReport(card)">延期使用</a-button>
+              <a-button v-operation="'delay'" size="small" class="workspace-action-button workspace-action-button-danger" @click="openDelayReport(card)">延期使用</a-button>
             </div>
           </article>
         </div>

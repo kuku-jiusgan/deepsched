@@ -26,16 +26,16 @@
         <div class="today-card-choice">请选择：</div>
         <div class="today-card-actions">
           <a-tooltip v-if="gate.gate_status !== 'approved'" :title="prerequisiteBlockReason(gate)">
-            <span class="disabled-action-wrapper">
+            <span v-operation="'submit'" class="disabled-action-wrapper">
               <a-button size="small" class="workspace-action-button workspace-action-button-secondary" :disabled="!predecessorsCompleted(gate)" @click="openExpectedApproval(gate)">预计签批时间</a-button>
             </span>
           </a-tooltip>
           <a-tooltip v-if="gate.gate_status !== 'approved'" :title="prerequisiteBlockReason(gate)">
-            <span class="disabled-action-wrapper">
+            <span v-operation="'approve'" class="disabled-action-wrapper">
               <a-button size="small" class="workspace-action-button workspace-action-button-success" :disabled="!predecessorsCompleted(gate)" @click="confirmApprove(gate)">确认签批</a-button>
             </span>
           </a-tooltip>
-          <a-button v-if="gate.schedule_status === 'confirmation_required'" size="small" class="workspace-action-button workspace-action-button-warning" @click="confirmImpact(gate)">确认排程影响</a-button>
+          <a-button v-if="gate.schedule_status === 'confirmation_required'" v-operation="'confirm_impact'" size="small" class="workspace-action-button workspace-action-button-warning" @click="confirmImpact(gate)">确认排程影响</a-button>
           <a-button size="small" class="workspace-action-button workspace-action-button-secondary" @click="viewHistory">查看详情</a-button>
         </div>
       </article>
@@ -110,7 +110,6 @@ function openExpectedApproval(gate: ApprovalGate) {
   expectedApprovalAt.value = defaultExpectedAt.isBefore(minimum) ? minimum : ceilToHalfHour(defaultExpectedAt)
   expectedModalOpen.value = true
 }
-
 function ceilToHalfHour(value: Dayjs) {
   const normalized = value.second(0).millisecond(0)
   if (normalized.minute() === 0 || normalized.minute() === 30) return normalized

@@ -181,7 +181,10 @@ def schedule_infeasibility_message(
             "请延长项目结束时间、缩短任务工时，或调整前置任务排程。"
         )
 
-    return _project_summary_message(tasks)
+    return _project_summary_message(
+        tasks, compatibility, global_prefix_sum, instrument_prefix_sums,
+        horizon_start, total_units,
+    )
 
 
 def _task_prefix_sums(
@@ -199,12 +202,20 @@ def _task_prefix_sums(
     ]
 
 
-def _project_summary_message(tasks) -> str:
+def _project_summary_message(
+    tasks,
+    compatibility: dict[int, list[Instrument]],
+    global_prefix_sum: list[int],
+    instrument_prefix_sums: dict[int, list[int]],
+    horizon_start,
+    total_units: int,
+) -> str:
     tasks_by_project = {}
     for task in tasks:
         if task.project:
             tasks_by_project.setdefault(task.project_id, []).append(task)
 
+    conflict_details = []
     project_details = []
     for project_tasks in tasks_by_project.values():
         project = project_tasks[0].project
@@ -219,12 +230,95 @@ def _project_summary_message(tasks) -> str:
             f"{_format_datetime(project.end_date)}，待排总工时约 {total_hours:g} 小时"
             f"（其中仪器工时 {instrument_hours:g} 小时）"
         )
+        window_start = max(0, datetime_to_units(project.start_date, horizon_start))
+        window_end = min(total_units, datetime_to_units(project.end_date, horizon_start))
+        available_hours = _working_units(global_prefix_sum, window_start, window_end) * TIME_UNIT_MINUTES / 60
+        conflict_details.extend(_assignee_capacity_conflicts(project, project_tasks, available_hours))
+        conflict_details.extend(_instrument_capacity_conflicts(
+            project, project_tasks, compatibility, instrument_prefix_sums,
+            window_start, window_end,
+        ))
+
+    if conflict_details:
+        return "排程失败：" + "；".join(conflict_details) + "。请延长项目时间、缩短任务工时，或更换/增加负责人和仪器。"
 
     details = "；".join(project_details)
     return (
-        f"时间配置冲突：本次重排涉及的项目无法同时满足时间窗、前置依赖和资源占用约束。"
-        f"{details}。请检查上述项目时间、任务工时、负责人及仪器占用。"
+        f"排程失败：未找到同时满足全部约束的排程方案。"
+        f"{details}。这不是系统故障，请按以下顺序检查："
+        f"1）项目开始/结束时间是否覆盖所有任务；"
+        f"2）前置任务是否形成循环，或把后续任务推到项目结束时间之后；"
+        f"3）负责人在有效工作时段内是否有足够空闲时间；"
+        f"4）指定仪器是否可用且没有被其他排程占满；"
+        f"5）任务工时和切换工时是否填写过大。"
+        f"调整后请重新点击“保存并开始排程”。"
     )
+
+
+def _assignee_capacity_conflicts(project, tasks, available_hours: float) -> list[str]:
+    tasks_by_assignee: dict[int, list] = {}
+    for task in tasks:
+        assignee_id = getattr(task, "assignee_id", None)
+        if assignee_id:
+            tasks_by_assignee.setdefault(assignee_id, []).append(task)
+    details = []
+    for assignee_tasks in tasks_by_assignee.values():
+        required_hours = sum(_task_hours(task) for task in assignee_tasks)
+        if required_hours <= available_hours:
+            continue
+        assignee_name = getattr(assignee_tasks[0], "assignee_name", None) or f"ID {assignee_tasks[0].assignee_id}"
+        details.append(
+            f"项目【{_project_label(project)}】的负责人【{assignee_name}】在项目时间窗内最多可排 {available_hours:g} 小时，"
+            f"但其任务合计 {required_hours:g} 小时：{_task_hour_list(assignee_tasks)}"
+        )
+    return details
+
+
+def _instrument_capacity_conflicts(
+    project, tasks, compatibility, instrument_prefix_sums,
+    window_start: int, window_end: int,
+) -> list[str]:
+    tasks_by_instrument: dict[int, list] = {}
+    instruments: dict[int, Instrument] = {}
+    for task in tasks:
+        candidates = compatibility.get(task.id, []) if task.requires_instrument else []
+        if len(candidates) != 1:
+            continue
+        instrument = candidates[0]
+        instruments[instrument.id] = instrument
+        tasks_by_instrument.setdefault(instrument.id, []).append(task)
+    details = []
+    for instrument_id, instrument_tasks in tasks_by_instrument.items():
+        prefix_sum = instrument_prefix_sums.get(instrument_id)
+        if not prefix_sum:
+            continue
+        available_hours = _working_units(prefix_sum, window_start, window_end) * TIME_UNIT_MINUTES / 60
+        required_hours = sum(_task_hours(task) for task in instrument_tasks)
+        if required_hours <= available_hours:
+            continue
+        details.append(
+            f"项目【{_project_label(project)}】的仪器【{_instrument_label(instrument)}】在项目时间窗内最多可排 {available_hours:g} 小时，"
+            f"但指定该仪器的任务合计 {required_hours:g} 小时：{_task_hour_list(instrument_tasks)}"
+        )
+    return details
+
+
+def _task_hours(task) -> float:
+    return float(task.est_duration_hours or 4) + float(task.switchover_hours or 0)
+
+
+def _task_hour_list(tasks) -> str:
+    return "、".join(f"【{_task_display(task)} {_task_hours(task):g}小时】" for task in tasks)
+
+
+def _task_display(task) -> str:
+    parent = getattr(task, "parent", None)
+    return f"{parent.name}/{task.name}" if parent else task.name
+
+
+def _project_label(project) -> str:
+    code = getattr(project, "code", None)
+    return f"{code} · {project.name}" if code and code != project.name else project.name
 
 
 def _format_datetime(value) -> str:

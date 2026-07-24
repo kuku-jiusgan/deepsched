@@ -1,0 +1,55 @@
+.project-info { margin-bottom: 16px; }
+.instrument-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.instrument-tag {
+  margin: 0;
+  white-space: nowrap;
+}
+.task-drag-handle {
+  margin-right: 8px;
+  color: #94a3b8;
+  cursor: grab;
+}
+.task-drag-handle:active { cursor: grabbing; }
+.schedule-failure-content {
+  color: #334155;
+  line-height: 1.6;
+}
+.schedule-failure-summary {
+  color: #b42318;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+.schedule-failure-section-title {
+  color: #0f172a;
+  font-weight: 600;
+  margin: 12px 0 6px;
+}
+.schedule-failure-projects {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+.schedule-failure-project + .schedule-failure-project {
+  border-top: 1px solid #e2e8f0;
+  margin-top: 8px;
+  padding-top: 8px;
+}
+.schedule-failure-project strong {
+  color: #0f172a;
+}
+.schedule-failure-checks {
+  margin: 0;
+  padding-left: 22px;
+}
+.schedule-failure-checks li {
+  padding: 2px 0;
+}
+.schedule-failure-action {
+  color: #475569;
+  margin-top: 12px;
+}

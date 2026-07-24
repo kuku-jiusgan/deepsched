@@ -5,7 +5,7 @@
     </div>
 
     <div class="action-bar">
-      <a-button type="primary" danger @click="openFaultModal"><ToolOutlined /> 故障提报</a-button>
+      <a-button v-operation="'create'" type="primary" danger @click="openFaultModal"><ToolOutlined /> 故障提报</a-button>
     </div>
 
     <a-spin v-if="loading" size="large" style="display: block; margin: 80px auto" />
@@ -60,6 +60,7 @@
                 </div>
               </div>
               <a-button
+                v-operation="'resolve'"
                 type="primary"
                 size="small"
                 class="fault-resolve-button"

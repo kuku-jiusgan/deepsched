@@ -1,0 +1,88 @@
+import type { Task } from '@/types'
+import dayjs from 'dayjs'
+
+const TASK_STATUS_LABELS: Record<string, string> = {
+  pending: '待开始', ready: '可排程', scheduled: '已排程', running: '运行中',
+  done: '已完成', blocked: '已延期', waiting_external: '等待外部签批',
+}
+const TASK_TYPE_COLORS: Record<string, string> = {
+  FFKF_001: '#8b5cf6', QCFA_001: '#f59e0b', FFYZ_001: '#10b981',
+  SJCL_001: '#3b82f6', ZXBG_001: '#ef4444',
+}
+
+export function priorityLabel(priority: number) {
+  return priority === 1 ? '一级（最高）' : priority === 2 ? '二级' : '三级'
+}
+
+export function priorityColor(priority: number) {
+  return priority === 1 ? '#dc2626' : priority === 2 ? '#ea580c' : '#2563eb'
+}
+
+export function taskStatusLabel(status: string) {
+  return TASK_STATUS_LABELS[status] || status
+}
+
+export function taskTreeHasCompletedTask(task: Task): boolean {
+  return task.schedule_lock_status === 'completed'
+    || ['done', 'completed'].includes(task.status)
+    || Boolean(task.children?.some(taskTreeHasCompletedTask))
+}
+
+export function gateStatusMeta(status?: string | null) {
+  const metadata: Record<string, { label: string; color: string }> = {
+    not_submitted: { label: '待提交', color: 'default' },
+    waiting_approval: { label: '等待客户', color: 'blue' },
+    approved: { label: '已签批', color: 'green' },
+  }
+  return metadata[status || 'not_submitted']
+}
+
+export function gateDateText(task: Task) {
+  if (task.approved_at) return `签批 ${dayjs(task.approved_at).format('MM-DD HH:mm')}`
+  if (task.expected_approval_at) return `预计 ${dayjs(task.expected_approval_at).format('MM-DD HH:mm')}`
+  return '尚未提交客户'
+}
+
+export function getTaskTypeColor(code: string) {
+  return TASK_TYPE_COLORS[code] || '#94a3b8'
+}
+
+export function buildTaskTree(tasks: Task[]): Task[] {
+  const taskMap = new Map(tasks.map(task => [task.id, { ...task, children: [] as Task[] }]))
+  const roots: Task[] = []
+  for (const task of tasks) {
+    const node = taskMap.get(task.id)!
+    const parent = task.parent_id ? taskMap.get(task.parent_id) : undefined
+    if (parent) parent.children?.push(node)
+    else roots.push(node)
+  }
+  const compareTasks = (left: Task, right: Task) => (left.plan_order ?? 0) - (right.plan_order ?? 0) || left.id - right.id
+  for (const task of taskMap.values()) task.children?.sort(compareTasks)
+  return roots.sort(compareTasks)
+}
+
+export function countLeafTasks(tasks: Task[]): number {
+  return tasks.reduce((count, task) => count + (
+    task.children?.length ? countLeafTasks(task.children) : 1
+  ), 0)
+}
+
+export function sumTaskHours(task: Task): number {
+  return task.children?.length
+    ? task.children.reduce((total, child) => total + sumTaskHours(child), 0)
+    : task.est_duration_hours || 0
+}
+
+export function taskInstrumentIds(task: Task): number[] {
+  if (!task.children?.length) return task.instrument_ids || []
+  return [...new Set(task.children.flatMap(taskInstrumentIds))]
+}
+
+export function parentTaskIds(tasks: Task[]): number[] {
+  return [...new Set(tasks.flatMap(task => task.parent_id == null ? [] : [task.parent_id]))]
+}
+
+export function allocateTemplateHours(total: number): [number, number, number, number] {
+  const allocated = [0.7, 0.05, 0.2].map(rate => Math.round(total * rate * 100) / 100)
+  return [allocated[0], allocated[1], allocated[2], Math.round((total - allocated.reduce((sum, value) => sum + value, 0)) * 100) / 100]
+}

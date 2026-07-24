@@ -5,7 +5,7 @@ from app.core.database import get_db
 from app.api.users import auth_token, get_current_user
 from app.models import Project, Milestone, Task, TaskDependency, TaskCapabilityRequirement, TimeSlot
 from app.schemas.schemas import (
-    ProjectCreate, ProjectOut, TaskCreate, TaskUpdate, TaskOut,
+    ProjectCreate, ProjectOut, TaskCreate, TaskUpdate, TaskReorder, TaskOut,
     MilestoneCreate, MilestoneOut, TaskCapabilityReqOut
 )
 from app.services.project_access_service import (
@@ -37,16 +37,29 @@ from app.services.project_reference_validation_service import (
     ProjectReferenceInvalidError,
     validate_task_references,
 )
+from app.services.audit_log_service import (
+    project_audit_detail,
+    project_audit_snapshot,
+    record_audit_log,
+)
+from app.services.user_role_service import has_role
+from app.services.task_reorder_service import reorder_project_tasks, TaskReorderInvalidError
 
 router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 
-PROJECT_INFO_WRITE_ROLES = {"系统管理员", "项目管理员", "分析所所长"}
+PROJECT_INFO_WRITE_ROLES = {"系统管理员", "项目管理员", "分析所所长", "技术组长"}
 
 @router.post("", response_model=ProjectOut)
 def create_project(data: ProjectCreate, token: str = Depends(auth_token), db: Session = Depends(get_db)):
-    ensure_project_info_write_permission(token, db)
+    user = ensure_project_info_write_permission(token, db)
     try:
-        return project_response(create_project_service(db, data))
+        project = create_project_service(db, data)
+        record_audit_log(
+            db, user.display_name or user.username, "project_created", "project", project.id,
+            project_audit_detail(project),
+        )
+        db.commit()
+        return project_response(project)
     except ProjectCodeExistsError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
@@ -70,18 +83,24 @@ def get_project(
 
 @router.put("/{proj_id}", response_model=ProjectOut)
 def update_project(proj_id: int, data: ProjectCreate, token: str = Depends(auth_token), db: Session = Depends(get_db)):
-    ensure_project_info_write_permission(token, db)
+    user = ensure_project_info_write_permission(token, db)
     try:
-        return project_response(update_project_plan(db, proj_id, data))
+        existing = db.query(Project).filter(Project.id == proj_id).first()
+        before = project_audit_snapshot(existing) if existing else None
+        project = update_project_plan(db, proj_id, data)
+        record_audit_log(
+            db, user.display_name or user.username, "project_updated", "project", project.id,
+            project_audit_detail(project, before),
+        )
+        db.commit()
+        return project_response(project)
     except PlanChangeNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except PlanChangeInvalidError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
-def ensure_project_info_write_permission(token: str, db: Session) -> None:
-    user = get_current_user(token, db)
-    if user.role not in PROJECT_INFO_WRITE_ROLES:
-        raise HTTPException(status_code=403, detail="无权新建或编辑项目信息")
+def ensure_project_info_write_permission(token: str, db: Session):
+    return get_current_user(token, db)
 
 def project_response(project: Project) -> dict:
     data = ProjectOut.model_validate(project).model_dump()
@@ -92,11 +111,13 @@ def project_response(project: Project) -> dict:
 def delete_project(
     proj_id: int,
     db: Session = Depends(get_db),
-    _user=Depends(require_project_editor_by_proj_id),
+    user=Depends(require_project_editor_by_proj_id),
 ):
     proj = db.query(Project).filter(Project.id == proj_id).first()
     if not proj:
         raise HTTPException(status_code=404, detail="项目不存在")
+    if calculate_project_status(proj) == "completed":
+        raise HTTPException(status_code=409, detail="已完成项目不允许删除")
     # Delete related records
     task_ids = [t.id for t in db.query(Task).filter(Task.project_id == proj_id).all()]
     for tid in task_ids:
@@ -111,6 +132,14 @@ def delete_project(
         )
     db.query(Task).filter(Task.project_id == proj_id).delete()
     db.query(Milestone).filter(Milestone.project_id == proj_id).delete()
+    record_audit_log(
+        db,
+        user.display_name or user.username,
+        "project_deleted",
+        "project",
+        proj.id,
+        {"project_code": proj.code, "project_name": proj.name, "task_count": len(task_ids)},
+    )
     db.delete(proj)
     db.commit()
     return {"detail": "已删除"}
@@ -175,10 +204,10 @@ def add_task(
 def delete_task(
     task_id: int,
     db: Session = Depends(get_db),
-    _user=Depends(require_task_editor),
+    user=Depends(require_task_editor),
 ):
     try:
-        delete_task_plan(db, task_id)
+        delete_task_plan(db, task_id, allow_completed=has_role(user, "系统管理员"))
         return {"detail": "已删除"}
     except PlanChangeNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
@@ -198,6 +227,17 @@ def update_task(
         raise HTTPException(status_code=404, detail=str(exc))
     except PlanChangeInvalidError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+
+@router.post("/{proj_id}/tasks/reorder", response_model=dict)
+def reorder_tasks(
+    proj_id: int, data: TaskReorder, db: Session = Depends(get_db),
+    _user=Depends(require_project_editor_by_proj_id),
+):
+    try:
+        reorder_project_tasks(db, proj_id, data.parent_id, data.task_ids)
+        return {"detail": "任务顺序已保存"}
+    except TaskReorderInvalidError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 @router.get("/{proj_id}/dag")
 def get_project_dag(
     proj_id: int,
@@ -221,7 +261,7 @@ def _task_to_out(task: Task, db: Session) -> TaskOut:
         earliest_start=task.earliest_start, latest_due=task.latest_due,
         priority_weight=task.priority_weight,
         instrument_ids=task.instrument_ids or [], predecessor_ids=preds,
-        assignee_id=task.assignee_id, parent_id=task.parent_id,
+        assignee_id=task.assignee_id, parent_id=task.parent_id, plan_order=task.plan_order or 0,
         assignee_name=task.assignee.display_name if task.assignee else None,
         is_external_gate=bool(task.is_external_gate), gate_status=task.gate_status,
         expected_approval_at=task.expected_approval_at, submitted_at=task.submitted_at,
@@ -231,4 +271,3 @@ def _task_to_out(task: Task, db: Session) -> TaskOut:
         approval_schedule_status=task.approval_schedule_status,
         children=children_out
     )
-

@@ -1,0 +1,179 @@
+from app.models import Project, Task, TimeSlot
+from app.services.instrument_status_service import delete_time_slots_and_refresh
+from app.services.project_date_service import normalize_project_end, normalize_project_start
+from app.services.project_reference_validation_service import (
+    ProjectReferenceInvalidError,
+    validate_task_references,
+)
+from app.schemas.schemas import ProjectPlanInsertConfirmRequest
+from app.services.project_plan_apply_service import (
+    ProjectPlanInvalidError,
+    apply_project_plan,
+    confirm_project_plan_insert,
+)
+from app.services.user_role_service import has_role
+
+
+class DetectionTaskInvalidError(Exception):
+    pass
+
+
+class DetectionTaskNotFoundError(Exception):
+    pass
+
+
+SYSTEM_ADMIN_ROLE = "系统管理员"
+
+
+def list_detection_tasks(db, user) -> list[Project]:
+    query = db.query(Project).filter(Project.project_kind == "detection")
+    if not has_role(user, SYSTEM_ADMIN_ROLE):
+        query = query.filter(Project.tasks.any(Task.assignee_id == user.id))
+    return query.order_by(Project.created_at.desc()).all()
+
+
+def create_detection_task(db, data) -> tuple[Project, dict]:
+    if not data.assignee_id:
+        raise DetectionTaskInvalidError("检测任务必须指定执行人")
+    code = data.code.strip()
+    name = data.name.strip()
+    if not code or not name:
+        raise DetectionTaskInvalidError("检测任务编号和名称不能为空")
+    if db.query(Project).filter(Project.code == code).first():
+        raise DetectionTaskInvalidError(f"编号 {code} 已存在")
+    if data.end_date < data.start_date:
+        raise DetectionTaskInvalidError("计划完成时间不能早于计划开始时间")
+    project = Project(
+        code=code, name=name, client_name=data.client_name,
+        estimated_hours=data.est_duration_hours, priority=data.priority,
+        manager_id=data.manager_id, project_kind="detection", status="pending",
+        start_date=normalize_project_start(data.start_date),
+        end_date=normalize_project_end(data.end_date),
+    )
+    db.add(project)
+    db.flush()
+    try:
+        validate_task_references(
+            db, project.id, parent_id=None, milestone_id=None, predecessor_ids=[],
+            assignee_id=data.assignee_id,
+            instrument_ids=data.instrument_ids,
+        )
+    except ProjectReferenceInvalidError as exc:
+        db.rollback()
+        raise DetectionTaskInvalidError(str(exc)) from exc
+    task = Task(
+        project_id=project.id, name=name, task_type=data.task_type,
+        requires_instrument=data.requires_instrument,
+        requires_human=data.requires_human,
+        est_duration_hours=data.est_duration_hours,
+        switchover_hours=data.switchover_hours,
+        allow_split=data.allow_split, allow_transfer=data.allow_transfer,
+        priority_weight=1.0, assignee_id=data.assignee_id,
+        instrument_ids=data.instrument_ids, parent_id=None,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(project)
+    result = _apply_detection_plan(db, project.id)
+    db.refresh(project)
+    return project, result
+
+
+def update_detection_task(db, detection_id: int, data, user) -> tuple[Project, dict]:
+    project = _get_detection_task(db, detection_id, user)
+    if not data.assignee_id:
+        raise DetectionTaskInvalidError("检测任务必须指定执行人")
+    task = project.tasks[0]
+    if task.schedule_lock_status != "none":
+        raise DetectionTaskInvalidError("运行中、冻结或已完成的检测任务不能编辑")
+    code = data.code.strip()
+    name = data.name.strip()
+    if not code or not name:
+        raise DetectionTaskInvalidError("检测任务编号和名称不能为空")
+    duplicate = db.query(Project).filter(Project.code == code, Project.id != detection_id).first()
+    if duplicate:
+        raise DetectionTaskInvalidError(f"编号 {code} 已存在")
+    if data.end_date < data.start_date:
+        raise DetectionTaskInvalidError("计划完成时间不能早于计划开始时间")
+    try:
+        validate_task_references(
+            db, project.id, parent_id=None, milestone_id=None, predecessor_ids=[],
+            assignee_id=data.assignee_id, instrument_ids=data.instrument_ids,
+        )
+    except ProjectReferenceInvalidError as exc:
+        raise DetectionTaskInvalidError(str(exc)) from exc
+    delete_time_slots_and_refresh(
+        db,
+        db.query(TimeSlot).filter(TimeSlot.task_id == task.id),
+    )
+    project.code, project.name = code, name
+    project.client_name, project.priority = data.client_name, data.priority
+    project.manager_id, project.estimated_hours = data.manager_id, data.est_duration_hours
+    project.start_date = normalize_project_start(data.start_date)
+    project.end_date = normalize_project_end(data.end_date)
+    task.name, task.task_type = name, data.task_type
+    task.requires_instrument, task.requires_human = data.requires_instrument, data.requires_human
+    task.est_duration_hours, task.switchover_hours = data.est_duration_hours, data.switchover_hours
+    task.allow_split, task.allow_transfer = data.allow_split, data.allow_transfer
+    task.instrument_ids, task.assignee_id = data.instrument_ids, data.assignee_id
+    task.status, task.schedule_dirty = "pending", False
+    db.commit()
+    result = _apply_detection_plan(db, project.id)
+    db.refresh(project)
+    return project, result
+
+
+def confirm_detection_task_insert(
+    db,
+    detection_id: int,
+    preview_token: str,
+    user,
+) -> tuple[Project, dict]:
+    project = _get_detection_task(db, detection_id, user)
+    try:
+        result = confirm_project_plan_insert(
+            db,
+            ProjectPlanInsertConfirmRequest(
+                project_id=project.id,
+                preview_token=preview_token,
+            ),
+        )
+    except ProjectPlanInvalidError as exc:
+        raise DetectionTaskInvalidError(str(exc)) from exc
+    db.refresh(project)
+    return project, result.model_dump()
+
+
+def _apply_detection_plan(db, project_id: int) -> dict:
+    try:
+        return apply_project_plan(db, project_id).model_dump()
+    except ProjectPlanInvalidError as exc:
+        raise DetectionTaskInvalidError(str(exc)) from exc
+
+
+def delete_detection_task(db, detection_id: int, user) -> None:
+    project = _get_detection_task(db, detection_id, user)
+    if any(task.status in {"done", "completed"} for task in project.tasks) and not has_role(user, SYSTEM_ADMIN_ROLE):
+        raise DetectionTaskInvalidError("已完成检测任务不允许删除")
+    task_ids = [task.id for task in project.tasks]
+    if task_ids:
+        delete_time_slots_and_refresh(
+            db,
+            db.query(TimeSlot).filter(TimeSlot.task_id.in_(task_ids)),
+        )
+    db.delete(project)
+    db.commit()
+
+
+def _get_detection_task(db, detection_id: int, user=None) -> Project:
+    project = db.query(Project).filter(
+        Project.id == detection_id,
+        Project.project_kind == "detection",
+    ).first()
+    if project is None or (user is not None and not _can_view_detection_task(project, user)):
+        raise DetectionTaskNotFoundError("检测任务不存在")
+    return project
+
+
+def _can_view_detection_task(project: Project, user) -> bool:
+    return has_role(user, SYSTEM_ADMIN_ROLE) or any(task.assignee_id == user.id for task in project.tasks)
